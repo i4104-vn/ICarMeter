@@ -75,7 +75,7 @@ impl SpeedometerPanel {
         }
 
         // 3. Draw Speedometer elements if active/fading
-        let (core_color, glow_color) = get_tier_colors(speed);
+        let (core_color, _glow_color) = get_tier_colors(speed);
 
         // Suction particles
         if particle_a > 0.001 {
@@ -92,9 +92,9 @@ impl SpeedometerPanel {
             );
         }
 
-        // Brackets "( )" with outward flying effect from center
+        // Brackets "( )" with progressive bottom-to-top fill and tiered color transitions
         if brk_a > 0.001 {
-            SpeedometerBrackets::draw(pixmap, core_color, glow_color, brk_fly, brk_a);
+            SpeedometerBrackets::draw(pixmap, speed, brk_fly, brk_a);
         }
 
         // Speed digits
