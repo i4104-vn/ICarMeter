@@ -21,8 +21,8 @@ impl TelemetryService {
             None
         };
 
-        let sensors = if config.sensors.enabled {
-            Some(SensorReceiver::new(&config.sensors.device, config.sensors.baud_rate))
+        let sensors = if config.tpms.enabled {
+            Some(SensorReceiver::new(&config.tpms))
         } else {
             None
         };

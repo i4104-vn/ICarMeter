@@ -10,10 +10,13 @@ pub struct GpsConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct SensorConfig {
-    pub device: String,
-    pub baud_rate: u32,
+pub struct BleTpmsConfig {
     pub enabled: bool,
+    pub adapter: String,
+    pub fl_sensor: String,
+    pub fr_sensor: String,
+    pub rl_sensor: String,
+    pub rr_sensor: String,
     pub low_pressure_alert: f32,
 }
 
@@ -26,7 +29,7 @@ pub struct DisplayConfig {
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub gps: GpsConfig,
-    pub sensors: SensorConfig,
+    pub tpms: BleTpmsConfig,
     pub display: DisplayConfig,
 }
 
@@ -38,10 +41,13 @@ impl Default for AppConfig {
                 baud_rate: 9600,
                 enabled: true,
             },
-            sensors: SensorConfig {
-                device: "/dev/rfcomm0".to_string(),
-                baud_rate: 9600,
+            tpms: BleTpmsConfig {
                 enabled: true,
+                adapter: "hci0".to_string(),
+                fl_sensor: "A4:C1:38:00:00:01".to_string(),
+                fr_sensor: "A4:C1:38:00:00:02".to_string(),
+                rl_sensor: "A4:C1:38:00:00:03".to_string(),
+                rr_sensor: "A4:C1:38:00:00:04".to_string(),
                 low_pressure_alert: 2.2,
             },
             display: DisplayConfig {
@@ -89,17 +95,16 @@ impl AppConfig {
                         "enabled" => config.gps.enabled = val == "true",
                         _ => {}
                     },
-                    "sensors" => match key {
-                        "device" => config.sensors.device = val.to_string(),
-                        "baud_rate" => {
-                            if let Ok(b) = val.parse() {
-                                config.sensors.baud_rate = b;
-                            }
-                        }
-                        "enabled" => config.sensors.enabled = val == "true",
+                    "tpms" => match key {
+                        "enabled" => config.tpms.enabled = val == "true",
+                        "adapter" => config.tpms.adapter = val.to_string(),
+                        "fl_sensor" => config.tpms.fl_sensor = val.to_string(),
+                        "fr_sensor" => config.tpms.fr_sensor = val.to_string(),
+                        "rl_sensor" => config.tpms.rl_sensor = val.to_string(),
+                        "rr_sensor" => config.tpms.rr_sensor = val.to_string(),
                         "low_pressure_alert" => {
                             if let Ok(p) = val.parse() {
-                                config.sensors.low_pressure_alert = p;
+                                config.tpms.low_pressure_alert = p;
                             }
                         }
                         _ => {}
