@@ -36,7 +36,7 @@ pub fn create_backend(requested: BackendType) -> Result<Box<dyn DisplayBackend>,
                 return Ok(Box::new(sim));
             }
 
-            println!("[Backend] No WM/DE detected. Probing DRM/KMS direct hardware output...");
+            println!("[Backend] Pure console TTY detected on Linux. Probing DRM/KMS direct output...");
             for card in &["/dev/dri/card0", "/dev/dri/card1"] {
                 if std::path::Path::new(card).exists() {
                     match DrmKmsBackend::open(card) {
@@ -46,14 +46,17 @@ pub fn create_backend(requested: BackendType) -> Result<Box<dyn DisplayBackend>,
                 }
             }
 
-            println!("[Backend] Probing Linux Framebuffer (/dev/fb0)...");
-            match FramebufferBackend::open("/dev/fb0") {
-                Ok(fb) => Ok(Box::new(fb)),
-                Err(e) => Err(format!(
-                    "Could not initialize any display backend. Framebuffer failed: {}. (Run with a GUI or ensure /dev/fb0 or /dev/dri/card0 permissions).",
-                    e
-                )),
+            println!("[Backend] Probing Linux Framebuffer (/dev/fb0, /dev/fb1)...");
+            for fb_path in &["/dev/fb0", "/dev/fb1"] {
+                if std::path::Path::new(fb_path).exists() {
+                    match FramebufferBackend::open(fb_path) {
+                        Ok(fb) => return Ok(Box::new(fb)),
+                        Err(e) => eprintln!("[Backend] Framebuffer on {} failed: {}", fb_path, e),
+                    }
+                }
             }
+
+            Err("Could not initialize any display backend. Ensure permissions for /dev/fb0 or /dev/dri/card0 (e.g. add user to video and render groups, or run with sudo).".to_string())
         }
     }
 }

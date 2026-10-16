@@ -1,21 +1,26 @@
-// Linux DRM/KMS Dumb Buffer backend for direct hardware HDMI scanout on Raspberry Pi without WM/DE
-
+#![allow(dead_code, unused_imports)]
 use super::traits::DisplayBackend;
 use crate::configs::display::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::services::input::TtyManager;
+
+#[cfg(unix)]
 use memmap2::MmapMut;
+#[cfg(unix)]
 use std::fs::{File, OpenOptions};
+#[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 
-// DRM IOCTL definitions
+#[cfg(unix)]
 const DRM_IOCTL_BASE: u8 = b'd';
 
+#[cfg(unix)]
 macro_rules! drm_iowr {
     ($nr:expr, $ty:ty) => {
         nix_iowr(DRM_IOCTL_BASE, $nr, std::mem::size_of::<$ty>())
     };
 }
 
+#[cfg(unix)]
 const fn nix_iowr(base: u8, nr: u32, size: usize) -> libc::c_ulong {
     let dir = 3u32; // _IOC_READ | _IOC_WRITE
     (((dir) << 30) | ((size as u32) << 16) | ((base as u32) << 8) | nr) as libc::c_ulong
@@ -68,15 +73,15 @@ struct DrmModeGetConnector {
     count_modes: u32,
     count_props: u32,
     count_encoders: u32,
-    pad: u32,
+    width_mm: u32,
+    height_mm: u32,
+    subpixel: u32,
     connector_id: u32,
     connector_type: u32,
     connector_type_id: u32,
     connection: u32,
     mm_width: u32,
     mm_height: u32,
-    subpixel: u32,
-    pad2: u32,
     encoder_id: u32,
 }
 
@@ -136,6 +141,7 @@ struct DrmModeFbCmd {
     handle: u32,
 }
 
+#[cfg(unix)]
 struct DumbBuffer {
     #[allow(dead_code)]
     handle: u32,
@@ -145,27 +151,39 @@ struct DumbBuffer {
 }
 
 pub struct DrmKmsBackend {
+    #[cfg(unix)]
     file: File,
+    #[cfg(unix)]
     crtc_id: u32,
+    #[cfg(unix)]
     connector_id: u32,
+    #[cfg(unix)]
     saved_crtc: DrmModeCrtc,
+    #[cfg(unix)]
     mode: DrmModeModeInfo,
+    #[cfg(unix)]
     buffers: [DumbBuffer; 2],
+    #[cfg(unix)]
     front_buf: usize,
-    _tty: TtyManager,
+    #[cfg(unix)]
+    offset_x: usize,
+    #[cfg(unix)]
+    offset_y: usize,
+    tty: TtyManager,
 }
 
+#[cfg(unix)]
 impl DrmKmsBackend {
     pub fn open(device_path: &str) -> Result<Self, String> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(device_path)
-            .map_err(|e| format!("Cannot open DRM card '{}': {}", device_path, e))?;
+            .map_err(|e| format!("Cannot open DRM device '{}': {}", device_path, e))?;
 
         let fd = file.as_raw_fd();
 
-        // 1. Get resources
+        // 1. Query resources
         let mut res: DrmModeCardRes = Default::default();
         let ioctl_get_resources = drm_iowr!(0xA0, DrmModeCardRes);
         unsafe {
@@ -212,7 +230,7 @@ impl DrmKmsBackend {
                 }
             }
 
-            // Look for matching mode (1280x480 or preferred / first mode)
+            // Look for exact 1280x480 resolution or fallback to native connected display mode (e.g. 1920x1080)
             let chosen_mode = modes
                 .iter()
                 .find(|m| {
@@ -253,12 +271,31 @@ impl DrmKmsBackend {
         }
 
         // 5. Allocate 2 dumb buffers for double buffering
-        let buf0 = Self::create_dumb_buffer(&file, mode.hdisplay as u32, mode.vdisplay as u32)?;
-        let buf1 = Self::create_dumb_buffer(&file, mode.hdisplay as u32, mode.vdisplay as u32)?;
+        let mut buf0 = Self::create_dumb_buffer(&file, mode.hdisplay as u32, mode.vdisplay as u32)?;
+        let mut buf1 = Self::create_dumb_buffer(&file, mode.hdisplay as u32, mode.vdisplay as u32)?;
+
+        // Clear both buffers to black
+        buf0.mmap.fill(0);
+        buf1.mmap.fill(0);
+
+        let disp_w = mode.hdisplay as usize;
+        let disp_h = mode.vdisplay as usize;
+
+        // Centering offset for 1280x480 inside display resolution
+        let offset_x = if disp_w > SCREEN_WIDTH {
+            (disp_w - SCREEN_WIDTH) / 2
+        } else {
+            0
+        };
+        let offset_y = if disp_h > SCREEN_HEIGHT {
+            (disp_h - SCREEN_HEIGHT) / 2
+        } else {
+            0
+        };
 
         eprintln!(
-            "[DRM/KMS] Bound to connector {} (mode: {}x{}@{}Hz), CRTC: {}",
-            connector_id, mode.hdisplay, mode.vdisplay, mode.vrefresh, crtc_id
+            "[DRM/KMS] Bound to connector {} (mode: {}x{}@{}Hz), CRTC: {}. Centering: ({}, {})",
+            connector_id, mode.hdisplay, mode.vdisplay, mode.vrefresh, crtc_id, offset_x, offset_y
         );
 
         // 6. Set CRTC mode
@@ -287,7 +324,9 @@ impl DrmKmsBackend {
             mode,
             buffers: [buf0, buf1],
             front_buf: 0,
-            _tty: tty,
+            offset_x,
+            offset_y,
+            tty,
         })
     }
 
@@ -352,34 +391,40 @@ impl DrmKmsBackend {
     }
 }
 
+#[cfg(unix)]
 impl DisplayBackend for DrmKmsBackend {
     fn is_open(&self) -> bool {
-        true
+        !self.tty.poll_exit()
     }
 
     fn present(&mut self, buffer: &[u32]) -> Result<(), String> {
         let back_idx = 1 - self.front_buf;
         let buf = &mut self.buffers[back_idx];
 
-        let copy_w = (self.mode.hdisplay as usize).min(SCREEN_WIDTH);
-        let copy_h = (self.mode.vdisplay as usize).min(SCREEN_HEIGHT);
+        let disp_w = self.mode.hdisplay as usize;
+        let disp_h = self.mode.vdisplay as usize;
+
+        let copy_w = SCREEN_WIDTH.min(disp_w.saturating_sub(self.offset_x));
+        let copy_h = SCREEN_HEIGHT.min(disp_h.saturating_sub(self.offset_y));
 
         for y in 0..copy_h {
             let src_start = y * SCREEN_WIDTH;
             let src_slice = &buffer[src_start..src_start + copy_w];
-            let dst_offset = y * buf.pitch as usize;
-            let dst_slice = &mut buf.mmap[dst_offset..dst_offset + copy_w * 4];
+            let dst_offset = (self.offset_y + y) * buf.pitch as usize + self.offset_x * 4;
+            let byte_count = copy_w * 4;
 
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    src_slice.as_ptr() as *const u8,
-                    dst_slice.as_mut_ptr(),
-                    copy_w * 4,
-                );
+            if dst_offset + byte_count <= buf.mmap.len() {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        src_slice.as_ptr() as *const u8,
+                        buf.mmap.as_mut_ptr().add(dst_offset),
+                        byte_count,
+                    );
+                }
             }
         }
 
-        // Page flip to back buffer
+        // Set CRTC to back buffer
         let fd = self.file.as_raw_fd();
         let ioctl_set_crtc = drm_iowr!(0xA2, DrmModeCrtc);
         let mut set_crtc: DrmModeCrtc = Default::default();
@@ -399,10 +444,11 @@ impl DisplayBackend for DrmKmsBackend {
     }
 
     fn backend_name(&self) -> &str {
-        "Linux DRM/KMS (Direct Hardware Output)"
+        "Linux DRM/KMS (Direct Hardware Output) [Debian Raspberry Pi]"
     }
 }
 
+#[cfg(unix)]
 impl Drop for DrmKmsBackend {
     fn drop(&mut self) {
         let fd = self.file.as_raw_fd();
@@ -410,5 +456,27 @@ impl Drop for DrmKmsBackend {
         unsafe {
             libc::ioctl(fd, ioctl_set_crtc, &mut self.saved_crtc);
         }
+    }
+}
+
+#[cfg(not(unix))]
+impl DrmKmsBackend {
+    pub fn open(_path: &str) -> Result<Self, String> {
+        Err("DRM/KMS backend is only supported on Linux/Unix systems".to_string())
+    }
+}
+
+#[cfg(not(unix))]
+impl DisplayBackend for DrmKmsBackend {
+    fn is_open(&self) -> bool {
+        false
+    }
+
+    fn present(&mut self, _buffer: &[u32]) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn backend_name(&self) -> &str {
+        "Linux DRM/KMS (Unsupported on this OS)"
     }
 }

@@ -4,7 +4,7 @@ use super::cli::CliConfig;
 use crate::configs::display::{PHYSICAL_HEIGHT_MM, PHYSICAL_WIDTH_MM, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::models::VehicleState;
 use crate::render::DashboardRenderer;
-use crate::services::{VehicleSimulator, create_backend};
+use crate::services::{VehicleSimulator, create_backend, is_app_running};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -56,7 +56,7 @@ impl AppController {
         let frame_duration = Duration::from_micros(1_000_000 / config.target_fps);
         let mut last_time = Instant::now();
 
-        while backend.is_open() {
+        while backend.is_open() && is_app_running() {
             let now = Instant::now();
             let dt = now.duration_since(last_time).as_secs_f32().min(0.1);
             last_time = now;

@@ -23,7 +23,7 @@ print_banner() {
     echo -e "${CYAN}====================================================================${NC}"
     echo -e "  * Kích thước vật lý : ${GREEN}7 inch (184mm x 70mm)${NC} [Tỉ lệ ~2.63:1]"
     echo -e "  * Độ phân giải      : ${GREEN}1280 x 480 pixels${NC}"
-    echo -e "  * Nền tảng mục tiêu : ${YELLOW}Arch Linux TTY / Raspberry Pi HDMI (No WM, No DE)${NC}"
+    echo -e "  * Nền tảng mục tiêu : ${YELLOW}Debian GNU/Linux / Raspberry Pi TTY HDMI (No WM, No DE)${NC}"
     echo -e "  * Driver hiển thị   : ${YELLOW}Linux Framebuffer (/dev/fb0) | DRM/KMS (/dev/dri/card0)${NC}"
     echo -e "  * Chế độ hoạt động  : ${GREEN}Tự động hoàn toàn (Automatic Telemetry Driving)${NC}"
     echo -e "${CYAN}====================================================================${NC}"
@@ -83,10 +83,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Tự động chuyển sang chế độ Framebuffer nếu đang ở trong môi trường Console TTY thuần túy
+# Tự động chuyển sang chế độ tự động dò backend nếu đang ở trong môi trường Console TTY thuần túy
 if [[ -z "$DISPLAY" && -z "$WAYLAND_DISPLAY" && "$MODE" == "sim" ]]; then
-    echo -e "${YELLOW}-> Phát hiện môi trường Arch Linux Console TTY (không có X11/Wayland)...${NC}"
-    MODE="fb"
+    echo -e "${YELLOW}-> Phát hiện môi trường Debian / Raspberry Pi Console TTY (không có X11/Wayland)...${NC}"
+    MODE="auto"
 fi
 
 print_banner
@@ -110,6 +110,20 @@ echo -e "${GREEN}[2/2] Khởi chạy Car Dashboard...${NC}"
 
 # 2. Khởi chạy theo chế độ được chọn
 case "$MODE" in
+    auto)
+        echo -e "${CYAN}-> Đang tự động dò thiết bị hiển thị DRM/KMS & Framebuffer...${NC}"
+        # Kiểm tra xem có quyền truy cập framebuffer hoặc card DRM không
+        NEED_SUDO=0
+        if [[ -e /dev/fb0 && ! -w /dev/fb0 ]]; then
+            NEED_SUDO=1
+        fi
+        if [[ $NEED_SUDO -eq 1 && $EUID -ne 0 ]]; then
+            echo -e "${YELLOW}-> Yêu cầu quyền truy cập thiết bị đồ họa (chạy với sudo)...${NC}"
+            sudo "$BIN_PATH" --backend auto "${EXTRA_ARGS[@]}"
+        else
+            "$BIN_PATH" --backend auto "${EXTRA_ARGS[@]}"
+        fi
+        ;;
     sim)
         echo -e "${CYAN}-> Đang mở cửa sổ mô phỏng kích thước 1280x480 (tương đương 184mm x 70mm)...${NC}"
         "$BIN_PATH" --backend sim "${EXTRA_ARGS[@]}"
@@ -131,7 +145,7 @@ case "$MODE" in
         fi
 
         # Kiểm tra quyền ghi vào /dev/fb0
-        if [[ ! -w /dev/fb0 ]]; then
+        if [[ ! -w /dev/fb0 && $EUID -ne 0 ]]; then
             echo -e "${YELLOW}-> Yêu cầu quyền truy cập /dev/fb0 (chạy với sudo)...${NC}"
             sudo "$BIN_PATH" --backend fb "${EXTRA_ARGS[@]}"
         else
