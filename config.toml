@@ -1,0 +1,23 @@
+# ==============================================================================
+# Car Digital Dashboard - Hardware Configuration for Raspberry Pi OS
+# ==============================================================================
+
+[gps]
+# Cổng serial GPS UART (ví dụ: /dev/serial0, /dev/ttyAMA0, hoặc USB /dev/ttyUSB0)
+device = "/dev/serial0"
+baud_rate = 9600
+enabled = true
+
+[sensors]
+# Cổng Bluetooth TPMS / OBD2 (ví dụ: /dev/rfcomm0 hoặc /dev/ttyUSB1)
+device = "/dev/rfcomm0"
+baud_rate = 9600
+enabled = true
+
+# Ngưỡng cảnh báo áp suất lốp thấp (bar)
+low_pressure_alert = 2.2
+
+[display]
+# Đường dẫn Framebuffer hiển thị TTY
+framebuffer_device = "/dev/fb0"
+target_fps = 60

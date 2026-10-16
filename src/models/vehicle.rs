@@ -1,6 +1,7 @@
 // Vehicle status and telemetry data model
 
 use super::tpms::TirePressures;
+use crate::render::components::EmoExpression;
 
 #[derive(Debug, Clone)]
 pub struct VehicleState {
@@ -10,19 +11,19 @@ pub struct VehicleState {
     pub max_speed: f32,
     pub avg_speed: f32,
     pub tires: TirePressures,
-    pub sim_time: f32,
+    pub current_emo: Option<EmoExpression>,
 }
 
 impl Default for VehicleState {
     fn default() -> Self {
         Self {
-            current_speed: 68.0,
-            driving_time_secs: 5076.0, // 01:24:36
-            distance_km: 78.6,
-            max_speed: 112.0,
-            avg_speed: 56.0,
+            current_speed: 0.0,
+            driving_time_secs: 0.0,
+            distance_km: 0.0,
+            max_speed: 0.0,
+            avg_speed: 0.0,
             tires: TirePressures::default(),
-            sim_time: 0.0,
+            current_emo: None,
         }
     }
 }
@@ -30,6 +31,27 @@ impl Default for VehicleState {
 impl VehicleState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn set_expression_name(&mut self, name: &str) {
+        self.current_emo = EmoExpression::from_str(name);
+    }
+
+    pub fn update_trip(&mut self, dt: f32) {
+        if self.current_speed > 0.5 {
+            self.driving_time_secs += dt as f64;
+            let distance_increment = (self.current_speed / 3600.0) * dt;
+            self.distance_km += distance_increment;
+
+            if self.current_speed > self.max_speed {
+                self.max_speed = self.current_speed;
+            }
+
+            if self.driving_time_secs > 1.0 {
+                let hours = (self.driving_time_secs / 3600.0) as f32;
+                self.avg_speed = self.distance_km / hours;
+            }
+        }
     }
 
     pub fn formatted_driving_time(&self) -> String {

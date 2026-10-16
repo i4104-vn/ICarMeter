@@ -1,0 +1,143 @@
+// Hardware GPS NMEA 0183 serial reader for Raspberry Pi OS (/dev/serial0, /dev/ttyAMA0, etc.)
+
+use std::fs::{File, OpenOptions};
+use std::os::unix::io::AsRawFd;
+
+pub struct GpsReceiver {
+    device_path: String,
+    baud_rate: u32,
+    file: Option<File>,
+    buffer: Vec<u8>,
+    logged_error: bool,
+}
+
+impl GpsReceiver {
+    pub fn new(device_path: &str, baud_rate: u32) -> Self {
+        let mut receiver = Self {
+            device_path: device_path.to_string(),
+            baud_rate,
+            file: None,
+            buffer: Vec::with_capacity(512),
+            logged_error: false,
+        };
+        receiver.try_open();
+        receiver
+    }
+
+    fn try_open(&mut self) {
+        if self.file.is_some() {
+            return;
+        }
+
+        match OpenOptions::new().read(true).write(true).open(&self.device_path) {
+            Ok(file) => {
+                let fd = file.as_raw_fd();
+                unsafe {
+                    let mut termios: libc::termios = std::mem::zeroed();
+                    if libc::tcgetattr(fd, &mut termios) == 0 {
+                        libc::cfmakeraw(&mut termios);
+                        let speed = match self.baud_rate {
+                            4800 => libc::B4800,
+                            9600 => libc::B9600,
+                            19200 => libc::B19200,
+                            38400 => libc::B38400,
+                            57600 => libc::B57600,
+                            115200 => libc::B115200,
+                            _ => libc::B9600,
+                        };
+                        libc::cfsetispeed(&mut termios, speed);
+                        libc::cfsetospeed(&mut termios, speed);
+                        termios.c_cflag |= libc::CREAD | libc::CLOCAL;
+                        termios.c_cc[libc::VMIN] = 0;
+                        termios.c_cc[libc::VTIME] = 0; // non-blocking
+                        libc::tcsetattr(fd, libc::TCSANOW, &termios);
+                    }
+                }
+                println!("[GPS] Connected to {} at {} baud", self.device_path, self.baud_rate);
+                self.file = Some(file);
+                self.logged_error = false;
+            }
+            Err(e) => {
+                if !self.logged_error {
+                    eprintln!("[GPS] Waiting for GPS device {}: {}", self.device_path, e);
+                    self.logged_error = true;
+                }
+            }
+        }
+    }
+
+    /// Reads available NMEA bytes and returns updated speed (km/h) if a valid sentence was received
+    pub fn poll_speed(&mut self) -> Option<f32> {
+        if self.file.is_none() {
+            self.try_open();
+            if self.file.is_none() {
+                return None;
+            }
+        }
+
+        let fd = self.file.as_ref()?.as_raw_fd();
+        let mut read_buf = [0u8; 256];
+        let bytes_read = unsafe {
+            libc::read(fd, read_buf.as_mut_ptr() as *mut libc::c_void, read_buf.len())
+        };
+
+        if bytes_read <= 0 {
+            return None;
+        }
+
+        self.buffer.extend_from_slice(&read_buf[..bytes_read as usize]);
+
+        let mut latest_speed = None;
+
+        // Process complete NMEA lines
+        while let Some(pos) = self.buffer.iter().position(|&b| b == b'\n') {
+            let line_bytes: Vec<u8> = self.buffer.drain(..=pos).collect();
+            if let Ok(line) = std::str::from_utf8(&line_bytes) {
+                let trimmed = line.trim();
+                if let Some(spd) = parse_nmea_speed(trimmed) {
+                    latest_speed = Some(spd);
+                }
+            }
+        }
+
+        latest_speed
+    }
+}
+
+/// Parses NMEA sentence ($GPRMC, $GNRMC, $GPVTG, $GNVTG) for vehicle speed in km/h
+fn parse_nmea_speed(line: &str) -> Option<f32> {
+    if !line.starts_with('$') {
+        return None;
+    }
+
+    let parts: Vec<&str> = line.split(',').collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let sentence_type = parts[0];
+
+    // RMC sentences: $GPRMC, $GNRMC, $GARMC, $BDRMC
+    if sentence_type.ends_with("RMC") && parts.len() > 7 {
+        // Field 2: Status ('A' = Active/Valid, 'V' = Void/Invalid)
+        if parts[2] == "A" {
+            // Field 7: Speed over ground in Knots
+            if let Ok(knots) = parts[7].parse::<f32>() {
+                // 1 knot = 1.852 km/h
+                return Some(knots * 1.852);
+            }
+        }
+    }
+
+    // VTG sentences: $GPVTG, $GNVTG
+    if sentence_type.ends_with("VTG") && parts.len() > 7 {
+        // Field 7: Speed in km/h followed by 'K' in field 8
+        if parts.len() > 8 && parts[8].starts_with('K') {
+            if let Ok(kmh) = parts[7].parse::<f32>() {
+                return Some(kmh);
+            }
+        }
+    }
+
+    None
+}

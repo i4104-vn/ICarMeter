@@ -32,12 +32,6 @@ impl SpeedometerPanel {
         }
     }
 
-    /// Fast-forward immediately to Emo mode (e.g. for snapshot testing)
-    pub fn set_immediate_emo(&mut self) {
-        self.transitions.state = CenterModeState::EmoActive;
-        self.transitions.idle_zero_timer = 3.5;
-    }
-
     pub fn draw(
         &mut self,
         pixmap: &mut Pixmap,

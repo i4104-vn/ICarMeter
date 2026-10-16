@@ -2,10 +2,10 @@
 
 pub mod display;
 pub mod input;
-pub mod simulation;
+pub mod particle_engine;
+pub mod telemetry;
 
-pub use display::create_backend;
+pub use display::FramebufferBackend;
 pub use input::is_app_running;
-#[allow(unused_imports)]
-pub use input::{TtyManager, request_app_exit};
-pub use simulation::{ParticleEngine, VehicleSimulator};
+pub use particle_engine::ParticleEngine;
+pub use telemetry::TelemetryService;

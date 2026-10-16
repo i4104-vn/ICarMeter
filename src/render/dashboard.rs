@@ -1,6 +1,6 @@
 // Main Dashboard UI Renderer orchestrating panels and converting to pixel buffer
 
-use super::components::{CarPanel, CardContainer, EmoExpression, SpeedometerPanel, StatsPanel};
+use super::components::{CarPanel, CardContainer, SpeedometerPanel, StatsPanel};
 use super::core::FontRenderer;
 use crate::configs::display::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::models::VehicleState;
@@ -36,16 +36,7 @@ impl DashboardRenderer {
         })
     }
 
-    pub fn set_immediate_emo(&mut self) {
-        self.speed_panel.set_immediate_emo();
-    }
-
-    pub fn render(
-        &mut self,
-        state: &VehicleState,
-        dt: f32,
-        forced_emo: Option<EmoExpression>,
-    ) -> &[u32] {
+    pub fn render(&mut self, state: &VehicleState, dt: f32) -> &[u32] {
         // 1. Draw Background, Card Container, and Dividers
         CardContainer::draw(&mut self.pixmap);
 
@@ -54,7 +45,7 @@ impl DashboardRenderer {
 
         // 3. Render Center Panel (Speedometer or animated expression companion)
         self.speed_panel
-            .draw(&mut self.pixmap, &self.fonts, state, dt, forced_emo);
+            .draw(&mut self.pixmap, &self.fonts, state, dt, state.current_emo);
 
         // 4. Render Right Panel (Trip Statistics)
         self.stats_panel.draw(&mut self.pixmap, &self.fonts, state);
@@ -72,10 +63,5 @@ impl DashboardRenderer {
         }
 
         &self.u32_buffer
-    }
-
-    /// Saves the current rendered frame to a PNG file
-    pub fn save_png(&self, path: &str) -> Result<(), String> {
-        self.pixmap.save_png(path).map_err(|e| e.to_string())
     }
 }

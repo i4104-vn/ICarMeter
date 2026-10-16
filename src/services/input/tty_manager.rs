@@ -1,5 +1,9 @@
-#![allow(dead_code, unused_imports)]
+// Linux TTY Console Manager: configures KD_GRAPHICS console mode, hides cursor,
+// enables raw non-blocking input, and handles graceful signal restoration for direct rendering on Debian / Raspberry Pi.
 
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub static GLOBAL_RUNNING: AtomicBool = AtomicBool::new(true);
@@ -8,47 +12,28 @@ pub fn is_app_running() -> bool {
     GLOBAL_RUNNING.load(Ordering::SeqCst)
 }
 
-pub fn request_app_exit() {
-    GLOBAL_RUNNING.store(false, Ordering::SeqCst);
-}
-
-#[cfg(unix)]
-use std::fs::OpenOptions;
-#[cfg(unix)]
-use std::io::Write;
-#[cfg(unix)]
-use std::os::unix::io::{AsRawFd, RawFd};
-
-#[cfg(unix)]
 const KDSETMODE: libc::c_ulong = 0x4B3A;
-#[cfg(unix)]
 const KD_TEXT: libc::c_ulong = 0x00;
-#[cfg(unix)]
 const KD_GRAPHICS: libc::c_ulong = 0x01;
 
-#[cfg(unix)]
 extern "C" fn signal_handler(_sig: libc::c_int) {
     GLOBAL_RUNNING.store(false, Ordering::SeqCst);
 }
 
 pub struct TtyManager {
-    #[cfg(unix)]
     tty_fd: Option<RawFd>,
-    #[cfg(unix)]
     orig_termios: Option<libc::termios>,
-    #[cfg(unix)]
     graphics_mode_set: bool,
 }
 
-#[cfg(unix)]
 impl TtyManager {
     pub fn new() -> Self {
         GLOBAL_RUNNING.store(true, Ordering::SeqCst);
 
         // Register SIGINT / SIGTERM handlers so terminal state is cleanly restored
         unsafe {
-            libc::signal(libc::SIGINT, signal_handler as usize);
-            libc::signal(libc::SIGTERM, signal_handler as usize);
+            libc::signal(libc::SIGINT, signal_handler as *const () as usize);
+            libc::signal(libc::SIGTERM, signal_handler as *const () as usize);
         }
 
         let mut manager = Self {
@@ -122,7 +107,7 @@ impl TtyManager {
                 for &b in &buf[..n as usize] {
                     // 'q', 'Q', ESC (0x1B), or Ctrl+C (0x03)
                     if b == b'q' || b == b'Q' || b == 0x1B || b == 0x03 {
-                        request_app_exit();
+                        GLOBAL_RUNNING.store(false, Ordering::SeqCst);
                         return true;
                     }
                 }
@@ -133,7 +118,6 @@ impl TtyManager {
     }
 }
 
-#[cfg(unix)]
 impl Drop for TtyManager {
     fn drop(&mut self) {
         if let Some(fd) = self.tty_fd {
@@ -149,17 +133,5 @@ impl Drop for TtyManager {
             print!("\x1b[?25h\x1b[2J\x1b[H");
             let _ = std::io::stdout().flush();
         }
-    }
-}
-
-#[cfg(not(unix))]
-impl TtyManager {
-    pub fn new() -> Self {
-        GLOBAL_RUNNING.store(true, Ordering::SeqCst);
-        Self {}
-    }
-
-    pub fn poll_exit(&self) -> bool {
-        !is_app_running()
     }
 }
