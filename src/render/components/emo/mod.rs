@@ -14,6 +14,7 @@ pub struct EmoRenderer {
     animator: EmoAnimator,
     current_expression: Option<EmoExpression>,
     current_expression_started_at: f32,
+    last_idle_seconds: f32,
 }
 
 impl EmoRenderer {
@@ -22,6 +23,7 @@ impl EmoRenderer {
             animator: EmoAnimator::new(),
             current_expression: None,
             current_expression_started_at: 0.0,
+            last_idle_seconds: 0.0,
         }
     }
 
@@ -47,6 +49,7 @@ impl EmoRenderer {
         let active = forced_expr
             .or(self.animator.active_expression)
             .unwrap_or(EmoExpression::Normal);
+        let resumed_after_movement = idle_seconds > 0.0 && self.last_idle_seconds <= 0.0;
 
         if self.current_expression.is_none() {
             self.current_expression = Some(active);
@@ -54,7 +57,10 @@ impl EmoRenderer {
         } else if self.current_expression != Some(active) {
             self.current_expression = Some(active);
             self.current_expression_started_at = time;
+        } else if resumed_after_movement {
+            self.current_expression_started_at = time;
         }
+        self.last_idle_seconds = idle_seconds;
 
         EmoSpriteRenderer::draw(
             pixmap,

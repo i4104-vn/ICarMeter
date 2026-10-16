@@ -1,17 +1,34 @@
-// Randomly cycles through the individual expression SVGs and idle sleep states.
+// Randomly cycles through expressions, then plays a one-way sleep progression.
 
 use super::sprite_renderer::{EXPRESSION_COUNT, EXPRESSION_DURATION};
 use super::types::EmoExpression;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const RANDOM_EXPRESSION_INDICES: [u8; EXPRESSION_COUNT - 2] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+    19, 20, 21, 22, 23, 24, 25,
+    27, 28, 29, 30, 31, 32, 33, 34,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SleepCyclePhase {
+    Random,
+    Sleepy,
+    Sleeping,
+}
+
 pub struct EmoAnimator {
     pub active_expression: Option<EmoExpression>,
+    phase: SleepCyclePhase,
     mood_timer: f32,
     mood_duration: f32,
     last_mood_idx: usize,
     rng_state: u64,
-    mood_order: [u8; EXPRESSION_COUNT],
+    mood_order: [u8; EXPRESSION_COUNT - 2],
     mood_cursor: usize,
+    random_emotions_target: u8,
+    random_emotions_shown: u8,
+    was_moving: bool,
 }
 
 impl EmoAnimator {
@@ -21,15 +38,19 @@ impl EmoAnimator {
             .map(|duration| duration.as_nanos() as u64)
             .unwrap_or(1);
         let mut animator = Self {
-            active_expression: Some(EmoExpression::Normal),
+            active_expression: None,
+            phase: SleepCyclePhase::Random,
             mood_timer: 0.0,
             mood_duration: EXPRESSION_DURATION,
             last_mood_idx: usize::MAX,
             rng_state: (time_seed ^ (std::process::id() as u64).rotate_left(23)).max(1),
-            mood_order: std::array::from_fn(|index| index as u8),
-            mood_cursor: EXPRESSION_COUNT,
+            mood_order: RANDOM_EXPRESSION_INDICES,
+            mood_cursor: EXPRESSION_COUNT - 2,
+            random_emotions_target: 10,
+            random_emotions_shown: 0,
+            was_moving: false,
         };
-        animator.apply_random_mood();
+        animator.start_random_cycle();
         animator
     }
 
@@ -37,7 +58,7 @@ impl EmoAnimator {
         self.rng_state ^= self.rng_state << 13;
         self.rng_state ^= self.rng_state >> 7;
         self.rng_state ^= self.rng_state << 17;
-        (self.rng_state & 0x00FFFFFF) as f32 / 16777216.0
+        (self.rng_state & 0x00FF_FFFF) as f32 / 16_777_216.0
     }
 
     pub fn update(&mut self, dt: f32, idle_seconds: f32, forced_expr: Option<EmoExpression>) {
@@ -46,25 +67,53 @@ impl EmoAnimator {
             return;
         }
 
-        // Gradually fall asleep when the vehicle remains stopped.
-        if idle_seconds >= 30.0 {
-            self.active_expression = Some(EmoExpression::Sleeping);
+        if idle_seconds <= 0.0 {
+            if !self.was_moving {
+                self.was_moving = true;
+                self.start_random_cycle();
+            }
             return;
         }
+        self.was_moving = false;
 
-        // Change to another reaction at a calm, predictable pace.
-        self.mood_timer += dt;
-        if self.mood_timer >= self.mood_duration {
-            self.mood_timer = 0.0;
-            self.mood_duration = EXPRESSION_DURATION;
-            self.apply_random_mood();
+        self.mood_timer += dt.max(0.0);
+        if self.mood_timer < self.mood_duration {
+            return;
+        }
+        self.mood_timer = 0.0;
+
+        match self.phase {
+            SleepCyclePhase::Random
+                if self.random_emotions_shown >= self.random_emotions_target =>
+            {
+                self.phase = SleepCyclePhase::Sleepy;
+                self.active_expression = Some(EmoExpression::Sleepy);
+            }
+            SleepCyclePhase::Random => self.apply_random_mood(),
+            SleepCyclePhase::Sleepy => {
+                self.phase = SleepCyclePhase::Sleeping;
+                self.active_expression = Some(EmoExpression::Sleeping);
+            }
+            SleepCyclePhase::Sleeping => {
+                self.start_random_cycle();
+            }
         }
     }
 
+    fn start_random_cycle(&mut self) {
+        self.phase = SleepCyclePhase::Random;
+        self.mood_timer = 0.0;
+        self.mood_duration = EXPRESSION_DURATION;
+        self.mood_cursor = EXPRESSION_COUNT - 2;
+        self.random_emotions_shown = 0;
+        self.random_emotions_target = 10 + (self.rand_f32() * 6.0) as u8;
+        self.apply_random_mood();
+    }
+
     fn apply_random_mood(&mut self) {
-        // Shuffle a full bag so every SVG is used once before any expression repeats.
-        if self.mood_cursor >= EXPRESSION_COUNT {
-            for i in (1..EXPRESSION_COUNT).rev() {
+        // Shuffle the available non-sleep expressions to avoid immediate repeats.
+        if self.mood_cursor >= self.mood_order.len() {
+            for i in (1..self.mood_order.len()).rev() {
                 let j = (self.rand_f32() * (i + 1) as f32) as usize;
                 self.mood_order.swap(i, j);
             }
@@ -73,9 +122,11 @@ impl EmoAnimator {
             }
             self.mood_cursor = 0;
         }
+
         let idx = self.mood_order[self.mood_cursor] as usize;
         self.mood_cursor += 1;
         self.last_mood_idx = idx;
+        self.random_emotions_shown += 1;
         self.active_expression = Some(EmoExpression::Atlas(idx as u8));
     }
 }

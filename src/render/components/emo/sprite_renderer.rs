@@ -4,7 +4,7 @@ use super::EmoExpression;
 use std::sync::OnceLock;
 use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Transform};
 
-pub(super) const EXPRESSION_COUNT: usize = 37;
+pub(super) const EXPRESSION_COUNT: usize = 35;
 pub(super) const FRAME_COUNT: usize = 24;
 pub(super) const FRAME_RATE: f32 = 8.0;
 pub(super) const EXPRESSION_DURATION: f32 = FRAME_COUNT as f32 / FRAME_RATE;
@@ -27,8 +27,6 @@ struct ColoredPath {
 static EXPRESSIONS: OnceLock<Vec<ExpressionSprite>> = OnceLock::new();
 const EXPRESSION_SVGS: [&str; EXPRESSION_COUNT] = [
     include_str!("../../../../assets/emotions/0.svg"),
-    include_str!("../../../../assets/emotions/angry.svg"),
-    include_str!("../../../../assets/emotions/angry3.svg"),
     include_str!("../../../../assets/emotions/bee.svg"),
     include_str!("../../../../assets/emotions/chong_mat.svg"),
     include_str!("../../../../assets/emotions/cry.svg"),
@@ -78,7 +76,12 @@ impl EmoSpriteRenderer {
         let expression_index = expression_cell(mood).min(expressions.len() - 1);
         let sprite = &expressions[expression_index];
         // Begin with a representative pose so forced emotions read correctly on the first frame.
-        let frame_index = ((time.max(0.0) * FRAME_RATE).floor() as usize).min(FRAME_COUNT - 1);
+        let elapsed_frame = (time.max(0.0) * FRAME_RATE).floor() as usize;
+        let frame_index = if mood == EmoExpression::Sleeping {
+            elapsed_frame % FRAME_COUNT
+        } else {
+            elapsed_frame.min(FRAME_COUNT - 1)
+        };
         let frame = &sprite.frames[frame_index];
         let Some((left, top, right, bottom)) = sprite.bounds else {
             return;
@@ -230,22 +233,22 @@ fn parse_color(value: &str) -> Color {
 fn expression_cell(expression: EmoExpression) -> usize {
     match expression {
         EmoExpression::Atlas(index) => index as usize,
-        EmoExpression::Normal => 29,    // smile
-        EmoExpression::Relaxed => 30,   // smirk
-        EmoExpression::Winking => 31,   // squint
-        EmoExpression::Angry => 1,      // angry
-        EmoExpression::Rage => 2,       // angry3
-        EmoExpression::Sleepy => 28,    // sleepy
-        EmoExpression::Sleeping => 20,  // ngap
-        EmoExpression::AngryBlush => 1, // angry
-        EmoExpression::Crying => 5,     // cry
-        EmoExpression::FlatSlit => 21,  // nheo_mat
-        EmoExpression::Happy => 7,      // cuoi
-        EmoExpression::Squint => 31,    // squint
-        EmoExpression::Love => 36,      // UwU
-        EmoExpression::Sparkle => 26,   // rainbow
-        EmoExpression::Surprised => 19, // ngac_nhien
-        EmoExpression::Starry => 36,    // UwU
-        EmoExpression::Dizzy => 4,      // chong_mat
+        EmoExpression::Normal => 27,    // smile
+        EmoExpression::Relaxed => 28,   // smirk
+        EmoExpression::Winking => 29,   // squint
+        EmoExpression::Angry => 10,     // gian_du
+        EmoExpression::Rage => 10,      // gian_du
+        EmoExpression::Sleepy => 26,    // sleepy
+        EmoExpression::Sleeping => 18,  // ngap
+        EmoExpression::AngryBlush => 10,// gian_du
+        EmoExpression::Crying => 3,     // cry
+        EmoExpression::FlatSlit => 19,  // nheo_mat
+        EmoExpression::Happy => 5,      // cuoi
+        EmoExpression::Squint => 29,    // squint
+        EmoExpression::Love => 34,      // UwU
+        EmoExpression::Sparkle => 24,   // rainbow
+        EmoExpression::Surprised => 17, // ngac_nhien
+        EmoExpression::Starry => 34,    // UwU
+        EmoExpression::Dizzy => 2,      // chong_mat
     }
 }
