@@ -1,0 +1,11 @@
+[package]
+name = "car_dashboard"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fontdue = "0.9.4"
+libc = "0.2.190"
+memmap2 = "0.9.11"
+minifb = "0.29.0"
+tiny-skia = "0.12.0"
