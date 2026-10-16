@@ -1,16 +1,17 @@
 // Telemetry service coordinator for GPS and Bluetooth sensors
 
 pub mod gps;
-pub mod sensors;
+pub mod tpms;
 
 use crate::configs::AppConfig;
 use crate::models::VehicleState;
+
 pub use gps::GpsReceiver;
-pub use sensors::SensorReceiver;
+pub use tpms::BleTpmsReceiver;
 
 pub struct TelemetryService {
     gps: Option<GpsReceiver>,
-    sensors: Option<SensorReceiver>,
+    sensors: Option<BleTpmsReceiver>,
 }
 
 impl TelemetryService {
@@ -22,7 +23,7 @@ impl TelemetryService {
         };
 
         let sensors = if config.tpms.enabled {
-            Some(SensorReceiver::new(&config.tpms))
+            Some(BleTpmsReceiver::new(&config.tpms))
         } else {
             None
         };
@@ -41,7 +42,7 @@ impl TelemetryService {
         // 2. Update real trip telemetry (odometer, driving time, avg speed, max speed)
         state.update_trip(dt);
 
-        // 3. Poll Bluetooth sensors for live TPMS & commands
+        // 3. Poll wireless Bluetooth TPMS sensors
         if let Some(ref mut sensors) = self.sensors {
             sensors.poll(state);
         }
