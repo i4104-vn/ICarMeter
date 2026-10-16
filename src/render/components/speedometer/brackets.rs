@@ -50,84 +50,39 @@ impl SpeedometerBrackets {
         Self::stroke_path(pixmap, &track_full_left, track_core_color, core_width, BlendMode::SourceOver);
         Self::stroke_path(pixmap, &track_full_right, track_core_color, core_width, BlendMode::SourceOver);
 
-        // 2. Compute Tier Fill Progresses from Bottom to Top:
-        // Tier 0 (White): 0.0 -> 40.0 km/h (fills from bottom to top with pure White)
-        // Tier 1 (Cyan): 40.0 -> 70.0 km/h (fills over full White bar)
-        // Tier 2 (Yellow): 70.0 -> 95.0 km/h (fills over full Cyan bar)
-        // Tier 3 (Orange-Red): 95.0 -> 120.0+ km/h (fills over full Yellow bar)
-        let p_white = (speed / 40.0).clamp(0.0, 1.0);
-        let p_cyan = if speed > 40.0 {
-            ((speed - 40.0) / 30.0).clamp(0.0, 1.0)
+        // 2. Compute Active Tier (White < 40, Yellow 40..70, Red >= 70):
+        // Each tier fills from 0.0 to 1.0 from bottom to top.
+        // When a tier is full, crossing into the next tier returns the bar to its initial state
+        // and fills the new color from bottom to top!
+        let (progress, core_color, glow_color, glow_scale) = if speed < 40.0 {
+            // Tier 0: Pure White
+            let p = (speed / 40.0).clamp(0.0, 1.0);
+            let core = Color::from_rgba8(255, 255, 255, (255.0 * alpha) as u8);
+            let glow = Color::from_rgba8(230, 245, 255, (130.0 * alpha) as u8);
+            (p, core, glow, 1.0)
+        } else if speed < 70.0 {
+            // Tier 1: Electric Yellow
+            let p = ((speed - 40.0) / 30.0).clamp(0.0, 1.0);
+            let core = Color::from_rgba8(255, 215, 0, (255.0 * alpha) as u8);
+            let glow = Color::from_rgba8(255, 195, 0, (120.0 * alpha) as u8);
+            (p, core, glow, 1.0)
         } else {
-            0.0
-        };
-        let p_yellow = if speed > 70.0 {
-            ((speed - 70.0) / 25.0).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        let p_red = if speed > 95.0 {
-            ((speed - 95.0) / 25.0).clamp(0.0, 1.0)
-        } else {
-            0.0
+            // Tier 2: Orange-Red
+            let p = ((speed - 70.0) / 30.0).clamp(0.0, 1.0);
+            let core = Color::from_rgba8(255, 69, 0, (255.0 * alpha) as u8);
+            let glow = Color::from_rgba8(255, 50, 0, (130.0 * alpha) as u8);
+            (p, core, glow, 1.1)
         };
 
-        // Tier Color Palettes:
-        // Tier 0: Pure White (#FFFFFF)
-        let white_core = Color::from_rgba8(255, 255, 255, (255.0 * alpha) as u8);
-        let white_glow = Color::from_rgba8(230, 245, 255, (130.0 * alpha) as u8);
+        // 3. Render Active Beam rising from bottom to top in current tier color:
+        if progress > 0.001 {
+            let left_path = Self::sub_path(l_bottom, l_ctrl_low, l_ctrl_high, l_top, progress);
+            let right_path = Self::sub_path(r_bottom, r_ctrl_low, r_ctrl_high, r_top, progress);
 
-        // Tier 1: Cyan / Electric Blue (#00DCFF)
-        let cyan_core = Color::from_rgba8(0, 220, 255, (255.0 * alpha) as u8);
-        let cyan_glow = Color::from_rgba8(0, 190, 255, (120.0 * alpha) as u8);
-
-        // Tier 2: Electric Yellow / Gold (#FFD700)
-        let yellow_core = Color::from_rgba8(255, 215, 0, (255.0 * alpha) as u8);
-        let yellow_glow = Color::from_rgba8(255, 195, 0, (120.0 * alpha) as u8);
-
-        // Tier 3: Orange-Red / Crimson (#FF4500)
-        let red_core = Color::from_rgba8(255, 69, 0, (255.0 * alpha) as u8);
-        let red_glow = Color::from_rgba8(255, 50, 0, (130.0 * alpha) as u8);
-
-        // 3. Render Active Tier Beams:
-        // 1) White beam: fills from bottom to top up to 40 km/h (reaches 100% full White at 40 km/h)
-        if p_white > 0.001 {
-            let left_w = Self::sub_path(l_bottom, l_ctrl_low, l_ctrl_high, l_top, p_white);
-            let right_w = Self::sub_path(r_bottom, r_ctrl_low, r_ctrl_high, r_top, p_white);
-            Self::stroke_path(pixmap, &left_w, white_glow, glow_width, BlendMode::Screen);
-            Self::stroke_path(pixmap, &right_w, white_glow, glow_width, BlendMode::Screen);
-            Self::stroke_path(pixmap, &left_w, white_core, core_width, BlendMode::SourceOver);
-            Self::stroke_path(pixmap, &right_w, white_core, core_width, BlendMode::SourceOver);
-        }
-
-        // 2) Once full White (> 40 km/h), Cyan color fills up from bottom over the White bar
-        if p_cyan > 0.001 {
-            let left_c = Self::sub_path(l_bottom, l_ctrl_low, l_ctrl_high, l_top, p_cyan);
-            let right_c = Self::sub_path(r_bottom, r_ctrl_low, r_ctrl_high, r_top, p_cyan);
-            Self::stroke_path(pixmap, &left_c, cyan_glow, glow_width, BlendMode::Screen);
-            Self::stroke_path(pixmap, &right_c, cyan_glow, glow_width, BlendMode::Screen);
-            Self::stroke_path(pixmap, &left_c, cyan_core, core_width, BlendMode::SourceOver);
-            Self::stroke_path(pixmap, &right_c, cyan_core, core_width, BlendMode::SourceOver);
-        }
-
-        // 3) Once full Cyan (> 70 km/h), Yellow fills up from bottom over the Cyan bar
-        if p_yellow > 0.001 {
-            let left_y = Self::sub_path(l_bottom, l_ctrl_low, l_ctrl_high, l_top, p_yellow);
-            let right_y = Self::sub_path(r_bottom, r_ctrl_low, r_ctrl_high, r_top, p_yellow);
-            Self::stroke_path(pixmap, &left_y, yellow_glow, glow_width, BlendMode::Screen);
-            Self::stroke_path(pixmap, &right_y, yellow_glow, glow_width, BlendMode::Screen);
-            Self::stroke_path(pixmap, &left_y, yellow_core, core_width, BlendMode::SourceOver);
-            Self::stroke_path(pixmap, &right_y, yellow_core, core_width, BlendMode::SourceOver);
-        }
-
-        // 4) Once full Yellow (> 95 km/h), Red fills up from bottom over the Yellow bar
-        if p_red > 0.001 {
-            let left_r = Self::sub_path(l_bottom, l_ctrl_low, l_ctrl_high, l_top, p_red);
-            let right_r = Self::sub_path(r_bottom, r_ctrl_low, r_ctrl_high, r_top, p_red);
-            Self::stroke_path(pixmap, &left_r, red_glow, glow_width * 1.1, BlendMode::Screen);
-            Self::stroke_path(pixmap, &right_r, red_glow, glow_width * 1.1, BlendMode::Screen);
-            Self::stroke_path(pixmap, &left_r, red_core, core_width, BlendMode::SourceOver);
-            Self::stroke_path(pixmap, &right_r, red_core, core_width, BlendMode::SourceOver);
+            Self::stroke_path(pixmap, &left_path, glow_color, glow_width * glow_scale, BlendMode::Screen);
+            Self::stroke_path(pixmap, &right_path, glow_color, glow_width * glow_scale, BlendMode::Screen);
+            Self::stroke_path(pixmap, &left_path, core_color, core_width, BlendMode::SourceOver);
+            Self::stroke_path(pixmap, &right_path, core_color, core_width, BlendMode::SourceOver);
         }
     }
 
