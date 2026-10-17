@@ -69,13 +69,18 @@ jobs:
           ls -lah target/aarch64-unknown-linux-gnu/release/car_dashboard
           file target/aarch64-unknown-linux-gnu/release/car_dashboard
 
+      - name: Stage binary artifact
+        run: |
+          mkdir -p dist_bin
+          cp target/aarch64-unknown-linux-gnu/release/car_dashboard dist_bin/
+          cp config.toml dist_bin/
+          ls -lah dist_bin/
+
       - name: Upload compiled binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: car_dashboard-bin
-          path: |
-            target/aarch64-unknown-linux-gnu/release/car_dashboard
-            config.toml
+          path: dist_bin/
           retention-days: 14
 
   # ==============================================================================
@@ -112,8 +117,8 @@ jobs:
       - name: Inject binary into stage-icarmeter files
         run: |
           mkdir -p pi-image/stage-icarmeter/02-app-install/files
-          cp bin_artifact/car_dashboard pi-image/stage-icarmeter/02-app-install/files/car_dashboard
-          cp bin_artifact/config.toml pi-image/stage-icarmeter/02-app-install/files/config.toml
+          find bin_artifact -type f -name "car_dashboard" -exec cp -v {} pi-image/stage-icarmeter/02-app-install/files/car_dashboard \;
+          find bin_artifact -type f -name "config.toml" -exec cp -v {} pi-image/stage-icarmeter/02-app-install/files/config.toml \;
           chmod +x pi-image/stage-icarmeter/02-app-install/files/car_dashboard
           ls -lah pi-image/stage-icarmeter/02-app-install/files/
 
@@ -157,7 +162,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            bin_artifact/car_dashboard
+            pi-image/stage-icarmeter/02-app-install/files/car_dashboard
             pi-image/deploy/*.zip
             pi-image/deploy/*.img.xz
             pi-image/deploy/*.img
