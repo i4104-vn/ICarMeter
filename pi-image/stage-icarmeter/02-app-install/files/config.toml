@@ -1,0 +1,31 @@
+# ==============================================================================
+# Car Digital Dashboard - Hardware Configuration for Raspberry Pi OS
+# ==============================================================================
+
+[gps]
+# Cổng serial GPS UART phần cứng (nối qua chân GPIO Tx/Rx /dev/serial0 trên Pi)
+device = "/dev/serial0"
+baud_rate = 9600
+enabled = true
+
+[tpms]
+# Kích hoạt hệ thống cảm biến áp suất lốp không dây Bluetooth Low Energy (BLE)
+enabled = true
+
+# Adapter Bluetooth tích hợp trên bo mạch Raspberry Pi (mặc định: hci0)
+adapter = "hci0"
+
+# Địa chỉ MAC Bluetooth (hoặc Serial ID) của 4 van cảm biến gắn trên 4 bánh xe:
+# Bạn có thể điền dạng có dấu hai chấm ("A4:C1:38:11:22:33") hoặc viết liền ("A4C138112233").
+fl_sensor = "A4:C1:38:00:00:01"  # Bánh trước - trái (Front-Left)
+fr_sensor = "A4:C1:38:00:00:02"  # Bánh trước - phải (Front-Right)
+rl_sensor = "A4:C1:38:00:00:03"  # Bánh sau - trái (Rear-Left)
+rr_sensor = "A4:C1:38:00:00:04"  # Bánh sau - phải (Rear-Right)
+
+# Ngưỡng cảnh báo áp suất lốp thấp (bar)
+low_pressure_alert = 2.2
+
+[display]
+# Đường dẫn Framebuffer hiển thị TTY
+framebuffer_device = "/dev/fb0"
+target_fps = 60

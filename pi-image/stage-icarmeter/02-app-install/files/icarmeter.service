@@ -1,0 +1,17 @@
+[Unit]
+Description=ICarMeter Car Digital Dashboard
+After=local-fs.target systemd-udevd.service bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/icarmeter
+ExecStart=/opt/icarmeter/car_dashboard
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

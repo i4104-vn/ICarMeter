@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=I4104-ICarMeter
+Description=I4104 ICarMeter Digital Dashboard Boot Splash
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/icarmeter
+ScriptFile=/usr/share/plymouth/themes/icarmeter/icarmeter.script

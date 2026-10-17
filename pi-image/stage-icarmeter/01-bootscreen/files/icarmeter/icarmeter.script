@@ -1,0 +1,64 @@
+# ==============================================================================
+# Plymouth Animated Script for Breathing Cat Bootscreen
+# Exact cat artwork on pure solid pitch black background
+# ==============================================================================
+
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+# Set pure pitch black background
+Window.SetBackgroundTopColor(0.0, 0.0, 0.0);
+Window.SetBackgroundBottomColor(0.0, 0.0, 0.0);
+
+frame_count = 36;
+
+for (i = 0; i < frame_count; i++) {
+    anim_frames[i] = Image("frame-" + i + ".png");
+}
+
+# Base image dimensions (1280x480)
+img_w = anim_frames[0].GetWidth();
+img_h = anim_frames[0].GetHeight();
+
+# Compute proportional scale if display resolution is smaller than 1280x480
+scale_x = screen_width / img_w;
+scale_y = screen_height / img_h;
+scale = 1.0;
+if (scale_x < 1.0 || scale_y < 1.0) {
+    if (scale_x < scale_y) {
+        scale = scale_x;
+    } else {
+        scale = scale_y;
+    }
+}
+
+scaled_w = img_w * scale;
+scaled_h = img_h * scale;
+
+pos_x = (screen_width - scaled_w) / 2;
+pos_y = (screen_height - scaled_h) / 2;
+
+splash_sprite = Sprite();
+splash_sprite.SetX(pos_x);
+splash_sprite.SetY(pos_y);
+splash_sprite.SetZ(10);
+splash_sprite.SetOpacity(1.0);
+
+ticks = 0;
+
+# Refresh callback is invoked ~50 times per second
+fun refresh_callback () {
+    # Divisor 2: 50 ticks / 2 = ~25 FPS playback for smooth organic breathing
+    animation_divisor = 2;
+    current_index = Math.Int(ticks / animation_divisor) % frame_count;
+
+    if (scale < 1.0) {
+        splash_sprite.SetImage(anim_frames[current_index].Scale(scaled_w, scaled_h));
+    } else {
+        splash_sprite.SetImage(anim_frames[current_index]);
+    }
+
+    ticks++;
+}
+
+Plymouth.SetRefreshFunction(refresh_callback);
