@@ -28,24 +28,26 @@ fi
 
 
 on_chroot <<- EOF
-	systemctl enable rpi-resize
-
 	for GRP in input spi i2c gpio; do
-		groupadd -f -r "\$GRP"
+		groupadd -f -r "\$GRP" || true
 	done
 	for GRP in adm dialout cdrom audio users sudo video games plugdev input gpio spi i2c netdev render; do
-		adduser $FIRST_USER_NAME \$GRP
+		if getent group "\$GRP" > /dev/null 2>&1; then
+			adduser $FIRST_USER_NAME "\$GRP" || true
+		fi
 	done
 EOF
 
 if [ "${PASSWORDLESS_SUDO}" = "1" ]; then
 	on_chroot <<- EOF
-		SUDO_USER="${FIRST_USER_NAME}" raspi-config nonint do_sudo_pass 1
+		if command -v raspi-config > /dev/null 2>&1; then
+			SUDO_USER="${FIRST_USER_NAME}" raspi-config nonint do_sudo_pass 1 || true
+		fi
 	EOF
 fi
 
 on_chroot << EOF
-setupcon --force --save-only -v
+setupcon --force --save-only -v || true
 EOF
 
 on_chroot << EOF
@@ -54,10 +56,10 @@ EOF
 
 rm -f "${ROOTFS_DIR}/etc/ssh/"ssh_host_*_key*
 
-sed -i 's/^FONTFACE=.*/FONTFACE=""/;s/^FONTSIZE=.*/FONTSIZE=""/' "${ROOTFS_DIR}/etc/default/console-setup"
-sed -i "s/PLACEHOLDER//" "${ROOTFS_DIR}/etc/default/keyboard"
+sed -i 's/^FONTFACE=.*/FONTFACE=""/;s/^FONTSIZE=.*/FONTSIZE=""/' "${ROOTFS_DIR}/etc/default/console-setup" 2>/dev/null || true
+sed -i "s/PLACEHOLDER//" "${ROOTFS_DIR}/etc/default/keyboard" 2>/dev/null || true
 on_chroot << EOF
-DEBIAN_FRONTEND=noninteractive dpkg-reconfigure keyboard-configuration console-setup
+DEBIAN_FRONTEND=noninteractive dpkg-reconfigure keyboard-configuration console-setup 2>/dev/null || true
 EOF
 
 if [ -e "${ROOTFS_DIR}/etc/avahi/avahi-daemon.conf" ]; then
