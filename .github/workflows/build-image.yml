@@ -1,0 +1,169 @@
+name: Build Custom Raspberry Pi OS Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      compression:
+        description: "Image compression format"
+        required: true
+        default: "xz"
+        type: choice
+        options:
+          - xz
+          - zip
+      create_release:
+        description: "Publish as GitHub Release"
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+    paths:
+      - "src/**"
+      - "assets/**"
+      - "Cargo.*"
+      - "config.toml"
+      - "pi-image/**"
+      - ".github/workflows/build-image.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  # ==============================================================================
+  # Job 1: Build Cargo Binary First (Cross-compile for aarch64)
+  # ==============================================================================
+  build-binary:
+    name: Build Cargo Binary (aarch64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install cross-compilation linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build ICarMeter for aarch64
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          cargo build --release --target aarch64-unknown-linux-gnu
+
+      - name: Verify compiled binary
+        run: |
+          ls -lah target/aarch64-unknown-linux-gnu/release/car_dashboard
+          file target/aarch64-unknown-linux-gnu/release/car_dashboard
+
+      - name: Upload compiled binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: car_dashboard-bin
+          path: |
+            target/aarch64-unknown-linux-gnu/release/car_dashboard
+            config.toml
+          retention-days: 14
+
+  # ==============================================================================
+  # Job 2: Build Pi OS Image (Inject pre-compiled binary into stage-icarmeter)
+  # ==============================================================================
+  build-image:
+    name: Build ICarMeter Pi OS Image (arm64)
+    needs: [build-binary]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free disk space on runner
+        run: |
+          echo "Initial disk space:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -a -f || true
+          echo "Cleaned disk space:"
+          df -h
+
+      - name: Download compiled binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: car_dashboard-bin
+          path: bin_artifact/
+
+      - name: Inject binary into stage-icarmeter files
+        run: |
+          mkdir -p pi-image/stage-icarmeter/02-app-install/files
+          cp bin_artifact/car_dashboard pi-image/stage-icarmeter/02-app-install/files/car_dashboard
+          cp bin_artifact/config.toml pi-image/stage-icarmeter/02-app-install/files/config.toml
+          chmod +x pi-image/stage-icarmeter/02-app-install/files/car_dashboard
+          ls -lah pi-image/stage-icarmeter/02-app-install/files/
+
+      - name: Setup QEMU and binfmt
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install all
+
+      - name: Configure pi-gen compression
+        if: "${{ github.event.inputs.compression != '' }}"
+        run: |
+          sed -i 's/^DEPLOY_COMPRESSION=.*/DEPLOY_COMPRESSION="${{ github.event.inputs.compression }}"/' pi-image/config
+
+      - name: Build Pi OS Image with pi-gen Docker
+        run: |
+          cd pi-image
+          chmod +x build.sh build-docker.sh
+          find stage* -type f -name "*.sh" -exec chmod +x {} + || true
+          find stage* -type f -name "EXPORT_IMAGE" -exec chmod +x {} + || true
+          ./build-docker.sh
+
+      - name: Generate Checksums
+        run: |
+          cd pi-image/deploy
+          sha256sum *.{zip,img.xz,img} 2>/dev/null | tee SHA256SUMS.txt || true
+          ls -lah
+
+      - name: Upload OS Image Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: icarmeter-raspios-arm64
+          path: |
+            pi-image/deploy/*.zip
+            pi-image/deploy/*.img.xz
+            pi-image/deploy/*.img
+            pi-image/deploy/*.info
+            pi-image/deploy/SHA256SUMS.txt
+          retention-days: 14
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            bin_artifact/car_dashboard
+            pi-image/deploy/*.zip
+            pi-image/deploy/*.img.xz
+            pi-image/deploy/*.img
+            pi-image/deploy/*.info
+            pi-image/deploy/SHA256SUMS.txt
+          name: "ICarMeter OS Image"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
