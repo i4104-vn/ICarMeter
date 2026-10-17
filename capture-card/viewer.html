@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ICarMeter Capture Viewer (1280x480)</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            background-color: #08080c;
+            color: #d1d5db;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* 1280x480 Frame */
+        .stage-wrapper {
+            position: relative;
+            width: 1280px;
+            height: 480px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1);
+        }
+
+        video {
+            width: 1280px;
+            height: 480px;
+            object-fit: fill; /* exact 1280x480 fit */
+            background-color: #000;
+            display: block;
+        }
+
+        /* Top control bar (fades on hover) */
+        .controls-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 8px 16px;
+            background: linear-gradient(180deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            opacity: 0;
+            transition: opacity 0.25s ease;
+            z-index: 100;
+        }
+
+        .stage-wrapper:hover .controls-bar {
+            opacity: 1;
+        }
+
+        .badge {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            color: #10b981;
+            background: rgba(16, 185, 129, 0.15);
+            padding: 3px 8px;
+            border-radius: 4px;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            text-transform: uppercase;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        select {
+            background: #1f2937;
+            color: #f3f4f6;
+            border: 1px solid #374151;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            outline: none;
+            cursor: pointer;
+            max-width: 260px;
+        }
+
+        button {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        button.btn-secondary {
+            background: #374151;
+        }
+
+        button.btn-secondary:hover {
+            background: #4b5563;
+        }
+
+        .fps-counter {
+            font-size: 11px;
+            font-family: monospace;
+            color: #9ca3af;
+        }
+
+        /* Overlay for disconnected state */
+        .no-signal {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            color: #ef4444;
+            gap: 12px;
+            z-index: 10;
+        }
+
+        .no-signal h2 {
+            font-size: 22px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+        }
+
+        .no-signal p {
+            color: #6b7280;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="stage-wrapper" id="stage">
+        <!-- Overlay for no signal -->
+        <div class="no-signal" id="noSignalOverlay">
+            <h2>NO SIGNAL</h2>
+            <p>Connect your Raspberry Pi HDMI to the USB Capture Card</p>
+            <button onclick="startStream()">Start / Detect Card</button>
+        </div>
+
+        <video id="videoPreview" autoplay playsinline muted></video>
+
+        <div class="controls-bar">
+            <div class="control-group">
+                <span class="badge">1280 x 480 Native</span>
+                <span class="fps-counter" id="fpsDisplay">FPS: --</span>
+            </div>
+
+            <div class="control-group">
+                <select id="deviceSelect" onchange="changeDevice()"></select>
+                <button class="btn-secondary" onclick="toggleFit()">Aspect: <span id="fitLabel">Stretch</span></button>
+                <button class="btn-secondary" onclick="captureSnapshot()">Snapshot</button>
+                <button onclick="toggleFullScreen()">Fullscreen</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('videoPreview');
+        const deviceSelect = document.getElementById('deviceSelect');
+        const noSignalOverlay = document.getElementById('noSignalOverlay');
+        const fpsDisplay = document.getElementById('fpsDisplay');
+        const fitLabel = document.getElementById('fitLabel');
+
+        let currentStream = null;
+        let lastFrameTime = performance.now();
+        let frameCount = 0;
+        let fpsTimer = performance.now();
+
+        async function getDevices() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                
+                deviceSelect.innerHTML = '';
+                videoDevices.forEach((dev, idx) => {
+                    const opt = document.createElement('option');
+                    opt.value = dev.deviceId;
+                    opt.text = dev.label || `Camera / Capture Card ${idx + 1}`;
+                    // Auto select device matching "video", "capture", "cam", or the last one
+                    if (dev.label.toLowerCase().includes('capture') || 
+                        dev.label.toLowerCase().includes('cam link') || 
+                        dev.label.toLowerCase().includes('usb video')) {
+                        opt.selected = true;
+                    }
+                    deviceSelect.appendChild(opt);
+                });
+            } catch (err) {
+                console.error("Device enumeration failed:", err);
+            }
+        }
+
+        async function startStream(deviceId = null) {
+            if (currentStream) {
+                currentStream.getTracks().forEach(t => t.stop());
+            }
+
+            const constraints = {
+                video: {
+                    deviceId: deviceId ? { exact: deviceId } : undefined,
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    frameRate: { ideal: 60 }
+                },
+                audio: false
+            };
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+                video.srcObject = stream;
+                noSignalOverlay.style.display = 'none';
+
+                await getDevices();
+
+                if (window.requestVideoFrameCallback) {
+                    video.requestVideoFrameCallback(updateFps);
+                }
+            } catch (err) {
+                console.warn("Could not start video stream:", err);
+                noSignalOverlay.style.display = 'flex';
+            }
+        }
+
+        function updateFps(now, metadata) {
+            frameCount++;
+            if (now - fpsTimer >= 1000) {
+                const currentFps = Math.round((frameCount * 1000) / (now - fpsTimer));
+                fpsDisplay.textContent = `FPS: ${currentFps} | ${video.videoWidth}x${video.videoHeight}`;
+                frameCount = 0;
+                fpsTimer = now;
+            }
+            video.requestVideoFrameCallback(updateFps);
+        }
+
+        function changeDevice() {
+            startStream(deviceSelect.value);
+        }
+
+        let isFill = true;
+        function toggleFit() {
+            isFill = !isFill;
+            video.style.objectFit = isFill ? 'fill' : 'contain';
+            fitLabel.textContent = isFill ? 'Stretch' : 'Contain';
+        }
+
+        function captureSnapshot() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1280;
+            canvas.height = 480;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, 1280, 480);
+            
+            const link = document.createElement('a');
+            link.download = `icarmeter_snap_${Date.now()}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        function toggleFullScreen() {
+            const stage = document.getElementById('stage');
+            if (!document.fullscreenElement) {
+                stage.requestFullscreen().catch(err => alert(err.message));
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // Auto launch
+        window.addEventListener('DOMContentLoaded', () => {
+            startStream();
+        });
+    </script>
+</body>
+</html>
