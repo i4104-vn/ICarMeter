@@ -31,5 +31,5 @@ COMPRESSION_LEVEL=6
 # Stage 0: Bootstrap filesystem
 # Stage 1: Minimal bootable system
 # Stage 2: Raspberry Pi OS Lite base
-# Stage-icarmeter: ICarMeter custom bootscreen, packages, auto-login, and service
+BASE_DIR="${BASE_DIR:-/pi-gen}"
 STAGE_LIST="${BASE_DIR}/stage0 ${BASE_DIR}/stage1 ${BASE_DIR}/stage2 ${BASE_DIR}/stage-icarmeter"

@@ -3,6 +3,8 @@
 set -eu
 
 DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+BASE_DIR="${DIR}"
+export BASE_DIR
 
 BUILD_OPTS="$*"
 
