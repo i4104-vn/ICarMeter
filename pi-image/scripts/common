@@ -11,10 +11,10 @@ bootstrap(){
 
 	BOOTSTRAP_ARGS+=(--arch arm64)
 	BOOTSTRAP_ARGS+=(--include gnupg)
-	BOOTSTRAP_ARGS+=(--components "main,contrib,non-free")
+	BOOTSTRAP_ARGS+=(--components "main,contrib,non-free,non-free-firmware")
 	#BOOTSTRAP_ARGS+=(--keyring "${STAGE_DIR}/files/raspberrypi.gpg")
 	BOOTSTRAP_ARGS+=(--exclude=info,ifupdown)
-	BOOTSTRAP_ARGS+=(--include=ca-certificates)
+	BOOTSTRAP_ARGS+=(--include=ca-certificates,debian-archive-keyring)
 	BOOTSTRAP_ARGS+=("$@")
 	printf -v BOOTSTRAP_STR '%q ' "${BOOTSTRAP_ARGS[@]}"
 

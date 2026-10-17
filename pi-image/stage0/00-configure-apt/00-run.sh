@@ -21,6 +21,19 @@ else
 fi
 
 install -m 644 files/raspberrypi-archive-keyring.pgp "${ROOTFS_DIR}/usr/share/keyrings/"
+
+# Ensure Debian archive keyrings are copied from host into rootfs
+if [ -d /usr/share/keyrings ]; then
+	cp -a /usr/share/keyrings/debian-archive* "${ROOTFS_DIR}/usr/share/keyrings/" 2>/dev/null || true
+fi
+
+# Ensure both .gpg and .pgp exist so apt can verify regardless of extension
+if [ -f "${ROOTFS_DIR}/usr/share/keyrings/debian-archive-keyring.gpg" ] && [ ! -f "${ROOTFS_DIR}/usr/share/keyrings/debian-archive-keyring.pgp" ]; then
+	ln -sf debian-archive-keyring.gpg "${ROOTFS_DIR}/usr/share/keyrings/debian-archive-keyring.pgp"
+fi
+if [ -f "${ROOTFS_DIR}/usr/share/keyrings/debian-archive-keyring.pgp" ] && [ ! -f "${ROOTFS_DIR}/usr/share/keyrings/debian-archive-keyring.gpg" ]; then
+	ln -sf debian-archive-keyring.pgp "${ROOTFS_DIR}/usr/share/keyrings/debian-archive-keyring.gpg"
+fi
 on_chroot <<- \EOF
 	ARCH="$(dpkg --print-architecture)"
 	if [ "$ARCH" = "armhf" ]; then

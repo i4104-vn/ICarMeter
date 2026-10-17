@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=debian:bullseye
+ARG BASE_IMAGE=debian:bookworm
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -8,7 +8,7 @@ RUN apt-get -y update && \
         git vim parted \
         quilt coreutils qemu-user debootstrap zerofree zip dosfstools e2fsprogs\
         libcap2-bin rsync grep udev xz-utils curl xxd file kmod bc \
-        ca-certificates fdisk gpg pigz arch-test \
+        ca-certificates fdisk gpg pigz arch-test debian-archive-keyring \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . /pi-gen/

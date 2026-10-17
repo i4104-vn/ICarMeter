@@ -1,8 +1,7 @@
 #!/bin/bash -e
 
-if [ "$RELEASE" != "trixie" ]; then
-	echo "WARNING: RELEASE does not match the intended option for this branch."
-	echo "         Please check the relevant README.md section."
+if [ "$RELEASE" != "bookworm" ]; then
+	echo "WARNING: RELEASE is set to '$RELEASE' instead of 'bookworm'."
 fi
 
 if [ ! -d "${ROOTFS_DIR}" ]; then
