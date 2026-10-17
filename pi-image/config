@@ -1,0 +1,35 @@
+# ==============================================================================
+# ICarMeter - Raspberry Pi OS Custom Image Configuration
+# ==============================================================================
+
+# Image naming and base OS version
+IMG_NAME="icarmeter"
+RELEASE="bookworm"
+ARCH="arm64"
+
+# User Credentials & Autologin prep
+FIRST_USER_NAME="pi"
+FIRST_USER_PASS="raspberry"
+DISABLE_FIRST_BOOT_USER_RENAME=1
+PASSWORDLESS_SUDO=1
+
+# Networking & Remote Management
+TARGET_HOSTNAME="icarmeter"
+ENABLE_SSH=1
+
+# Localization & Region
+LOCALE_DEFAULT="en_US.UTF-8"
+TIMEZONE_DEFAULT="Asia/Ho_Chi_Minh"
+KEYBOARD_KEYMAP="us"
+KEYBOARD_LAYOUT="English (US)"
+
+# Output Archive Format (xz for small file size and fast network transfer)
+DEPLOY_COMPRESSION="xz"
+COMPRESSION_LEVEL=6
+
+# Pipeline Stages to run:
+# Stage 0: Bootstrap filesystem
+# Stage 1: Minimal bootable system
+# Stage 2: Raspberry Pi OS Lite base
+# Stage-icarmeter: ICarMeter custom bootscreen, packages, auto-login, and service
+STAGE_LIST="${BASE_DIR}/stage0 ${BASE_DIR}/stage1 ${BASE_DIR}/stage2 ${BASE_DIR}/stage-icarmeter"
