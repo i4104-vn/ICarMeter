@@ -64,12 +64,11 @@ EOF
 			popd > /dev/null
 			log "End ${SUB_STAGE_DIR}/${i}-patches"
 		fi
-		if [ -x ${i}-run.sh ]; then
+		if [ -f ${i}-run.sh ]; then
+			chmod +x ${i}-run.sh
 			log "Begin ${SUB_STAGE_DIR}/${i}-run.sh"
 			./${i}-run.sh
 			log "End ${SUB_STAGE_DIR}/${i}-run.sh"
-		elif [ -f ${i}-run.sh ]; then
-			log "Skip ${SUB_STAGE_DIR}/${i}-run.sh (not executable)"
 		fi
 		if [ -f ${i}-run-chroot.sh ]; then
 			log "Begin ${SUB_STAGE_DIR}/${i}-run-chroot.sh"
@@ -104,7 +103,8 @@ run_stage(){
 				rm -rf "${ROOTFS_DIR}"
 			fi
 		fi
-		if [ -x prerun.sh ]; then
+		if [ -f prerun.sh ]; then
+			chmod +x prerun.sh
 			log "Begin ${STAGE_DIR}/prerun.sh"
 			./prerun.sh
 			log "End ${STAGE_DIR}/prerun.sh"
