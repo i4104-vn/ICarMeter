@@ -2,7 +2,6 @@
 // enables raw non-blocking input, and handles graceful signal restoration for direct rendering on Debian / Raspberry Pi.
 
 use std::fs::OpenOptions;
-use std::io::Write;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -31,9 +30,12 @@ impl TtyManager {
         GLOBAL_RUNNING.store(true, Ordering::SeqCst);
 
         // Register SIGINT / SIGTERM handlers so terminal state is cleanly restored
+        // Ignore SIGTTIN and SIGTTOU so background service never gets suspended by tty
         unsafe {
             libc::signal(libc::SIGINT, signal_handler as *const () as usize);
             libc::signal(libc::SIGTERM, signal_handler as *const () as usize);
+            libc::signal(libc::SIGTTIN, libc::SIG_IGN);
+            libc::signal(libc::SIGTTOU, libc::SIG_IGN);
         }
 
         let mut manager = Self {
@@ -43,7 +45,7 @@ impl TtyManager {
         };
 
         // Attempt to find a suitable TTY file descriptor (controlling tty, active console, or stdin)
-        let candidates = ["/dev/tty", "/dev/tty0", "/dev/tty1", "/dev/console"];
+        let candidates = ["/dev/tty1", "/dev/tty0", "/dev/tty", "/dev/console"];
         let mut chosen_fd: Option<RawFd> = None;
 
         for dev in &candidates {
@@ -62,9 +64,11 @@ impl TtyManager {
         if let Some(fd) = chosen_fd {
             manager.tty_fd = Some(fd);
 
-            // 1. Hide terminal cursor & clear console screen
-            print!("\x1b[?25l\x1b[2J\x1b[H");
-            let _ = std::io::stdout().flush();
+            // 1. Hide terminal cursor directly on the hardware TTY
+            let hide_cursor_cmd = b"\x1b[?25l";
+            unsafe {
+                libc::write(fd, hide_cursor_cmd.as_ptr() as *const libc::c_void, hide_cursor_cmd.len());
+            }
 
             // 2. Set graphics mode to silence kernel fbcon text output
             unsafe {
@@ -94,7 +98,8 @@ impl TtyManager {
         manager
     }
 
-    /// Polls non-blocking keyboard input. Returns true if user requested exit ('q', 'Q', Esc, Ctrl+C).
+    /// Polls non-blocking keyboard input. Only exits on SIGTERM/SIGINT or explicit 'q'/'Q'.
+    /// Never exits on raw 0x1B which matches terminal escape sequences sent during boot.
     pub fn poll_exit(&self) -> bool {
         if !is_app_running() {
             return true;
@@ -105,8 +110,8 @@ impl TtyManager {
             let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
             if n > 0 {
                 for &b in &buf[..n as usize] {
-                    // 'q', 'Q', ESC (0x1B), or Ctrl+C (0x03)
-                    if b == b'q' || b == b'Q' || b == 0x1B || b == 0x03 {
+                    // Only explicit 'q' or 'Q' keypress exits (never 0x1B or Ctrl+C from Plymouth)
+                    if b == b'q' || b == b'Q' {
                         GLOBAL_RUNNING.store(false, Ordering::SeqCst);
                         return true;
                     }
@@ -129,9 +134,6 @@ impl Drop for TtyManager {
                     libc::tcsetattr(fd, libc::TCSANOW, orig);
                 }
             }
-            // Restore terminal cursor and clear screen
-            print!("\x1b[?25h\x1b[2J\x1b[H");
-            let _ = std::io::stdout().flush();
         }
     }
 }

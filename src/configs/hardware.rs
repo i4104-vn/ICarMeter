@@ -62,7 +62,8 @@ impl AppConfig {
     pub fn load() -> Self {
         let mut config = Self::default();
 
-        let content = match fs::read_to_string("config.toml") {
+        let content = match fs::read_to_string("config.toml")
+            .or_else(|_| fs::read_to_string("/opt/icarmeter/config.toml")) {
             Ok(s) => s,
             Err(_) => return config,
         };

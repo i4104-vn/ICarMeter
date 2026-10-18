@@ -22,7 +22,7 @@ ssh-keygen -A || true
 # Offline mode optimizations: do not block or wait for WiFi/network on boot
 systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
 systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
-systemctl disable getty@tty1.service 2>/dev/null || true
+systemctl mask getty@tty1.service 2>/dev/null || true
 
 # Enable autostart service on boot
 systemctl daemon-reload || true

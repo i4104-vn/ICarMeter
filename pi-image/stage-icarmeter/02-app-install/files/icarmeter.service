@@ -1,6 +1,6 @@
 [Unit]
 Description=ICarMeter Car Digital Dashboard
-After=local-fs.target systemd-udevd.service bluetooth.target
+After=local-fs.target systemd-udevd.service bluetooth.target plymouth-quit-wait.service plymouth-quit.service
 Wants=bluetooth.target
 Conflicts=getty@tty1.service
 
@@ -10,14 +10,11 @@ User=root
 WorkingDirectory=/opt/icarmeter
 ExecStart=/opt/icarmeter/car_dashboard
 Restart=always
-RestartSec=2
-StandardInput=tty
+RestartSec=1
+StandardInput=null
 StandardOutput=journal
 StandardError=journal
 TTYPath=/dev/tty1
-TTYReset=yes
-TTYVHangup=yes
-TTYVTDisallocate=yes
 
 [Install]
 WantedBy=multi-user.target

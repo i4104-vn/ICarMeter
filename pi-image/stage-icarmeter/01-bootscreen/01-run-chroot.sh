@@ -20,11 +20,28 @@ if [ -n "$CMDLINE_FILE" ]; then
     # 1. Remove console=serial0,115200 so kernel serial console doesn't conflict with GPS
     sed -i -E 's/console=serial0,[0-9]+[ ]*//g' "$CMDLINE_FILE"
 
-    # 2. Append quiet splash & silent systemd parameters if not already present
-    if ! grep -q "quiet splash" "$CMDLINE_FILE"; then
-        sed -i 's/$/ quiet splash loglevel=1 systemd.show_status=0 logo.nologo vt.global_cursor_default=0 plymouth.ignore-serial-consoles/' "$CMDLINE_FILE"
-    fi
+    # 2. Append silent, cursor-hiding, and blanking-disabled kernel parameters
+    for param in "quiet" "splash" "loglevel=1" "systemd.show_status=0" "logo.nologo" "vt.global_cursor_default=0" "consoleblank=0" "plymouth.ignore-serial-consoles"; do
+        if ! grep -q "$param" "$CMDLINE_FILE"; then
+            sed -i "s/$/ $param/" "$CMDLINE_FILE"
+        fi
+    done
 fi
+
+# 3. Configure Plymouth to retain splash on quit (seamless handover to dashboard, no black flicker)
+mkdir -p /etc/systemd/system/plymouth-quit.service.d
+cat << 'EOF' > /etc/systemd/system/plymouth-quit.service.d/override.conf
+[Service]
+ExecStart=
+ExecStart=-/usr/bin/plymouth --quit --retain-splash
+EOF
+
+mkdir -p /etc/systemd/system/plymouth-quit-wait.service.d
+cat << 'EOF' > /etc/systemd/system/plymouth-quit-wait.service.d/override.conf
+[Service]
+ExecStart=
+ExecStart=-/usr/bin/plymouth --quit --retain-splash
+EOF
 
 # Locate config.txt (/boot/firmware/config.txt on Bookworm, /boot/config.txt on Bullseye)
 CONFIG_FILE=""
