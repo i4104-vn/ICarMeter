@@ -67,7 +67,11 @@ impl TtyManager {
             // 1. Hide terminal cursor directly on the hardware TTY
             let hide_cursor_cmd = b"\x1b[?25l";
             unsafe {
-                libc::write(fd, hide_cursor_cmd.as_ptr() as *const libc::c_void, hide_cursor_cmd.len());
+                libc::write(
+                    fd,
+                    hide_cursor_cmd.as_ptr() as *const libc::c_void,
+                    hide_cursor_cmd.len(),
+                );
             }
 
             // 2. Set graphics mode to silence kernel fbcon text output

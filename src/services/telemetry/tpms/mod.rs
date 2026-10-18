@@ -4,9 +4,9 @@ pub mod decoder;
 pub mod hci_socket;
 pub mod scanner;
 
-use crate::configs::hardware::BleTpmsConfig;
+use crate::configs::app::BleTpmsConfig;
 use crate::models::VehicleState;
-use scanner::{run_ble_scanner_loop, SharedTirePressures};
+use scanner::{SharedTirePressures, run_ble_scanner_loop};
 use std::sync::{Arc, Mutex};
 use std::thread;
 

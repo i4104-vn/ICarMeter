@@ -1,15 +1,5 @@
-bluez
-bluez-tools
-bluez-firmware
-firmware-brcm80211
-pi-bluetooth
-rfkill
-python3-dbus
-python3-gi
-libcap2-bin
 plymouth
 plymouth-themes
 pix-plym-splash
-kmod
+libcap2-bin
 fontconfig
-curl

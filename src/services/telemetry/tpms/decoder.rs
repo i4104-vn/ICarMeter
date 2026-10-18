@@ -11,14 +11,23 @@ pub fn matches_sensor_id(target: &str, mac: &str, payload: &[u8]) -> bool {
     let mac_clean = mac.replace([':', '-', ' '], "").to_uppercase();
 
     // 1. Direct or partial MAC match
-    if mac_clean == target_clean || mac_clean.ends_with(&target_clean) || target_clean.ends_with(&mac_clean) {
+    if mac_clean == target_clean
+        || mac_clean.ends_with(&target_clean)
+        || target_clean.ends_with(&mac_clean)
+    {
         return true;
     }
 
     // 2. Check if target serial ID matches the first 4 bytes of payload (hex string)
     if payload.len() >= 4 {
-        let id_le = format!("{:02X}{:02X}{:02X}{:02X}", payload[3], payload[2], payload[1], payload[0]);
-        let id_be = format!("{:02X}{:02X}{:02X}{:02X}", payload[0], payload[1], payload[2], payload[3]);
+        let id_le = format!(
+            "{:02X}{:02X}{:02X}{:02X}",
+            payload[3], payload[2], payload[1], payload[0]
+        );
+        let id_be = format!(
+            "{:02X}{:02X}{:02X}{:02X}",
+            payload[0], payload[1], payload[2], payload[3]
+        );
         if id_le.contains(&target_clean) || id_be.contains(&target_clean) {
             return true;
         }
@@ -80,12 +89,12 @@ pub fn decode_tpms_pressure(payload: &[u8]) -> Option<f32> {
     // 4. Text payload fallback (e.g. "2.4" or "P:2.4")
     if let Ok(text) = std::str::from_utf8(payload) {
         let trimmed = text.trim();
-        for token in trimmed.split(|c| c == ' ' || c == ',' || c == ';') {
-            let token = token.trim().trim_start_matches(|c| c == 'P' || c == 'p' || c == ':');
-            if let Ok(val) = token.parse::<f32>() {
-                if (0.5..=5.0).contains(&val) {
-                    return Some((val * 10.0).round() / 10.0);
-                }
+        for token in trimmed.split([' ', ',', ';']) {
+            let token = token.trim().trim_start_matches(['P', 'p', ':']);
+            if let Ok(val) = token.parse::<f32>()
+                && (0.5..=5.0).contains(&val)
+            {
+                return Some((val * 10.0).round() / 10.0);
             }
         }
     }

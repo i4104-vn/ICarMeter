@@ -35,13 +35,22 @@ impl AppController {
             PHYSICAL_WIDTH_MM, PHYSICAL_HEIGHT_MM, SCREEN_WIDTH, SCREEN_HEIGHT
         );
         eprintln!("  Target FPS: {}", config.display.target_fps);
-        eprintln!("  GPS device: {} (enabled: {})", config.gps.device, config.gps.enabled);
+        eprintln!(
+            "  GPS device: {} (enabled: {})",
+            config.gps.device, config.gps.enabled
+        );
         eprintln!(
             "  TPMS 4-Tire Wireless BLE ({}, enabled: {}):",
             config.tpms.adapter, config.tpms.enabled
         );
-        eprintln!("    FL: {} | FR: {}", config.tpms.fl_sensor, config.tpms.fr_sensor);
-        eprintln!("    RL: {} | RR: {}", config.tpms.rl_sensor, config.tpms.rr_sensor);
+        eprintln!(
+            "    FL: {} | FR: {}",
+            config.tpms.fl_sensor, config.tpms.fr_sensor
+        );
+        eprintln!(
+            "    RL: {} | RR: {}",
+            config.tpms.rl_sensor, config.tpms.rr_sensor
+        );
         eprintln!("============================================================");
 
         let target_fps = config.display.target_fps.clamp(15, 240);

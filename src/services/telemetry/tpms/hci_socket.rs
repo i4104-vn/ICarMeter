@@ -98,7 +98,7 @@ impl HciSocket {
     fn enable_le_scan(&self) -> io::Result<()> {
         // LE Set Scan Parameters (passive scan, 100ms interval / 50ms window to allow simultaneous advertising)
         let scan_params_cmd = [
-            0x01, 0x0B, 0x20, 7, // OCF 0x000B, OGF 0x08, Len 7
+            0x01, 0x0B, 0x20, 7,    // OCF 0x000B, OGF 0x08, Len 7
             0x00, // Passive scan
             0xA0, 0x00, // Scan interval: 100ms (160 * 0.625ms)
             0x50, 0x00, // Scan window: 50ms (80 * 0.625ms)
@@ -115,7 +115,7 @@ impl HciSocket {
 
         // LE Set Scan Enable (enable = 1, filter_duplicates = 0)
         let scan_enable_cmd = [
-            0x01, 0x0C, 0x20, 2, // OCF 0x000C, OGF 0x08, Len 2
+            0x01, 0x0C, 0x20, 2,    // OCF 0x000C, OGF 0x08, Len 2
             0x01, // Enable scanning
             0x00, // Filter duplicates: 0 (report continuous updates)
         ];

@@ -28,10 +28,11 @@ pub fn parse_nmea_speed(line: &str) -> Option<f32> {
     // VTG sentences: $GPVTG, $GNVTG
     if sentence_type.ends_with("VTG") && parts.len() > 7 {
         // Field 7: Speed in km/h followed by 'K' in field 8
-        if parts.len() > 8 && parts[8].starts_with('K') {
-            if let Ok(kmh) = parts[7].parse::<f32>() {
-                return Some(kmh);
-            }
+        if parts.len() > 8
+            && parts[8].starts_with('K')
+            && let Ok(kmh) = parts[7].parse::<f32>()
+        {
+            return Some(kmh);
         }
     }
 

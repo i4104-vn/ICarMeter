@@ -34,6 +34,7 @@ impl FontRenderer {
     }
 
     /// Draws solid colored text onto the pixmap
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_text(
         &self,
         pixmap: &mut Pixmap,

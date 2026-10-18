@@ -5,10 +5,10 @@ pub const HIGH_TEMP_THRESHOLD: f32 = 70.0;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TirePressures {
-    pub fl: f32, // Front-Left (bar)
-    pub fr: f32, // Front-Right (bar)
-    pub rl: f32, // Rear-Left (bar)
-    pub rr: f32, // Rear-Right (bar)
+    pub fl: f32,      // Front-Left (bar)
+    pub fr: f32,      // Front-Right (bar)
+    pub rl: f32,      // Rear-Left (bar)
+    pub rr: f32,      // Rear-Right (bar)
     pub fl_temp: f32, // Front-Left temp (°C)
     pub fr_temp: f32, // Front-Right temp (°C)
     pub rl_temp: f32, // Rear-Left temp (°C)

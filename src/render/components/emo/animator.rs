@@ -5,9 +5,8 @@ use super::types::EmoExpression;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const RANDOM_EXPRESSION_INDICES: [u8; EXPRESSION_COUNT - 2] = [
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-    19, 20, 21, 22, 23, 24, 25,
-    27, 28, 29, 30, 31, 32, 33, 34,
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 23, 24, 25, 27,
+    28, 29, 30, 31, 32, 33, 34,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq)]

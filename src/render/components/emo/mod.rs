@@ -1,14 +1,15 @@
 // Animated expression sprites and random selection state.
 
 pub mod animator;
+mod sprite_parser;
 pub mod sprite_renderer;
 pub mod types;
 
 use crate::render::core::FontRenderer;
 use animator::EmoAnimator;
 pub use sprite_renderer::EmoSpriteRenderer;
-pub use types::EmoExpression;
 use tiny_skia::Pixmap;
+pub use types::EmoExpression;
 
 pub struct EmoRenderer {
     animator: EmoAnimator,
@@ -27,6 +28,7 @@ impl EmoRenderer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
         pixmap: &mut Pixmap,
@@ -51,10 +53,7 @@ impl EmoRenderer {
             .unwrap_or(EmoExpression::Normal);
         let resumed_after_movement = idle_seconds > 0.0 && self.last_idle_seconds <= 0.0;
 
-        if self.current_expression.is_none() {
-            self.current_expression = Some(active);
-            self.current_expression_started_at = time;
-        } else if self.current_expression != Some(active) {
+        if self.current_expression != Some(active) {
             self.current_expression = Some(active);
             self.current_expression_started_at = time;
         } else if resumed_after_movement {

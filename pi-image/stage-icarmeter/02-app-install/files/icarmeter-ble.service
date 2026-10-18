@@ -1,0 +1,16 @@
+[Unit]
+Description=ICarMeter BLE GATT peripheral
+Requires=bluetooth.service icarmeter-bluetooth.service
+PartOf=bluetooth.service
+After=bluetooth.service icarmeter-bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -u /opt/icarmeter/icarmeter-ble-service.py
+Restart=always
+RestartSec=3s
+User=root
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

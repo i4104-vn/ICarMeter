@@ -27,12 +27,20 @@ impl GpsReceiver {
         receiver
     }
 
+    pub fn is_connected(&self) -> bool {
+        self.file.is_some()
+    }
+
     fn try_open(&mut self) {
         if self.file.is_some() {
             return;
         }
 
-        match OpenOptions::new().read(true).write(true).open(&self.device_path) {
+        match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.device_path)
+        {
             Ok(file) => {
                 let fd = file.as_raw_fd();
                 unsafe {
@@ -56,7 +64,10 @@ impl GpsReceiver {
                         libc::tcsetattr(fd, libc::TCSANOW, &termios);
                     }
                 }
-                eprintln!("[GPS] Connected to {} at {} baud", self.device_path, self.baud_rate);
+                eprintln!(
+                    "[GPS] Connected to {} at {} baud",
+                    self.device_path, self.baud_rate
+                );
                 self.file = Some(file);
                 self.logged_error = false;
             }
@@ -73,22 +84,25 @@ impl GpsReceiver {
     pub fn poll_speed(&mut self) -> Option<f32> {
         if self.file.is_none() {
             self.try_open();
-            if self.file.is_none() {
-                return None;
-            }
+            self.file.as_ref()?;
         }
 
         let fd = self.file.as_ref()?.as_raw_fd();
         let mut read_buf = [0u8; 256];
         let bytes_read = unsafe {
-            libc::read(fd, read_buf.as_mut_ptr() as *mut libc::c_void, read_buf.len())
+            libc::read(
+                fd,
+                read_buf.as_mut_ptr() as *mut libc::c_void,
+                read_buf.len(),
+            )
         };
 
         if bytes_read <= 0 {
             return None;
         }
 
-        self.buffer.extend_from_slice(&read_buf[..bytes_read as usize]);
+        self.buffer
+            .extend_from_slice(&read_buf[..bytes_read as usize]);
 
         let mut latest_speed = None;
 

@@ -1,7 +1,7 @@
 // Vehicle status and telemetry data model
 
+use super::emotion::EmoExpression;
 use super::tpms::TirePressures;
-use crate::render::components::EmoExpression;
 
 #[derive(Debug, Clone)]
 pub struct VehicleState {
@@ -12,6 +12,10 @@ pub struct VehicleState {
     pub avg_speed: f32,
     pub tires: TirePressures,
     pub current_emo: Option<EmoExpression>,
+    pub bt_active: bool,
+    pub bt_device_name: Option<String>,
+    pub app_connected: bool,
+    pub gps_connected: bool,
 }
 
 impl Default for VehicleState {
@@ -24,6 +28,10 @@ impl Default for VehicleState {
             avg_speed: 0.0,
             tires: TirePressures::default(),
             current_emo: None,
+            bt_active: true,
+            bt_device_name: None,
+            app_connected: false,
+            gps_connected: false,
         }
     }
 }

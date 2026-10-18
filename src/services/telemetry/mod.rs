@@ -1,5 +1,6 @@
 // Telemetry service coordinator for GPS and Bluetooth sensors
 
+mod connection;
 pub mod gps;
 pub mod tpms;
 
@@ -32,17 +33,23 @@ impl TelemetryService {
     }
 
     pub fn update(&mut self, state: &mut VehicleState, dt: f32) {
-        // 1. Poll GPS for live speed
+        // 1. Poll GPS for live speed and connection state
         if let Some(ref mut gps) = self.gps {
+            state.gps_connected = gps.is_connected();
             if let Some(speed) = gps.poll_speed() {
                 state.current_speed = speed.max(0.0);
             }
+        } else {
+            state.gps_connected = false;
         }
 
-        // 2. Update real trip telemetry (odometer, driving time, avg speed, max speed)
+        // 2. Update connection indicators independently from sensor polling.
+        connection::update_connection_state(state);
+
+        // 3. Update real trip telemetry (odometer, driving time, avg speed, max speed)
         state.update_trip(dt);
 
-        // 3. Poll wireless Bluetooth TPMS sensors
+        // 4. Poll wireless Bluetooth TPMS sensors
         if let Some(ref mut sensors) = self.sensors {
             sensors.poll(state);
         }

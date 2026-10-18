@@ -1,17 +1,14 @@
 // Speedometer brackets "( )" arcs: progressive bottom-to-top filling based on speed,
 // tiered color change upon filling, outward flying animation, and glassmorphic track.
 
-use tiny_skia::{BlendMode, Color, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, Stroke, Transform};
+use tiny_skia::{
+    BlendMode, Color, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, Stroke, Transform,
+};
 
 pub struct SpeedometerBrackets;
 
 impl SpeedometerBrackets {
-    pub fn draw(
-        pixmap: &mut Pixmap,
-        speed: f32,
-        fly_progress: f32,
-        alpha: f32,
-    ) {
+    pub fn draw(pixmap: &mut Pixmap, speed: f32, fly_progress: f32, alpha: f32) {
         if alpha <= 0.001 || fly_progress <= 0.001 {
             return;
         }
@@ -42,13 +39,37 @@ impl SpeedometerBrackets {
 
         // Track ambient aura (neutral subtle dark glow)
         let track_aura_color = Color::from_rgba8(50, 50, 55, (20.0 * alpha) as u8);
-        Self::stroke_path(pixmap, &track_full_left, track_aura_color, glow_width * 0.85, BlendMode::Screen);
-        Self::stroke_path(pixmap, &track_full_right, track_aura_color, glow_width * 0.85, BlendMode::Screen);
+        Self::stroke_path(
+            pixmap,
+            &track_full_left,
+            track_aura_color,
+            glow_width * 0.85,
+            BlendMode::Screen,
+        );
+        Self::stroke_path(
+            pixmap,
+            &track_full_right,
+            track_aura_color,
+            glow_width * 0.85,
+            BlendMode::Screen,
+        );
 
         // Track core channel (dark acrylic / unlit neon tube)
         let track_core_color = Color::from_rgba8(28, 28, 32, (190.0 * alpha) as u8);
-        Self::stroke_path(pixmap, &track_full_left, track_core_color, core_width, BlendMode::SourceOver);
-        Self::stroke_path(pixmap, &track_full_right, track_core_color, core_width, BlendMode::SourceOver);
+        Self::stroke_path(
+            pixmap,
+            &track_full_left,
+            track_core_color,
+            core_width,
+            BlendMode::SourceOver,
+        );
+        Self::stroke_path(
+            pixmap,
+            &track_full_right,
+            track_core_color,
+            core_width,
+            BlendMode::SourceOver,
+        );
 
         // 2. Compute Active Tier (White < 40, Yellow 40..70, Red >= 70):
         // Each tier fills from 0.0 to 1.0 from bottom to top.
@@ -79,10 +100,34 @@ impl SpeedometerBrackets {
             let left_path = Self::sub_path(l_bottom, l_ctrl_low, l_ctrl_high, l_top, progress);
             let right_path = Self::sub_path(r_bottom, r_ctrl_low, r_ctrl_high, r_top, progress);
 
-            Self::stroke_path(pixmap, &left_path, glow_color, glow_width * glow_scale, BlendMode::Screen);
-            Self::stroke_path(pixmap, &right_path, glow_color, glow_width * glow_scale, BlendMode::Screen);
-            Self::stroke_path(pixmap, &left_path, core_color, core_width, BlendMode::SourceOver);
-            Self::stroke_path(pixmap, &right_path, core_color, core_width, BlendMode::SourceOver);
+            Self::stroke_path(
+                pixmap,
+                &left_path,
+                glow_color,
+                glow_width * glow_scale,
+                BlendMode::Screen,
+            );
+            Self::stroke_path(
+                pixmap,
+                &right_path,
+                glow_color,
+                glow_width * glow_scale,
+                BlendMode::Screen,
+            );
+            Self::stroke_path(
+                pixmap,
+                &left_path,
+                core_color,
+                core_width,
+                BlendMode::SourceOver,
+            );
+            Self::stroke_path(
+                pixmap,
+                &right_path,
+                core_color,
+                core_width,
+                BlendMode::SourceOver,
+            );
         }
     }
 
@@ -102,7 +147,9 @@ impl SpeedometerBrackets {
         let (q0, q1, q2, q3) = if p >= 0.999 {
             (p0, p1, p2, p3)
         } else {
-            let lerp = |a: (f32, f32), b: (f32, f32), u: f32| (a.0 + (b.0 - a.0) * u, a.1 + (b.1 - a.1) * u);
+            let lerp = |a: (f32, f32), b: (f32, f32), u: f32| {
+                (a.0 + (b.0 - a.0) * u, a.1 + (b.1 - a.1) * u)
+            };
             let q0 = p0;
             let q1 = lerp(p0, p1, p);
             let r0 = lerp(p1, p2, p);

@@ -45,6 +45,7 @@ def read_config_json():
             "enabled": True
         }
     }
+    section = None
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -52,19 +53,31 @@ def read_config_json():
                     line = line.strip()
                     if line.startswith("#") or not line:
                         continue
+                    if line.startswith("[") and line.endswith("]"):
+                        section = line[1:-1]
+                        continue
                     if "=" in line:
                         k, v = [x.strip() for x in line.split("=", 1)]
                         v = v.split("#")[0].strip().strip('"').strip("'")
-                        if k == "fl_sensor": data["tpms"]["fl"] = v
-                        elif k == "fr_sensor": data["tpms"]["fr"] = v
-                        elif k == "rl_sensor": data["tpms"]["rl"] = v
-                        elif k == "rr_sensor": data["tpms"]["rr"] = v
-                        elif k == "low_pressure_alert": data["tpms"]["alert"] = float(v)
-                        elif k == "enabled" and "gps" in data:
+                        if section == "tpms" and k == "fl_sensor": data["tpms"]["fl"] = v
+                        elif section == "tpms" and k == "fr_sensor": data["tpms"]["fr"] = v
+                        elif section == "tpms" and k == "rl_sensor": data["tpms"]["rl"] = v
+                        elif section == "tpms" and k == "rr_sensor": data["tpms"]["rr"] = v
+                        elif section == "tpms" and k == "low_pressure_alert": data["tpms"]["alert"] = float(v)
+                        elif section == "gps" and k == "enabled":
                             data["gps"]["enabled"] = (v.lower() == "true")
         except Exception as e:
             print(f"[BLE-Server] Error reading config: {e}", file=sys.stderr)
     return json.dumps(data)
+
+
+def touch_app_connected():
+    """Signals the Rust dashboard UI that the mobile companion app is actively connected"""
+    try:
+        with open("/dev/shm/icarmeter_app_connected", "w") as f:
+            f.write("1")
+    except Exception:
+        pass
 
 
 def write_config_json(payload_bytes):
@@ -238,7 +251,6 @@ class Characteristic(dbus.service.Object):
         self.uuid = uuid
         self.service = service
         self.flags = flags
-        self.value = []
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_properties(self):
@@ -246,8 +258,7 @@ class Characteristic(dbus.service.Object):
             GATT_CHRC_IFACE: {
                 'Service': self.service.get_path(),
                 'UUID': self.uuid,
-                'Flags': self.flags,
-                'Value': dbus.Array(self.value, signature='y')
+                'Flags': self.flags
             }
         }
 
@@ -270,11 +281,15 @@ class TpmsConfigCharacteristic(Characteristic):
             service
         )
 
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
     def ReadValue(self, options):
+        touch_app_connected()
         json_data = read_config_json()
         return [dbus.Byte(b) for b in json_data.encode('utf-8')]
 
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}')
     def WriteValue(self, value, options):
+        touch_app_connected()
         write_config_json(value)
 
 
@@ -287,8 +302,9 @@ class GpsFeedCharacteristic(Characteristic):
             service
         )
 
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}')
     def WriteValue(self, value, options):
-        # Receives tethered GPS speed/location from mobile app
+        touch_app_connected()
         pass
 
 
@@ -301,10 +317,14 @@ class SystemCtrlCharacteristic(Characteristic):
             service
         )
 
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
     def ReadValue(self, options):
+        touch_app_connected()
         return [dbus.Byte(b) for b in b'{"status":"ok","mode":"icarmeter"}']
 
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}')
     def WriteValue(self, value, options):
+        touch_app_connected()
         pass
 
 
@@ -317,10 +337,14 @@ class TripStatsCharacteristic(Characteristic):
             service
         )
 
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
     def ReadValue(self, options):
+        touch_app_connected()
         return [dbus.Byte(b) for b in b'[]']
 
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}')
     def WriteValue(self, value, options):
+        touch_app_connected()
         pass
 
 
@@ -359,18 +383,23 @@ def main():
     ad = Advertisement(bus, 0, 'peripheral')
 
     mainloop = GLib.MainLoop()
+    startup_failed = {"value": False}
 
     def register_app_cb():
         print('[BLE-Server] GATT application registered successfully.')
 
     def register_app_error_cb(error):
         print(f'[BLE-Server] Failed to register GATT application: {error}', file=sys.stderr)
+        startup_failed["value"] = True
+        mainloop.quit()
 
     def register_ad_cb():
         print("[BLE-Server] Advertisement 'ICarMeter by I4104' registered successfully.")
 
     def register_ad_error_cb(error):
         print(f'[BLE-Server] Failed to register advertisement: {error}', file=sys.stderr)
+        startup_failed["value"] = True
+        mainloop.quit()
 
     gatt_mgr.RegisterApplication(app.get_path(), {},
                                  reply_handler=register_app_cb,
@@ -382,6 +411,7 @@ def main():
 
     print("[BLE-Server] ICarMeter Bluetooth LE service running...")
     mainloop.run()
+    return 1 if startup_failed["value"] else 0
 
 
 if __name__ == '__main__':

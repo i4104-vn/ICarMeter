@@ -1,6 +1,6 @@
 #!/bin/bash -e
 # ==============================================================================
-# Host-side: Install ICarMeter binary, configuration, and service unit
+# Host-side: Install ICarMeter binary, configuration, and boot integration
 # ==============================================================================
 
 APP_DIR="${ROOTFS_DIR}/opt/icarmeter"
@@ -8,8 +8,10 @@ install -d -m 755 "${APP_DIR}"
 install -m 644 files/config.toml "${APP_DIR}/config.toml"
 install -m 755 files/icarmeter-bt-init.sh "${APP_DIR}/icarmeter-bt-init.sh"
 install -m 755 files/icarmeter-ble-service.py "${APP_DIR}/icarmeter-ble-service.py"
-install -m 644 files/icarmeter.service "${ROOTFS_DIR}/etc/systemd/system/icarmeter.service"
+install -d -m 755 "${ROOTFS_DIR}/etc/profile.d"
+install -m 644 files/icarmeter-dashboard.sh "${ROOTFS_DIR}/etc/profile.d/icarmeter-dashboard.sh"
 install -m 644 files/icarmeter-bluetooth.service "${ROOTFS_DIR}/etc/systemd/system/icarmeter-bluetooth.service"
+install -m 644 files/icarmeter-ble.service "${ROOTFS_DIR}/etc/systemd/system/icarmeter-ble.service"
 
 if [ -f files/car_dashboard ]; then
     echo "Found pre-compiled car_dashboard binary. Installing into rootfs..."

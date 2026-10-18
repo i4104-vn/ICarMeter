@@ -84,12 +84,13 @@ impl SpeedometerPanel {
 
         // 4. Draw Speedometer elements if active/fading
         let display_speed = params.brackets_speed.unwrap_or(speed);
-        let (core_color, _glow_color) = get_tier_colors(display_speed);
+        let digits_speed = params.digits_speed.unwrap_or(speed);
+        let (core_color, _glow_color) = get_tier_colors(digits_speed);
 
         // Suction particles
         if params.particles_alpha > 0.001 {
-            self.engine.update(speed, dt);
-            let active_count = self.engine.active_count(speed);
+            self.engine.update(digits_speed, dt);
+            let active_count = self.engine.active_count(digits_speed);
             ParticleRenderer::draw(
                 pixmap,
                 self.engine.particles(),
@@ -113,7 +114,14 @@ impl SpeedometerPanel {
 
         // Speed digits
         if params.digits_alpha > 0.001 {
-            SpeedometerDigits::draw(pixmap, fonts, speed, center_x, core_color, params.digits_alpha);
+            SpeedometerDigits::draw(
+                pixmap,
+                fonts,
+                digits_speed,
+                center_x,
+                core_color,
+                params.digits_alpha,
+            );
         }
     }
 }

@@ -8,16 +8,19 @@ pub fn outer_bg() -> Color {
     Color::from_rgba8(0, 0, 0, 255) // #000000 Pure pitch black
 }
 
+#[allow(dead_code)]
 #[inline(always)]
 pub fn card_bg() -> Color {
     Color::from_rgba8(0, 0, 0, 255) // #000000 Pure black container
 }
 
+#[allow(dead_code)]
 #[inline(always)]
 pub fn card_border() -> Color {
     Color::from_rgba8(38, 38, 42, 255) // #26262A Subtle neutral dark gray border
 }
 
+#[allow(dead_code)]
 #[inline(always)]
 pub fn card_border_glow() -> Color {
     Color::from_rgba8(0, 0, 0, 0) // No blue glow
@@ -60,4 +63,3 @@ pub fn alert_red_fill() -> Color {
 pub fn alert_red_glow() -> Color {
     Color::from_rgba8(255, 50, 50, 110) // Ambient red glow for warning tire
 }
-

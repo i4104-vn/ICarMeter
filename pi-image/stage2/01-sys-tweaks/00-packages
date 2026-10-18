@@ -8,8 +8,6 @@ dphys-swapfile
 raspberrypi-sys-mods
 pi-bluetooth
 bluez
-bluez-tools
-bluez-firmware
 rfkill
 libpam-chksshpwd
 rsync
@@ -19,4 +17,3 @@ pciutils
 rpi-eeprom
 file
 modemmanager-
-

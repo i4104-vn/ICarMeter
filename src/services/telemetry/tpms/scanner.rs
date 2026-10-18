@@ -1,10 +1,8 @@
 // Background Bluetooth LE scanner loop capturing advertising packets
 
 use super::decoder::{decode_tpms_pressure, decode_tpms_temperature, matches_sensor_id};
-use super::hci_socket::{
-    EVT_LE_ADVERTISING_REPORT, EVT_LE_META_EVENT, HCI_EVENT_PKT, HciSocket,
-};
-use crate::configs::hardware::BleTpmsConfig;
+use super::hci_socket::{EVT_LE_ADVERTISING_REPORT, EVT_LE_META_EVENT, HCI_EVENT_PKT, HciSocket};
+use crate::configs::app::BleTpmsConfig;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -90,55 +88,62 @@ pub fn run_ble_scanner_loop(
                 let payload = &data[offset + 2..offset + 1 + ad_len];
 
                 // 1. Check for complete local name (EMO trigger or TPMS name)
-                if (ad_type == 0x09 || ad_type == 0x08) && !payload.is_empty() {
-                    if let Ok(name) = std::str::from_utf8(payload) {
-                        if let Some(emo_name) = name.strip_prefix("EMO:") {
-                            if let Ok(mut expr) = expression.lock() {
-                                *expr = Some(emo_name.trim().to_string());
-                            }
-                        }
-                    }
+                if (ad_type == 0x09 || ad_type == 0x08)
+                    && !payload.is_empty()
+                    && let Ok(name) = std::str::from_utf8(payload)
+                    && let Some(emo_name) = name.strip_prefix("EMO:")
+                    && let Ok(mut expr) = expression.lock()
+                {
+                    *expr = Some(emo_name.trim().to_string());
                 }
 
                 // 2. Check for Manufacturer Specific Data (0xFF) or Service Data (0x16)
-                if ad_type == 0xFF || ad_type == 0x16 {
-                    if let Some(pressure) = decode_tpms_pressure(payload) {
-                        let temp = decode_tpms_temperature(payload).unwrap_or(0.0);
-                        let mut matched = false;
+                if (ad_type == 0xFF || ad_type == 0x16)
+                    && let Some(pressure) = decode_tpms_pressure(payload)
+                {
+                    let temp = decode_tpms_temperature(payload).unwrap_or(0.0);
+                    let mut matched = false;
 
-                        if matches_sensor_id(&config.fl_sensor, &mac_str, payload) {
-                            if let Ok(mut p) = pressures.lock() {
-                                p.fl = pressure;
-                                if temp != 0.0 { p.fl_temp = temp; }
+                    if matches_sensor_id(&config.fl_sensor, &mac_str, payload) {
+                        if let Ok(mut p) = pressures.lock() {
+                            p.fl = pressure;
+                            if temp != 0.0 {
+                                p.fl_temp = temp;
                             }
-                            matched = true;
-                        } else if matches_sensor_id(&config.fr_sensor, &mac_str, payload) {
-                            if let Ok(mut p) = pressures.lock() {
-                                p.fr = pressure;
-                                if temp != 0.0 { p.fr_temp = temp; }
-                            }
-                            matched = true;
-                        } else if matches_sensor_id(&config.rl_sensor, &mac_str, payload) {
-                            if let Ok(mut p) = pressures.lock() {
-                                p.rl = pressure;
-                                if temp != 0.0 { p.rl_temp = temp; }
-                            }
-                            matched = true;
-                        } else if matches_sensor_id(&config.rr_sensor, &mac_str, payload) {
-                            if let Ok(mut p) = pressures.lock() {
-                                p.rr = pressure;
-                                if temp != 0.0 { p.rr_temp = temp; }
-                            }
-                            matched = true;
                         }
+                        matched = true;
+                    } else if matches_sensor_id(&config.fr_sensor, &mac_str, payload) {
+                        if let Ok(mut p) = pressures.lock() {
+                            p.fr = pressure;
+                            if temp != 0.0 {
+                                p.fr_temp = temp;
+                            }
+                        }
+                        matched = true;
+                    } else if matches_sensor_id(&config.rl_sensor, &mac_str, payload) {
+                        if let Ok(mut p) = pressures.lock() {
+                            p.rl = pressure;
+                            if temp != 0.0 {
+                                p.rl_temp = temp;
+                            }
+                        }
+                        matched = true;
+                    } else if matches_sensor_id(&config.rr_sensor, &mac_str, payload) {
+                        if let Ok(mut p) = pressures.lock() {
+                            p.rr = pressure;
+                            if temp != 0.0 {
+                                p.rr_temp = temp;
+                            }
+                        }
+                        matched = true;
+                    }
 
-                        // Discovery notification for unmatched sensors (helps user find their sensor MACs)
-                        if !matched && discovered_sensors.insert(mac_str.clone()) {
-                            eprintln!(
-                                "[TPMS-BLE] Discovered sensor MAC: {} (Pressure: {:.1} bar, Temp: {:.0}°C)",
-                                mac_str, pressure, temp
-                            );
-                        }
+                    // Discovery notification for unmatched sensors (helps user find their sensor MACs)
+                    if !matched && discovered_sensors.insert(mac_str.clone()) {
+                        eprintln!(
+                            "[TPMS-BLE] Discovered sensor MAC: {} (Pressure: {:.1} bar, Temp: {:.0}°C)",
+                            mac_str, pressure, temp
+                        );
                     }
                 }
 
