@@ -34,7 +34,7 @@
                     <span class="sync-dot" id="syncDot"></span>
                     <span class="sync-status" id="syncStatusText">Đang chờ kết nối...</span>
                 </div>
-                <button class="btn-reload" id="btnReloadConfig" onclick="fetchConfigFromPi()" title="Kéo cấu hình mới nhất từ Pi">Tải từ Pi</button>
+                <button class="btn-reload" id="btnReloadConfig" onclick="fetchConfigFromPi()" title="Sync">Đồng bộ</button>
             </div>
 
             <!-- TAB 1: DASHBOARD -->
@@ -114,7 +114,7 @@
                         <span class="card-label">CẤU HÌNH 4 VAN CẢM BIẾN (TPMS)</span>
                         <span class="card-meta" id="tpmsSyncTimestamp">Chờ đồng bộ...</span>
                     </div>
-                    <p class="section-desc">Cấu hình được lưu trực tiếp trên Pi. Điện thoại đọc cấu hình gốc từ Pi và gửi cập nhật chỉ với 1 chạm.</p>
+                    <p class="section-desc">Cấu hình được lưu trực tiếp trên. Điện thoại đọc cấu hình gốc từ và gửi cập nhật chỉ với 1 chạm.</p>
 
                     <!-- Car Diagram Inputs -->
                     <div class="tpms-layout">
@@ -122,12 +122,12 @@
                         <div class="tpms-row">
                             <div class="tire-input-card">
                                 <div class="tire-badge">TRƯỚC TRÁI (FL)</div>
-                                <input type="text" class="input-flat" id="inputFlSensor" placeholder="Chờ đọc từ Pi..." maxlength="17" spellcheck="false">
+                                <input type="text" class="input-flat" id="inputFlSensor" placeholder="Chờ đọc từ..." maxlength="17" spellcheck="false">
                             </div>
                             <div class="car-visual-front">▲ ĐẦU XE</div>
                             <div class="tire-input-card">
                                 <div class="tire-badge">TRƯỚC PHẢI (FR)</div>
-                                <input type="text" class="input-flat" id="inputFrSensor" placeholder="Chờ đọc từ Pi..." maxlength="17" spellcheck="false">
+                                <input type="text" class="input-flat" id="inputFrSensor" placeholder="Chờ đọc từ..." maxlength="17" spellcheck="false">
                             </div>
                         </div>
 
@@ -135,12 +135,12 @@
                         <div class="tpms-row">
                             <div class="tire-input-card">
                                 <div class="tire-badge">SAU TRÁI (RL)</div>
-                                <input type="text" class="input-flat" id="inputRlSensor" placeholder="Chờ đọc từ Pi..." maxlength="17" spellcheck="false">
+                                <input type="text" class="input-flat" id="inputRlSensor" placeholder="Chờ đọc từ..." maxlength="17" spellcheck="false">
                             </div>
                             <div class="car-visual-rear">▼ ĐUÔI XE</div>
                             <div class="tire-input-card">
                                 <div class="tire-badge">SAU PHẢI (RR)</div>
-                                <input type="text" class="input-flat" id="inputRrSensor" placeholder="Chờ đọc từ Pi..." maxlength="17" spellcheck="false">
+                                <input type="text" class="input-flat" id="inputRrSensor" placeholder="Chờ đọc từ..." maxlength="17" spellcheck="false">
                             </div>
                         </div>
                     </div>
@@ -150,14 +150,14 @@
                         <label class="form-label">Ngưỡng cảnh báo áp suất thấp (Bar)</label>
                         <div class="range-container">
                             <input type="number" class="input-flat" id="inputPressureAlert" step="0.1" min="1.5" max="3.5" value="2.2" style="max-width: 120px;">
-                            <span class="range-hint">Lưu trong config.toml của Pi</span>
+                            <span class="range-hint">Lưu trong config.toml của</span>
                         </div>
                     </div>
 
                     <!-- Actions -->
                     <div class="actions-row">
-                        <button class="btn btn-secondary" onclick="fetchConfigFromPi()">Tải lại từ Pi</button>
-                        <button class="btn btn-primary" onclick="saveAndSyncTpmsToPi()">Lưu & Đồng Bộ Sang Pi</button>
+                        <button class="btn btn-secondary" onclick="fetchConfigFromPi()">Tải lại</button>
+                        <button class="btn btn-primary" onclick="saveAndSyncTpmsToPi()">Lưu & Đồng Bộ</button>
                     </div>
                 </div>
             </section>
@@ -222,7 +222,7 @@
 
                 <div class="card">
                     <div class="card-header">
-                        <span class="card-label">CHẠY NGẦM & TIẾT KIỆM PIN</span>
+                        <span class="card-label">CHẠY NGẦM & TIẾT KIỆMN</span>
                     </div>
                     <div class="setting-item">
                         <div class="setting-text">
@@ -238,37 +238,19 @@
                     <div class="setting-item">
                         <div class="setting-text">
                             <div class="setting-title">Tần Số Gửi GPS</div>
-                            <div class="setting-desc">Tần số cao giúp đồng hồ mượt mà hơn, tần số thấp giúp tiết kiệm pin hơn.</div>
+                            <div class="setting-desc">Tần số cao giúp đồng hồ mượt mà hơn, tần số thấp giúp tiết kiệmn hơn.</div>
                         </div>
                         <select class="select-flat" id="selectGpsRate" onchange="saveSettings()">
-                            <option value="1">1 Hz (Tiết kiệm pin tối đa)</option>
+                            <option value="1">1 Hz (Tiết kiệmn tối đa)</option>
                             <option value="5" selected>5 Hz (Cân bằng - Khuyên dùng)</option>
                             <option value="10">10 Hz (Mượt mà nhất)</option>
                         </select>
                     </div>
                 </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-label">THÔNG TIN HỆ THỐNG</span>
-                    </div>
-                    <div class="info-row">
-                        <span>Phiên bản App</span>
-                        <span>1.0.0 (Build 2026.10)</span>
-                    </div>
-                    <div class="info-row">
-                        <span>Thiết bị đích</span>
-                        <span>Raspberry Pi OS Bookworm 64-bit</span>
-                    </div>
-                    <div class="info-row">
-                        <span>Giao thức BLE</span>
-                        <span>ICarMeter GATT Standard (500kbps)</span>
-                    </div>
-                </div>
             </section>
         </main>
 
-        <!-- Floating Pill Navbar -->
+        <!-- Floatingll Navbar -->
         <nav class="pill-navbar">
             <button class="pill-nav-item active" data-tab="tabDashboard" onclick="switchTab('tabDashboard')">
                 <svg class="pill-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M13 2.05v2.02c3.95.49 7 3.85 7 7.93 0 3.21-1.9 6-4.72 7.28L14 17c2.38-1.19 4-3.66 4-6.5 0-3.53-2.61-6.43-6-6.95M11 2.05C7.05 2.54 4 5.9 4 9.98c0 2.84 1.62 5.31 4 6.5l-1.28 2.26C3.9 17.46 2 14.67 2 11.46c0-4.08 3.05-7.44 7-7.93v2.02M12 6a4 4 0 0 0-4 4c0 1.61.96 3 2.34 3.65l1.66-2.9v-.75a1 1 0 0 1 2 0v.75l1.66 2.9C17.04 13 18 11.61 18 10a4 4 0 0 0-4-4Z"/></svg>
