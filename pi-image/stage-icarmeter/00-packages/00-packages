@@ -5,6 +5,5 @@ plymouth
 plymouth-themes
 pix-plym-splash
 kmod
-libraspberrypi-bin
 fontconfig
 curl
