@@ -154,8 +154,9 @@
     <div class="stage-wrapper" id="stage">
         <!-- Overlay for no signal -->
         <div class="no-signal" id="noSignalOverlay">
-            <h2>NO SIGNAL</h2>
-            <p>Connect your Raspberry Pi HDMI to the USB Capture Card</p>
+            <h2 id="signalTitle">NO SIGNAL</h2>
+            <p id="signalDesc">Connect your Raspberry Pi HDMI to the USB Capture Card</p>
+            <p id="signalError" style="color: #f87171; font-size: 11px; max-width: 500px; text-align: center; margin-top: -6px;"></p>
             <button onclick="startStream()">Start / Detect Card</button>
         </div>
 
@@ -239,6 +240,13 @@
                 }
             } catch (err) {
                 console.warn("Could not start video stream:", err);
+                const signalTitle = document.getElementById('signalTitle');
+                const signalDesc = document.getElementById('signalDesc');
+                const signalError = document.getElementById('signalError');
+                
+                signalTitle.textContent = "CAPTURE UNAVAILABLE";
+                signalDesc.textContent = "Close OBS Studio or other camera apps that might be using this capture card.";
+                signalError.textContent = `Error: ${err.name} - ${err.message}`;
                 noSignalOverlay.style.display = 'flex';
             }
         }
