@@ -5,6 +5,9 @@ pub mod nmea;
 use nmea::parse_nmea_speed;
 use std::fs::{File, OpenOptions};
 use std::os::unix::io::AsRawFd;
+use std::time::{Duration, Instant};
+
+const GPS_FIX_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub struct GpsReceiver {
     device_path: String,
@@ -12,6 +15,7 @@ pub struct GpsReceiver {
     file: Option<File>,
     buffer: Vec<u8>,
     logged_error: bool,
+    last_valid_fix: Option<Instant>,
 }
 
 impl GpsReceiver {
@@ -22,6 +26,7 @@ impl GpsReceiver {
             file: None,
             buffer: Vec::with_capacity(512),
             logged_error: false,
+            last_valid_fix: None,
         };
         receiver.try_open();
         receiver
@@ -29,6 +34,9 @@ impl GpsReceiver {
 
     pub fn is_connected(&self) -> bool {
         self.file.is_some()
+            && self
+                .last_valid_fix
+                .is_some_and(|timestamp| timestamp.elapsed() < GPS_FIX_TIMEOUT)
     }
 
     fn try_open(&mut self) {
@@ -97,7 +105,16 @@ impl GpsReceiver {
             )
         };
 
-        if bytes_read <= 0 {
+        if bytes_read < 0 {
+            // The GPS was unplugged or the serial device disappeared. Let the
+            // next poll attempt reopen it instead of keeping a stale handle.
+            self.file = None;
+            self.last_valid_fix = None;
+            self.buffer.clear();
+            return None;
+        }
+
+        if bytes_read == 0 {
             return None;
         }
 
@@ -112,6 +129,7 @@ impl GpsReceiver {
             if let Ok(line) = std::str::from_utf8(&line_bytes) {
                 let trimmed = line.trim();
                 if let Some(spd) = parse_nmea_speed(trimmed) {
+                    self.last_valid_fix = Some(Instant::now());
                     latest_speed = Some(spd);
                 }
             }

@@ -19,11 +19,11 @@ ln -sf /opt/icarmeter/car_dashboard /usr/local/bin/icarmeter
 # Ensure SSH host keys are generated and present so ssh.service never fails
 ssh-keygen -A || true
 
-# Configure Bluetooth: Set name to "ICarMeter by I4104" and keep always discoverable/powered on
+# Configure Bluetooth: Set name to "ICarMeter" and keep always discoverable/powered on
 mkdir -p /etc/bluetooth
 cat << 'EOF' > /etc/bluetooth/main.conf
 [General]
-Name = ICarMeter by I4104
+Name = ICarMeter
 Class = 0x000100
 DiscoverableTimeout = 0
 PairableTimeout = 0
@@ -37,7 +37,7 @@ AutoEnable = true
 EOF
 
 # Set system machine-info pretty hostname for Bluetooth discovery
-echo 'PRETTY_HOSTNAME="ICarMeter by I4104"' > /etc/machine-info
+echo 'PRETTY_HOSTNAME="ICarMeter"' > /etc/machine-info
 
 # Ensure bluetooth scripts have execute permission
 chmod 755 /opt/icarmeter/icarmeter-bt-init.sh 2>/dev/null || true

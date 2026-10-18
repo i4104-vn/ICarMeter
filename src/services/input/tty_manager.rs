@@ -102,28 +102,34 @@ impl TtyManager {
         manager
     }
 
-    /// Polls non-blocking keyboard input. Only exits on SIGTERM/SIGINT or explicit 'q'/'Q'.
-    /// Never exits on raw 0x1B which matches terminal escape sequences sent during boot.
-    pub fn poll_exit(&self) -> bool {
+    /// Polls one non-blocking keyboard byte.
+    ///
+    /// Only q/Q changes the process state. Other keys are returned to the
+    /// controller so feature-specific shortcuts can be handled there.
+    pub fn poll_key(&mut self) -> Option<u8> {
         if !is_app_running() {
-            return true;
+            return None;
         }
 
         if let Some(fd) = self.tty_fd {
             let mut buf = [0u8; 16];
             let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
             if n > 0 {
+                let mut key = None;
                 for &b in &buf[..n as usize] {
-                    // Only explicit 'q' or 'Q' keypress exits (never 0x1B or Ctrl+C from Plymouth)
                     if b == b'q' || b == b'Q' {
                         GLOBAL_RUNNING.store(false, Ordering::SeqCst);
-                        return true;
+                    } else if key.is_none() && b != 0x1B {
+                        // Ignore escape bytes from terminal sequences, but keep
+                        // ordinary application shortcut keys.
+                        key = Some(b);
                     }
                 }
+                return key;
             }
         }
 
-        false
+        None
     }
 }
 

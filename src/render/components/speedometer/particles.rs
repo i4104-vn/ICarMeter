@@ -1,6 +1,7 @@
 // Renders straight-line inward suction dots (no tails) with alpha fade
 
 use crate::models::Particle;
+use crate::services::particle_engine::PARTICLE_TERMINAL_DISTANCE;
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform};
 
 pub struct ParticleRenderer;
@@ -41,14 +42,20 @@ impl ParticleRenderer {
                 1.0
             };
 
-            // Opacity: fades out smoothly as it enters the digits core
-            let core_fade = if p.dist < 54.0 {
-                ((p.dist - 32.0) / 22.0).clamp(0.0, 1.0)
-            } else {
-                1.0
-            };
+            // Keep the center digit area clean. The ellipse follows the
+            // visual footprint of the large speed value rather than using a
+            // circular cutoff that would leave particles over the glyphs.
+            let digit_dx = (px - center_x) / 92.0;
+            let digit_dy = (py - (center_y + 8.0)) / 106.0;
+            if digit_dx * digit_dx + digit_dy * digit_dy < 1.0 {
+                continue;
+            }
 
-            let combined_alpha = (edge_fade * core_fade * alpha * 255.0) as u8;
+            // Fade particles as they reach the inner edge of the brackets.
+            // They disappear before entering the digit-safe zone.
+            let inner_fade = ((p.dist - PARTICLE_TERMINAL_DISTANCE) / 28.0).clamp(0.0, 1.0);
+
+            let combined_alpha = (edge_fade * inner_fade * alpha * 255.0) as u8;
             if combined_alpha == 0 {
                 continue;
             }

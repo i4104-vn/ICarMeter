@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ICarMeter BLE Peripheral & GATT Service
-Provides Bluetooth LE Advertisement as 'ICarMeter by I4104' and GATT Server
+Provides Bluetooth LE Advertisement as 'ICarMeter' and GATT Server
 for Mobile Companion App synchronization with /opt/icarmeter/config.toml
 """
 
@@ -152,8 +152,10 @@ class Advertisement(dbus.service.Object):
         self.bus = bus
         self.ad_type = advertising_type
         self.service_uuids = [BLE_SERVICE_UUID]
-        self.local_name = 'ICarMeter by I4104'
-        self.include_tx_power = True
+        # Keep the legacy advertisement payload small enough for adapters that
+        # do not move LocalName into the scan response. The classic Bluetooth
+        # alias remains the full "ICarMeter" name.
+        self.local_name = 'ICarMeter'
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_properties(self):
@@ -162,7 +164,6 @@ class Advertisement(dbus.service.Object):
         properties['ServiceUUIDs'] = dbus.Array(self.service_uuids, signature='s')
         properties['LocalName'] = dbus.String(self.local_name)
         properties['Discoverable'] = dbus.Boolean(True)
-        properties['IncludeTxPower'] = dbus.Boolean(self.include_tx_power)
         return {LE_ADVERTISEMENT_IFACE: properties}
 
     def get_path(self):
@@ -394,7 +395,7 @@ def main():
         mainloop.quit()
 
     def register_ad_cb():
-        print("[BLE-Server] Advertisement 'ICarMeter by I4104' registered successfully.")
+        print("[BLE-Server] Advertisement 'ICarMeter' registered successfully.")
 
     def register_ad_error_cb(error):
         print(f'[BLE-Server] Failed to register advertisement: {error}', file=sys.stderr)

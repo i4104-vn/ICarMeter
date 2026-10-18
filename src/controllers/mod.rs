@@ -1,6 +1,7 @@
 // Controllers module facade
 
 pub mod app_controller;
+pub mod demo;
 
 pub use app_controller::AppController;
 

@@ -1,8 +1,8 @@
 [Unit]
 Description=ICarMeter BLE GATT peripheral
-Requires=bluetooth.service icarmeter-bluetooth.service
+Requires=bluetooth.service hciuart.service icarmeter-bluetooth.service
 PartOf=bluetooth.service
-After=bluetooth.service icarmeter-bluetooth.service
+After=bluetooth.service hciuart.service icarmeter-bluetooth.service
 
 [Service]
 Type=simple

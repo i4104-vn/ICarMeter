@@ -5,7 +5,9 @@ use super::core::FontRenderer;
 use super::pixel_buffer::PixelBuffer;
 use crate::configs::display::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::models::VehicleState;
-use tiny_skia::Pixmap;
+use tiny_skia::{Color, Paint, Pixmap, Rect, Transform};
+
+const STARTUP_FADE_DURATION: f32 = 1.4;
 
 pub struct DashboardRenderer {
     pixmap: Pixmap,
@@ -14,6 +16,7 @@ pub struct DashboardRenderer {
     car_panel: CarPanel,
     speed_panel: SpeedometerPanel,
     stats_panel: StatsPanel,
+    startup_elapsed: f32,
 }
 
 impl DashboardRenderer {
@@ -32,6 +35,7 @@ impl DashboardRenderer {
             car_panel,
             speed_panel,
             stats_panel,
+            startup_elapsed: 0.0,
         })
     }
 
@@ -52,8 +56,30 @@ impl DashboardRenderer {
         // 5. Render Bottom Footer (Bluetooth, App, GPS status)
         FooterRenderer::draw(&mut self.pixmap, &self.fonts, state);
 
+        // Fade the complete dashboard in after initialization instead of
+        // exposing a fully rendered frame abruptly.
+        self.startup_elapsed = (self.startup_elapsed + dt.max(0.0)).min(STARTUP_FADE_DURATION);
+        draw_startup_fade(&mut self.pixmap, self.startup_elapsed);
+
         self.pixel_buffer.update_from_pixmap(&self.pixmap);
 
         self.pixel_buffer.as_slice()
     }
+}
+
+fn draw_startup_fade(pixmap: &mut Pixmap, elapsed: f32) {
+    let progress = (elapsed / STARTUP_FADE_DURATION).clamp(0.0, 1.0);
+    let eased = progress * progress * (3.0 - 2.0 * progress);
+    let overlay_alpha = ((1.0 - eased) * 255.0).round() as u8;
+    if overlay_alpha == 0 {
+        return;
+    }
+
+    let Some(rect) = Rect::from_xywh(0.0, 0.0, pixmap.width() as f32, pixmap.height() as f32)
+    else {
+        return;
+    };
+    let mut paint = Paint::default();
+    paint.set_color(Color::from_rgba8(0, 0, 0, overlay_alpha));
+    pixmap.fill_rect(rect, &paint, Transform::identity(), None);
 }

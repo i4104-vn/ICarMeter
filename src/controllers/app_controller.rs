@@ -2,6 +2,7 @@
 
 use crate::configs::AppConfig;
 use crate::configs::display::{PHYSICAL_HEIGHT_MM, PHYSICAL_WIDTH_MM, SCREEN_HEIGHT, SCREEN_WIDTH};
+use crate::controllers::demo::DemoSpeed;
 use crate::models::VehicleState;
 use crate::render::DashboardRenderer;
 use crate::services::{FramebufferBackend, TelemetryService, is_app_running};
@@ -16,6 +17,7 @@ impl AppController {
         let config = AppConfig::load();
 
         let mut state = VehicleState::new();
+        let mut demo_speed = DemoSpeed::new();
 
         // 2. Initialize real telemetry service (GPS & Bluetooth sensors)
         let mut telemetry = TelemetryService::new(&config);
@@ -58,12 +60,22 @@ impl AppController {
         let mut last_time = Instant::now();
 
         while backend.is_open() && is_app_running() {
+            if let Some(key) = backend.poll_key() {
+                if key.to_ascii_lowercase() == b'a' {
+                    demo_speed.toggle(&mut state);
+                }
+            }
+            if !backend.is_open() {
+                break;
+            }
+
             let now = Instant::now();
             let dt = now.duration_since(last_time).as_secs_f32().min(0.1);
             last_time = now;
 
             // Update real vehicle telemetry from GPS and Bluetooth sensors
             telemetry.update(&mut state, dt);
+            demo_speed.update(&mut state, dt);
 
             // Render frame to pixel buffer
             let buffer = renderer.render(&state, dt);

@@ -35,10 +35,12 @@ impl TelemetryService {
     pub fn update(&mut self, state: &mut VehicleState, dt: f32) {
         // 1. Poll GPS for live speed and connection state
         if let Some(ref mut gps) = self.gps {
-            state.gps_connected = gps.is_connected();
             if let Some(speed) = gps.poll_speed() {
                 state.current_speed = speed.max(0.0);
             }
+            // A serial device can be open while the receiver has no valid
+            // satellite fix. Only expose GPS as active after valid NMEA data.
+            state.gps_connected = gps.is_connected();
         } else {
             state.gps_connected = false;
         }

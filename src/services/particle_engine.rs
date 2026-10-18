@@ -3,6 +3,7 @@
 use crate::models::Particle;
 
 pub const MAX_PARTICLES: usize = 180;
+pub const PARTICLE_TERMINAL_DISTANCE: f32 = 96.0;
 
 pub struct ParticleEngine {
     particles: Vec<Particle>,
@@ -14,7 +15,7 @@ impl ParticleEngine {
         for i in 0..MAX_PARTICLES {
             let seed = (i as f32 * 19.17).sin().abs();
             let angle = (i as f32 / MAX_PARTICLES as f32) * std::f32::consts::TAU + (seed * 0.5);
-            let dist = 38.0 + seed * 185.0; // Suction field radius up to 223px
+            let dist = PARTICLE_TERMINAL_DISTANCE + seed * 135.0; // Keep the inner edge outside the digits
             let size = 1.4 + seed * 2.2;
             let speed_factor = 0.75 + seed * 0.55;
             particles.push(Particle::new(angle, dist, size, speed_factor));
@@ -35,9 +36,9 @@ impl ParticleEngine {
         for (idx, p) in self.particles[..active].iter_mut().enumerate() {
             p.dist -= inward_speed * p.speed_factor * dt;
 
-            // When particle enters the center core, respawn at outer boundary
-            if p.dist < 32.0 {
-                p.dist = 165.0 + ((idx as f32 * 23.7).sin().abs()) * 58.0;
+            // Stop at the inner edge of the brackets, never inside the digits.
+            if p.dist < PARTICLE_TERMINAL_DISTANCE {
+                p.dist = 161.0 + ((idx as f32 * 23.7).sin().abs()) * 58.0;
                 p.angle = ((idx as f32 * 11.3).cos() * 0.5 + 0.5) * std::f32::consts::TAU;
             }
         }

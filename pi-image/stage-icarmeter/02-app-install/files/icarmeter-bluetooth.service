@@ -1,7 +1,8 @@
 [Unit]
 Description=ICarMeter Bluetooth adapter setup
 Requires=bluetooth.service
-After=bluetooth.service
+Requires=hciuart.service
+After=bluetooth.service hciuart.service
 Before=icarmeter-ble.service
 
 [Service]

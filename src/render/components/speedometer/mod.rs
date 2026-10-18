@@ -23,6 +23,7 @@ pub struct SpeedometerPanel {
     engine: ParticleEngine,
     emo: EmoRenderer,
     transitions: CenterTransitionManager,
+    visual_speed: f32,
 }
 
 impl SpeedometerPanel {
@@ -31,6 +32,7 @@ impl SpeedometerPanel {
             engine: ParticleEngine::new(),
             emo: EmoRenderer::new(),
             transitions: CenterTransitionManager::new(),
+            visual_speed: 0.0,
         }
     }
 
@@ -54,6 +56,7 @@ impl SpeedometerPanel {
         // 1. Update center state machine
         self.transitions.update(speed, dt);
         let params = self.transitions.visual_parameters();
+        let render_speed = self.smooth_speed(speed, dt);
 
         // 2. Draw Startup Welcome sequence if active
         if params.welcome_alpha > 0.001 {
@@ -83,8 +86,8 @@ impl SpeedometerPanel {
         }
 
         // 4. Draw Speedometer elements if active/fading
-        let display_speed = params.brackets_speed.unwrap_or(speed);
-        let digits_speed = params.digits_speed.unwrap_or(speed);
+        let display_speed = params.brackets_speed.unwrap_or(render_speed);
+        let digits_speed = params.digits_speed.unwrap_or(render_speed);
         let (core_color, _glow_color) = get_tier_colors(digits_speed);
 
         // Suction particles
@@ -123,5 +126,15 @@ impl SpeedometerPanel {
                 params.digits_alpha,
             );
         }
+    }
+
+    fn smooth_speed(&mut self, target: f32, dt: f32) -> f32 {
+        let dt = dt.max(0.0).min(0.05);
+        let response = 1.0 - (-dt * 14.0).exp();
+        self.visual_speed += (target.max(0.0) - self.visual_speed) * response;
+        if target <= 0.01 && self.visual_speed < 0.05 {
+            self.visual_speed = 0.0;
+        }
+        self.visual_speed
     }
 }

@@ -1,6 +1,6 @@
 //! Visual output mapping for the center-panel transition state machine.
 
-use super::{CenterModeState, CenterTransitionManager};
+use super::{CenterModeState, CenterTransitionManager, WELCOME_SLEEP_END};
 
 #[derive(Debug, Clone, Copy)]
 pub struct CenterVisualParams {
@@ -100,50 +100,21 @@ impl CenterTransitionManager {
 }
 
 fn welcome_parameters(time: f32) -> CenterVisualParams {
-    if time < 2.0 {
-        CenterVisualParams {
-            emo_alpha: 0.0,
-            brackets_fly: 0.0,
-            brackets_alpha: 0.0,
-            brackets_speed: None,
-            digits_speed: None,
-            digits_alpha: 0.0,
-            particles_alpha: 0.0,
-            welcome_time: time,
-            welcome_alpha: 1.0,
-        }
-    } else if time < 3.2 {
-        let speed = ((time - 2.0) / 1.2).clamp(0.0, 1.0) * 100.0;
-        sweep_parameters(time, speed, 1.0)
-    } else if time < 4.4 {
-        let speed = (1.0 - ((time - 3.2) / 1.2).clamp(0.0, 1.0)) * 100.0;
-        sweep_parameters(time, speed, 1.0)
-    } else {
-        let progress = ((time - 4.4) / 0.4).clamp(0.0, 1.0);
-        CenterVisualParams {
-            emo_alpha: progress,
-            brackets_fly: 1.0,
-            brackets_alpha: 1.0 - progress,
-            brackets_speed: Some(0.0),
-            digits_speed: Some(0.0),
-            digits_alpha: 1.0 - progress,
-            particles_alpha: 0.0,
-            welcome_time: time,
-            welcome_alpha: 0.0,
-        }
+    CenterVisualParams {
+        emo_alpha: 0.0,
+        brackets_fly: 0.0,
+        brackets_alpha: 0.0,
+        brackets_speed: None,
+        digits_speed: None,
+        digits_alpha: 0.0,
+        particles_alpha: 0.0,
+        welcome_time: time,
+        // Fade the center in during the first part of the sleep animation.
+        welcome_alpha: smoothstep((time / WELCOME_SLEEP_END).clamp(0.0, 1.0)),
     }
 }
 
-fn sweep_parameters(time: f32, speed: f32, alpha: f32) -> CenterVisualParams {
-    CenterVisualParams {
-        emo_alpha: 0.0,
-        brackets_fly: 1.0,
-        brackets_alpha: alpha,
-        brackets_speed: Some(speed),
-        digits_speed: Some(speed),
-        digits_alpha: alpha,
-        particles_alpha: alpha,
-        welcome_time: time,
-        welcome_alpha: 0.0,
-    }
+fn smoothstep(progress: f32) -> f32 {
+    let t = progress.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }

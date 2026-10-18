@@ -128,12 +128,12 @@ async function connectBle() {
         updateBleStatusUI("connecting", "Đang quét xe...");
         updateSyncBarUI(false, "Đang quét thiết bị ICarMeter...");
 
-        // Scan for ICarMeter by I4104 device
+        // Scan for ICarMeter device
         let device;
         try {
             device = await navigator.bluetooth.requestDevice({
                 filters: [
-                    { name: "ICarMeter by I4104" },
+                    { name: "ICarMeter" },
                     { namePrefix: "ICarMeter" },
                     { namePrefix: "ICar" }
                 ],

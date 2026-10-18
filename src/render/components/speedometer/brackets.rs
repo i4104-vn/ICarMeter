@@ -1,8 +1,10 @@
-// Speedometer brackets "( )" arcs: progressive bottom-to-top filling based on speed,
-// tiered color change upon filling, outward flying animation, and glassmorphic track.
+// Premium speedometer brackets with a restrained track, smooth reveal and a
+// single continuous speed gradient shared with the digits.
 
+use super::tier::get_tier_colors;
 use tiny_skia::{
-    BlendMode, Color, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, Stroke, Transform,
+    BlendMode, Color, FillRule, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, Stroke,
+    Transform,
 };
 
 pub struct SpeedometerBrackets;
@@ -14,185 +16,215 @@ impl SpeedometerBrackets {
         }
 
         let cx = 640.0;
-        // Ease-out cubic interpolation for flying brackets
-        let t = 1.0 - (1.0 - fly_progress.clamp(0.0, 1.0)).powi(3);
-
-        // Control points ordered strictly from BOTTOM (y = 348.0) to TOP (y = 132.0):
-        // Left bracket:
-        let l_bottom = (cx + (530.0 - cx) * t, 348.0);
-        let l_ctrl_low = (cx + (450.0 - cx) * t, 305.0);
-        let l_ctrl_high = (cx + (450.0 - cx) * t, 175.0);
-        let l_top = (cx + (530.0 - cx) * t, 132.0);
-
-        // Right bracket:
-        let r_bottom = (cx + (750.0 - cx) * t, 348.0);
-        let r_ctrl_low = (cx + (830.0 - cx) * t, 305.0);
-        let r_ctrl_high = (cx + (830.0 - cx) * t, 175.0);
-        let r_top = (cx + (750.0 - cx) * t, 132.0);
-
-        let core_width = 9.5 * t.max(0.4);
-        let glow_width = 22.0 * t.max(0.4);
-
-        // 1. Draw Background Track (unlit bracket tube)
-        let track_full_left = Self::sub_path(l_bottom, l_ctrl_low, l_ctrl_high, l_top, 1.0);
-        let track_full_right = Self::sub_path(r_bottom, r_ctrl_low, r_ctrl_high, r_top, 1.0);
-
-        // Track ambient aura (neutral subtle dark glow)
-        let track_aura_color = Color::from_rgba8(50, 50, 55, (20.0 * alpha) as u8);
-        Self::stroke_path(
-            pixmap,
-            &track_full_left,
-            track_aura_color,
-            glow_width * 0.85,
-            BlendMode::Screen,
+        let fly = ease_out_cubic(fly_progress.clamp(0.0, 1.0));
+        let left = Curve::new(
+            (cx + (530.0 - cx) * fly, 348.0),
+            (cx + (450.0 - cx) * fly, 305.0),
+            (cx + (450.0 - cx) * fly, 175.0),
+            (cx + (530.0 - cx) * fly, 132.0),
         );
-        Self::stroke_path(
-            pixmap,
-            &track_full_right,
-            track_aura_color,
-            glow_width * 0.85,
-            BlendMode::Screen,
+        let right = Curve::new(
+            (cx + (750.0 - cx) * fly, 348.0),
+            (cx + (830.0 - cx) * fly, 305.0),
+            (cx + (830.0 - cx) * fly, 175.0),
+            (cx + (750.0 - cx) * fly, 132.0),
         );
 
-        // Track core channel (dark acrylic / unlit neon tube)
-        let track_core_color = Color::from_rgba8(28, 28, 32, (190.0 * alpha) as u8);
-        Self::stroke_path(
-            pixmap,
-            &track_full_left,
-            track_core_color,
-            core_width,
-            BlendMode::SourceOver,
-        );
-        Self::stroke_path(
-            pixmap,
-            &track_full_right,
-            track_core_color,
-            core_width,
-            BlendMode::SourceOver,
-        );
+        let scale = 0.65 + 0.35 * fly;
+        let track = Color::from_rgba8(42, 50, 58, opacity(0.62, alpha));
+        let track_glow = Color::from_rgba8(70, 82, 92, opacity(0.10, alpha));
 
-        // 2. Compute Active Tier (White < 40, Yellow 40..70, Red >= 70):
-        // Each tier fills from 0.0 to 1.0 from bottom to top.
-        // When a tier is full, crossing into the next tier returns the bar to its initial state
-        // and fills the new color from bottom to top!
-        let (progress, core_color, glow_color, glow_scale) = if speed < 40.0 {
-            // Tier 0: Pure White
-            let p = (speed / 40.0).clamp(0.0, 1.0);
-            let core = Color::from_rgba8(255, 255, 255, (255.0 * alpha) as u8);
-            let glow = Color::from_rgba8(230, 245, 255, (130.0 * alpha) as u8);
-            (p, core, glow, 1.0)
-        } else if speed < 70.0 {
-            // Tier 1: Electric Yellow
-            let p = ((speed - 40.0) / 30.0).clamp(0.0, 1.0);
-            let core = Color::from_rgba8(255, 215, 0, (255.0 * alpha) as u8);
-            let glow = Color::from_rgba8(255, 195, 0, (120.0 * alpha) as u8);
-            (p, core, glow, 1.0)
-        } else {
-            // Tier 2: Orange-Red
-            let p = ((speed - 70.0) / 30.0).clamp(0.0, 1.0);
-            let core = Color::from_rgba8(255, 69, 0, (255.0 * alpha) as u8);
-            let glow = Color::from_rgba8(255, 50, 0, (130.0 * alpha) as u8);
-            (p, core, glow, 1.1)
-        };
-
-        // 3. Render Active Beam rising from bottom to top in current tier color:
-        if progress > 0.001 {
-            let left_path = Self::sub_path(l_bottom, l_ctrl_low, l_ctrl_high, l_top, progress);
-            let right_path = Self::sub_path(r_bottom, r_ctrl_low, r_ctrl_high, r_top, progress);
-
-            Self::stroke_path(
+        // A quiet track keeps the bracket readable without looking like a
+        // thick neon tube when the car is stationary.
+        for curve in [&left, &right] {
+            stroke_path(
                 pixmap,
-                &left_path,
-                glow_color,
-                glow_width * glow_scale,
+                &curve.full_path(),
+                track_glow,
+                15.0 * scale,
                 BlendMode::Screen,
             );
-            Self::stroke_path(
+            stroke_path(
                 pixmap,
-                &right_path,
-                glow_color,
-                glow_width * glow_scale,
-                BlendMode::Screen,
-            );
-            Self::stroke_path(
-                pixmap,
-                &left_path,
-                core_color,
-                core_width,
+                &curve.full_path(),
+                track,
+                5.0 * scale,
                 BlendMode::SourceOver,
             );
-            Self::stroke_path(
+        }
+
+        let progress = ease_in_out((speed / 100.0).clamp(0.0, 1.0));
+        if progress <= 0.001 {
+            return;
+        }
+
+        let (core, glow) = get_tier_colors(speed);
+        let active_core = with_alpha(core, alpha * 0.98);
+        let active_glow = with_alpha(glow, alpha * 0.36);
+        let active_soft = with_alpha(glow, alpha * 0.16);
+
+        for curve in [&left, &right] {
+            let active_path = curve.sub_path(progress);
+            stroke_path(
                 pixmap,
-                &right_path,
-                core_color,
-                core_width,
+                &active_path,
+                active_soft,
+                24.0 * scale,
+                BlendMode::Screen,
+            );
+            stroke_path(
+                pixmap,
+                &active_path,
+                active_glow,
+                12.0 * scale,
+                BlendMode::Screen,
+            );
+            stroke_path(
+                pixmap,
+                &active_path,
+                active_core,
+                6.5 * scale,
+                BlendMode::SourceOver,
+            );
+
+            // A small moving cap makes the fill feel continuous at 60 FPS.
+            let (x, y) = curve.point_at(progress);
+            draw_dot(pixmap, x, y, 7.0 * scale, active_glow, BlendMode::Screen);
+            draw_dot(
+                pixmap,
+                x,
+                y,
+                2.8 * scale,
+                active_core,
                 BlendMode::SourceOver,
             );
         }
     }
+}
 
-    /// Trims a cubic Bezier curve from u = 0.0 (bottom) to u = progress (towards top) using De Casteljau's algorithm
-    fn sub_path(
-        p0: (f32, f32),
-        p1: (f32, f32),
-        p2: (f32, f32),
-        p3: (f32, f32),
-        progress: f32,
-    ) -> Option<Path> {
+struct Curve {
+    p0: (f32, f32),
+    p1: (f32, f32),
+    p2: (f32, f32),
+    p3: (f32, f32),
+}
+
+impl Curve {
+    fn new(p0: (f32, f32), p1: (f32, f32), p2: (f32, f32), p3: (f32, f32)) -> Self {
+        Self { p0, p1, p2, p3 }
+    }
+
+    fn full_path(&self) -> Option<Path> {
+        self.sub_path(1.0)
+    }
+
+    fn sub_path(&self, progress: f32) -> Option<Path> {
         let p = progress.clamp(0.0, 1.0);
         if p <= 0.001 {
             return None;
         }
-
+        let lerp = |a: (f32, f32), b: (f32, f32), amount: f32| {
+            (a.0 + (b.0 - a.0) * amount, a.1 + (b.1 - a.1) * amount)
+        };
         let (q0, q1, q2, q3) = if p >= 0.999 {
-            (p0, p1, p2, p3)
+            (self.p0, self.p1, self.p2, self.p3)
         } else {
-            let lerp = |a: (f32, f32), b: (f32, f32), u: f32| {
-                (a.0 + (b.0 - a.0) * u, a.1 + (b.1 - a.1) * u)
-            };
-            let q0 = p0;
-            let q1 = lerp(p0, p1, p);
-            let r0 = lerp(p1, p2, p);
-            let r1 = lerp(p2, p3, p);
+            let q1 = lerp(self.p0, self.p1, p);
+            let r0 = lerp(self.p1, self.p2, p);
+            let r1 = lerp(self.p2, self.p3, p);
             let q2 = lerp(q1, r0, p);
             let s0 = lerp(r0, r1, p);
             let q3 = lerp(q2, s0, p);
-            (q0, q1, q2, q3)
+            (self.p0, q1, q2, q3)
         };
 
-        let mut pb = PathBuilder::new();
-        pb.move_to(q0.0, q0.1);
-        pb.cubic_to(q1.0, q1.1, q2.0, q2.1, q3.0, q3.1);
-        pb.finish()
+        let mut builder = PathBuilder::new();
+        builder.move_to(q0.0, q0.1);
+        builder.cubic_to(q1.0, q1.1, q2.0, q2.1, q3.0, q3.1);
+        builder.finish()
     }
 
-    fn stroke_path(
-        pixmap: &mut Pixmap,
-        path: &Option<Path>,
-        color: Color,
-        width: f32,
-        blend_mode: BlendMode,
-    ) {
-        let Some(p) = path else {
-            return;
-        };
-        if color.alpha() == 0.0 {
-            return;
-        }
-
-        let mut paint = Paint::default();
-        paint.set_color(color);
-        paint.anti_alias = true;
-        paint.blend_mode = blend_mode;
-
-        let stroke = Stroke {
-            width,
-            miter_limit: 4.0,
-            line_cap: LineCap::Round,
-            line_join: LineJoin::Round,
-            dash: None,
-        };
-
-        pixmap.stroke_path(p, &paint, &stroke, Transform::identity(), None);
+    fn point_at(&self, progress: f32) -> (f32, f32) {
+        let t = progress.clamp(0.0, 1.0);
+        let one_minus_t = 1.0 - t;
+        let a = one_minus_t.powi(3);
+        let b = 3.0 * one_minus_t.powi(2) * t;
+        let c = 3.0 * one_minus_t * t.powi(2);
+        let d = t.powi(3);
+        (
+            a * self.p0.0 + b * self.p1.0 + c * self.p2.0 + d * self.p3.0,
+            a * self.p0.1 + b * self.p1.1 + c * self.p2.1 + d * self.p3.1,
+        )
     }
+}
+
+fn stroke_path(
+    pixmap: &mut Pixmap,
+    path: &Option<Path>,
+    color: Color,
+    width: f32,
+    blend_mode: BlendMode,
+) {
+    let Some(path) = path else {
+        return;
+    };
+    if color.alpha() <= 0.001 {
+        return;
+    }
+    let mut paint = Paint::default();
+    paint.set_color(color);
+    paint.anti_alias = true;
+    paint.blend_mode = blend_mode;
+    let stroke = Stroke {
+        width,
+        line_cap: LineCap::Round,
+        line_join: LineJoin::Round,
+        ..Default::default()
+    };
+    pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+}
+
+fn draw_dot(pixmap: &mut Pixmap, x: f32, y: f32, radius: f32, color: Color, blend_mode: BlendMode) {
+    if color.alpha() <= 0.001 {
+        return;
+    }
+    let mut path_builder = PathBuilder::new();
+    path_builder.push_circle(x, y, radius);
+    let Some(path) = path_builder.finish() else {
+        return;
+    };
+    let mut paint = Paint::default();
+    paint.set_color(color);
+    paint.anti_alias = true;
+    paint.blend_mode = blend_mode;
+    pixmap.fill_path(
+        &path,
+        &paint,
+        FillRule::Winding,
+        Transform::identity(),
+        None,
+    );
+}
+
+fn with_alpha(color: Color, opacity: f32) -> Color {
+    Color::from_rgba8(
+        (color.red() * 255.0).round() as u8,
+        (color.green() * 255.0).round() as u8,
+        (color.blue() * 255.0).round() as u8,
+        (color.alpha() * opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
+    )
+}
+
+fn opacity(base: f32, alpha: f32) -> u8 {
+    (base * alpha.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+fn ease_in_out(value: f32) -> f32 {
+    let t = value.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn ease_out_cubic(value: f32) -> f32 {
+    let t = value.clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
 }

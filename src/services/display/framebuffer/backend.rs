@@ -4,7 +4,7 @@ use super::info::{
     FBIOGET_FSCREENINFO, FBIOGET_VSCREENINFO, FBIOPUT_VSCREENINFO, FbFixScreeninfo, FbVarScreeninfo,
 };
 use crate::configs::display::{SCREEN_HEIGHT, SCREEN_WIDTH};
-use crate::services::input::TtyManager;
+use crate::services::input::{TtyManager, is_app_running};
 use memmap2::MmapMut;
 use std::fs::{File, OpenOptions};
 use std::os::unix::io::AsRawFd;
@@ -114,7 +114,11 @@ impl FramebufferBackend {
     }
 
     pub fn is_open(&self) -> bool {
-        !self.tty.poll_exit()
+        is_app_running()
+    }
+
+    pub fn poll_key(&mut self) -> Option<u8> {
+        self.tty.poll_key()
     }
 
     pub fn present(&mut self, buffer: &[u32]) -> Result<(), String> {

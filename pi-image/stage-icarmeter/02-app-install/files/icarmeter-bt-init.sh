@@ -4,15 +4,17 @@
 
 set -u
 
-NAME="ICarMeter by I4104"
+NAME="ICarMeter"
 BLUETOOTHCTL="/usr/bin/bluetoothctl"
+BTMGMT="/usr/bin/btmgmt"
 
 echo "[Bluetooth-Init] Waiting for a BlueZ controller..."
 rfkill unblock bluetooth 2>/dev/null || true
 
 controller_found=0
 for _ in $(seq 1 45); do
-    if "${BLUETOOTHCTL}" list 2>/dev/null | grep -q "Controller"; then
+    if "${BTMGMT}" info 2>/dev/null | grep -Eq "hci[0-9]+:" || \
+        "${BLUETOOTHCTL}" list 2>/dev/null | grep -q "Controller"; then
         controller_found=1
         break
     fi
@@ -25,8 +27,18 @@ if [ "${controller_found}" != "1" ]; then
     exit 1
 fi
 
-# Use BlueZ's management API through bluetoothctl. This works for both the
-# legacy hciuart adapter and newer Raspberry Pi Bluetooth firmware.
+# Bring the controller up through the kernel management API first. This avoids
+# relying on the deprecated hciconfig/hcitool utilities and works with both
+# Raspberry Pi UART Bluetooth and newer controllers.
+if [ -x "${BTMGMT}" ]; then
+    "${BTMGMT}" power on || true
+    "${BTMGMT}" connectable on || true
+    "${BTMGMT}" bondable on || true
+    "${BTMGMT}" advertising on || true
+fi
+
+# Keep the full human-readable alias for Classic Bluetooth discovery and
+# pairing. The BLE GATT advertisement uses a shorter payload-safe name.
 "${BLUETOOTHCTL}" power on || true
 "${BLUETOOTHCTL}" system-alias "${NAME}" || true
 "${BLUETOOTHCTL}" discoverable-timeout 0 || true
