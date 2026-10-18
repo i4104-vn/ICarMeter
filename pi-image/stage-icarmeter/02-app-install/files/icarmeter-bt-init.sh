@@ -14,12 +14,18 @@ rfkill unblock bluetooth 2>/dev/null || true
 # 2. Trigger Broadcom bcm43xx firmware attachment if on Raspberry Pi
 systemctl start hciuart.service 2>/dev/null || true
 systemctl start bcm43xx.service 2>/dev/null || true
+if [ -x /usr/bin/btuart ] && ! hciconfig hci0 2>/dev/null; then
+    /usr/bin/btuart 2>/dev/null || true
+fi
 
 # 3. Wait for Bluetooth adapter (hci0) to appear (up to 30s)
 for i in {1..30}; do
     if hciconfig hci0 2>/dev/null; then
         echo "[Bluetooth-Init] Found hci0 on iteration $i."
         break
+    fi
+    if [ -x /usr/bin/btuart ]; then
+        /usr/bin/btuart 2>/dev/null || true
     fi
     sleep 1
 done

@@ -6,9 +6,9 @@ pub mod types;
 
 use crate::render::core::FontRenderer;
 use animator::EmoAnimator;
-use sprite_renderer::EmoSpriteRenderer;
-use tiny_skia::Pixmap;
+pub use sprite_renderer::EmoSpriteRenderer;
 pub use types::EmoExpression;
+use tiny_skia::Pixmap;
 
 pub struct EmoRenderer {
     animator: EmoAnimator,

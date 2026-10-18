@@ -116,7 +116,7 @@ def main():
     # Aspect ratio compensation factor for ultra-wide / stretched displays.
     # The physical display / capture pipeline stretches horizontally by ~1.77x (16:9 stretch).
     # Pre-squeezing horizontally by ASPECT_CORRECTION ensures the cat displays perfectly round (1:1).
-    ASPECT_CORRECTION = 1.77
+    ASPECT_CORRECTION = 1.75
 
     # Scale cat to height 320 on 1280x480 canvas
     target_h = 320

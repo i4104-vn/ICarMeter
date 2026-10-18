@@ -1,5 +1,7 @@
 bluez
 bluez-tools
+bluez-firmware
+firmware-brcm80211
 pi-bluetooth
 rfkill
 python3-dbus

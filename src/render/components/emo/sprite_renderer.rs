@@ -77,7 +77,10 @@ impl EmoSpriteRenderer {
         let sprite = &expressions[expression_index];
         // Begin with a representative pose so forced emotions read correctly on the first frame.
         let elapsed_frame = (time.max(0.0) * FRAME_RATE).floor() as usize;
-        let frame_index = if mood == EmoExpression::Sleeping {
+        let frame_index = if mood == EmoExpression::Sleeping
+            || mood == EmoExpression::Sleepy
+            || mood == EmoExpression::Atlas(26)
+        {
             elapsed_frame % FRAME_COUNT
         } else {
             elapsed_frame.min(FRAME_COUNT - 1)
@@ -233,22 +236,22 @@ fn parse_color(value: &str) -> Color {
 fn expression_cell(expression: EmoExpression) -> usize {
     match expression {
         EmoExpression::Atlas(index) => index as usize,
-        EmoExpression::Normal => 29,    // smile
-        EmoExpression::Relaxed => 30,   // smirk
-        EmoExpression::Winking => 31,   // squint
-        EmoExpression::Angry => 1,      // angry
-        EmoExpression::Rage => 2,       // angry3
-        EmoExpression::Sleepy => 28,    // sleepy
-        EmoExpression::Sleeping => 20,  // ngap
-        EmoExpression::AngryBlush => 1, // angry
-        EmoExpression::Crying => 5,     // cry
-        EmoExpression::FlatSlit => 21,  // nheo_mat
-        EmoExpression::Happy => 7,      // cuoi
-        EmoExpression::Squint => 31,    // squint
-        EmoExpression::Love => 36,      // UwU
-        EmoExpression::Sparkle => 26,   // rainbow
-        EmoExpression::Surprised => 19, // ngac_nhien
-        EmoExpression::Starry => 36,    // UwU
-        EmoExpression::Dizzy => 4,      // chong_mat
+        EmoExpression::Normal => 27,    // smile.svg
+        EmoExpression::Relaxed => 28,   // smirk.svg
+        EmoExpression::Winking => 19,   // nheo_mat.svg
+        EmoExpression::Angry => 10,     // gian_du.svg
+        EmoExpression::Rage => 6,       // demon_slayer.svg
+        EmoExpression::Sleepy => 26,    // sleepy.svg
+        EmoExpression::Sleeping => 26,  // sleepy.svg
+        EmoExpression::AngryBlush => 7, // devil.svg
+        EmoExpression::Crying => 3,     // cry.svg
+        EmoExpression::FlatSlit => 19,  // nheo_mat.svg
+        EmoExpression::Happy => 5,      // cuoi.svg
+        EmoExpression::Squint => 29,    // squint.svg
+        EmoExpression::Love => 34,      // UwU.svg
+        EmoExpression::Sparkle => 24,   // rainbow.svg
+        EmoExpression::Surprised => 17, // ngac_nhien.svg
+        EmoExpression::Starry => 34,    // UwU.svg
+        EmoExpression::Dizzy => 2,      // chong_mat.svg
     }
 }

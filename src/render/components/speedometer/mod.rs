@@ -5,6 +5,7 @@ pub mod digits;
 pub mod particles;
 pub mod tier;
 pub mod transition;
+pub mod welcome;
 
 use super::emo::{EmoExpression, EmoRenderer};
 use crate::models::VehicleState;
@@ -16,6 +17,7 @@ use particles::ParticleRenderer;
 use tier::get_tier_colors;
 use tiny_skia::Pixmap;
 use transition::{CenterModeState, CenterTransitionManager};
+use welcome::SpeedometerWelcome;
 
 pub struct SpeedometerPanel {
     engine: ParticleEngine,
@@ -44,17 +46,29 @@ impl SpeedometerPanel {
         let center_y = 240.0;
         let speed = state.current_speed;
 
-        // If forced expression provided, lock immediately to Emo mode
-        if forced_emo.is_some() {
+        // If forced expression provided, lock to Emo mode
+        if forced_emo.is_some() && self.transitions.state != CenterModeState::EmoActive {
             self.transitions.state = CenterModeState::EmoActive;
         }
 
         // 1. Update center state machine
         self.transitions.update(speed, dt);
-        let (emo_a, brk_fly, brk_a, digit_a, particle_a) = self.transitions.visual_parameters();
+        let params = self.transitions.visual_parameters();
 
-        // 2. Draw Emo digital companion eyes if active/fading
-        if emo_a > 0.001 {
+        // 2. Draw Startup Welcome sequence if active
+        if params.welcome_alpha > 0.001 {
+            SpeedometerWelcome::draw(
+                pixmap,
+                fonts,
+                center_x,
+                center_y,
+                params.welcome_time,
+                params.welcome_alpha,
+            );
+        }
+
+        // 3. Draw Emo digital companion eyes if active/fading
+        if params.emo_alpha > 0.001 {
             self.emo.draw(
                 pixmap,
                 fonts,
@@ -63,16 +77,17 @@ impl SpeedometerPanel {
                 dt,
                 self.transitions.elapsed_time,
                 self.transitions.idle_zero_timer,
-                emo_a,
+                params.emo_alpha,
                 forced_emo,
             );
         }
 
-        // 3. Draw Speedometer elements if active/fading
-        let (core_color, _glow_color) = get_tier_colors(speed);
+        // 4. Draw Speedometer elements if active/fading
+        let display_speed = params.brackets_speed.unwrap_or(speed);
+        let (core_color, _glow_color) = get_tier_colors(display_speed);
 
         // Suction particles
-        if particle_a > 0.001 {
+        if params.particles_alpha > 0.001 {
             self.engine.update(speed, dt);
             let active_count = self.engine.active_count(speed);
             ParticleRenderer::draw(
@@ -82,18 +97,23 @@ impl SpeedometerPanel {
                 center_x,
                 center_y,
                 core_color,
-                particle_a,
+                params.particles_alpha,
             );
         }
 
         // Brackets "( )" with progressive bottom-to-top fill and tiered color transitions
-        if brk_a > 0.001 {
-            SpeedometerBrackets::draw(pixmap, speed, brk_fly, brk_a);
+        if params.brackets_alpha > 0.001 {
+            SpeedometerBrackets::draw(
+                pixmap,
+                display_speed,
+                params.brackets_fly,
+                params.brackets_alpha,
+            );
         }
 
         // Speed digits
-        if digit_a > 0.001 {
-            SpeedometerDigits::draw(pixmap, fonts, speed, center_x, core_color, digit_a);
+        if params.digits_alpha > 0.001 {
+            SpeedometerDigits::draw(pixmap, fonts, speed, center_x, core_color, params.digits_alpha);
         }
     }
 }

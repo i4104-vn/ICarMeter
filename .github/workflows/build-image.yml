@@ -6,11 +6,11 @@ on:
       compression:
         description: "Image compression format"
         required: true
-        default: "xz"
+        default: "zip"
         type: choice
         options:
-          - xz
           - zip
+          - xz
       create_release:
         description: "Publish as GitHub Release"
         required: false

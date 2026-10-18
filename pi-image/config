@@ -23,9 +23,9 @@ TIMEZONE_DEFAULT="Asia/Ho_Chi_Minh"
 KEYBOARD_KEYMAP="us"
 KEYBOARD_LAYOUT="English (US)"
 
-# Output Archive Format (xz for small file size and fast network transfer)
-DEPLOY_COMPRESSION="xz"
-COMPRESSION_LEVEL=6
+# Output Archive Format (zip for fast compression and 100% flashing tool compatibility)
+DEPLOY_COMPRESSION="zip"
+COMPRESSION_LEVEL=1
 
 # Pipeline Stages to run:
 # Stage 0: Bootstrap filesystem
