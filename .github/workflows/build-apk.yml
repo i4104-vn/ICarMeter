@@ -26,6 +26,8 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.5"
 
       - name: Sync latest web assets into Android project
         run: |
@@ -38,40 +40,21 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
 
-      - name: Verify and organize generated APKs
+      - name: Package Single Universal APK
         run: |
-          mkdir -p dist-apks
-          OUTPUT_DIR="mobile-app/android/app/build/outputs/apk/debug"
-          ls -lah "$OUTPUT_DIR"
-
-          # Universal APK (both 32-bit and 64-bit compatible)
-          if [ -f "$OUTPUT_DIR/app-universal-debug.apk" ]; then
-            cp "$OUTPUT_DIR/app-universal-debug.apk" dist-apks/ICarMeter-Universal.apk
-            cp "$OUTPUT_DIR/app-universal-debug.apk" dist-apks/ICarMeter-Companion.apk
+          OUTPUT_APK="mobile-app/android/app/build/outputs/apk/debug/app-debug.apk"
+          if [ -f "$OUTPUT_APK" ]; then
+            cp "$OUTPUT_APK" ICarMeter.apk
+            ls -lah ICarMeter.apk
+          else
+            echo "ERROR: $OUTPUT_APK not found!" >&2
+            exit 1
           fi
 
-          # 64-bit ARM (arm64-v8a)
-          if [ -f "$OUTPUT_DIR/app-arm64-v8a-debug.apk" ]; then
-            cp "$OUTPUT_DIR/app-arm64-v8a-debug.apk" dist-apks/ICarMeter-arm64-v8a.apk
-          fi
-
-          # 32-bit ARM (armeabi-v7a)
-          if [ -f "$OUTPUT_DIR/app-armeabi-v7a-debug.apk" ]; then
-            cp "$OUTPUT_DIR/app-armeabi-v7a-debug.apk" dist-apks/ICarMeter-armeabi-v7a.apk
-          fi
-
-          # Fallback if standard unsplit apk was generated
-          if [ -f "$OUTPUT_DIR/app-debug.apk" ]; then
-            cp "$OUTPUT_DIR/app-debug.apk" dist-apks/ICarMeter-Companion.apk
-          fi
-
-          echo "Listing packaged APK files:"
-          ls -lah dist-apks/
-
-      - name: Upload APK Artifacts
+      - name: Upload Single APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: icarmeter-companion-apk
-          path: dist-apks/*.apk
+          name: ICarMeter-APK
+          path: ICarMeter.apk
           if-no-files-found: error
           retention-days: 14
