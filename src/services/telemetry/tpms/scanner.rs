@@ -1,6 +1,6 @@
 // Background Bluetooth LE scanner loop capturing advertising packets
 
-use super::decoder::{decode_tpms_pressure, matches_sensor_id};
+use super::decoder::{decode_tpms_pressure, decode_tpms_temperature, matches_sensor_id};
 use super::hci_socket::{
     EVT_LE_ADVERTISING_REPORT, EVT_LE_META_EVENT, HCI_EVENT_PKT, HciSocket,
 };
@@ -16,6 +16,10 @@ pub struct SharedTirePressures {
     pub fr: f32,
     pub rl: f32,
     pub rr: f32,
+    pub fl_temp: f32,
+    pub fr_temp: f32,
+    pub rl_temp: f32,
+    pub rr_temp: f32,
 }
 
 /// Continuous BLE advertising packet receiver loop running in background thread
@@ -99,26 +103,31 @@ pub fn run_ble_scanner_loop(
                 // 2. Check for Manufacturer Specific Data (0xFF) or Service Data (0x16)
                 if ad_type == 0xFF || ad_type == 0x16 {
                     if let Some(pressure) = decode_tpms_pressure(payload) {
+                        let temp = decode_tpms_temperature(payload).unwrap_or(0.0);
                         let mut matched = false;
 
                         if matches_sensor_id(&config.fl_sensor, &mac_str, payload) {
                             if let Ok(mut p) = pressures.lock() {
                                 p.fl = pressure;
+                                if temp != 0.0 { p.fl_temp = temp; }
                             }
                             matched = true;
                         } else if matches_sensor_id(&config.fr_sensor, &mac_str, payload) {
                             if let Ok(mut p) = pressures.lock() {
                                 p.fr = pressure;
+                                if temp != 0.0 { p.fr_temp = temp; }
                             }
                             matched = true;
                         } else if matches_sensor_id(&config.rl_sensor, &mac_str, payload) {
                             if let Ok(mut p) = pressures.lock() {
                                 p.rl = pressure;
+                                if temp != 0.0 { p.rl_temp = temp; }
                             }
                             matched = true;
                         } else if matches_sensor_id(&config.rr_sensor, &mac_str, payload) {
                             if let Ok(mut p) = pressures.lock() {
                                 p.rr = pressure;
+                                if temp != 0.0 { p.rr_temp = temp; }
                             }
                             matched = true;
                         }
@@ -126,8 +135,8 @@ pub fn run_ble_scanner_loop(
                         // Discovery notification for unmatched sensors (helps user find their sensor MACs)
                         if !matched && discovered_sensors.insert(mac_str.clone()) {
                             eprintln!(
-                                "[TPMS-BLE] Discovered sensor MAC: {} (Pressure: {:.1} bar)",
-                                mac_str, pressure
+                                "[TPMS-BLE] Discovered sensor MAC: {} (Pressure: {:.1} bar, Temp: {:.0}°C)",
+                                mac_str, pressure, temp
                             );
                         }
                     }

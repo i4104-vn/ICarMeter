@@ -20,10 +20,10 @@ impl Wheels {
         let rear_y = cy + 22.0;
 
         let wheel_items = [
-            (fl_x, front_y, tires.fl),
-            (fr_x, front_y, tires.fr),
-            (fl_x, rear_y, tires.rl),
-            (fr_x, rear_y, tires.rr),
+            (fl_x, front_y, tires.fl, tires.fl_temp),
+            (fr_x, front_y, tires.fr, tires.fr_temp),
+            (fl_x, rear_y, tires.rl, tires.rl_temp),
+            (fr_x, rear_y, tires.rr, tires.rr_temp),
         ];
 
         let alert_red = colors::alert_red();
@@ -32,11 +32,11 @@ impl Wheels {
         let normal_wheel_fill = Color::from_rgba8(22, 22, 24, 255);
         let normal_wheel_border = Color::from_rgba8(75, 75, 80, 255);
 
-        for &(wx, wy, pressure) in &wheel_items {
-            let is_low = TirePressures::is_low(pressure);
+        for &(wx, wy, pressure, temp) in &wheel_items {
+            let is_alert = TirePressures::is_low(pressure) || TirePressures::is_high_temp(temp);
             let wp = create_rounded_rect(wx, wy, WHEEL_WIDTH, WHEEL_HEIGHT, WHEEL_RADIUS);
 
-            if is_low {
+            if is_alert {
                 // RED ALERT: Fill tire with warning red & glow
                 let mut glow_paint = Paint::default();
                 glow_paint.set_color(alert_red_glow);

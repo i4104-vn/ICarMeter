@@ -92,3 +92,38 @@ pub fn decode_tpms_pressure(payload: &[u8]) -> Option<f32> {
 
     None
 }
+
+/// Decodes tire temperature in Celsius from common BLE TPMS manufacturer packets
+pub fn decode_tpms_temperature(payload: &[u8]) -> Option<f32> {
+    if payload.len() < 8 {
+        return None;
+    }
+
+    // 1. Sysgration 32-bit: temperature at offset 8..12
+    if payload.len() >= 12 {
+        let t_raw = i32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]) as f32;
+        let temp_c = t_raw / 100.0;
+        if (-40.0..=125.0).contains(&temp_c) {
+            return Some((temp_c * 10.0).round() / 10.0);
+        }
+        if (-40.0..=125.0).contains(&t_raw) {
+            return Some(t_raw);
+        }
+    }
+
+    // 2. 1-byte temperature at offsets 6, 7, 8
+    for &offset in &[6, 7, 8] {
+        if offset < payload.len() {
+            let val = payload[offset] as i8 as f32;
+            if (-20.0..=90.0).contains(&val) && val != 0.0 {
+                return Some(val);
+            }
+            let val_offset40 = payload[offset] as f32 - 40.0;
+            if (-20.0..=90.0).contains(&val_offset40) {
+                return Some(val_offset40);
+            }
+        }
+    }
+
+    None
+}

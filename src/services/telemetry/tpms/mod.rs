@@ -52,6 +52,18 @@ impl BleTpmsReceiver {
             if guard.rr > 0.0 {
                 state.tires.rr = guard.rr;
             }
+            if guard.fl_temp != 0.0 {
+                state.tires.fl_temp = guard.fl_temp;
+            }
+            if guard.fr_temp != 0.0 {
+                state.tires.fr_temp = guard.fr_temp;
+            }
+            if guard.rl_temp != 0.0 {
+                state.tires.rl_temp = guard.rl_temp;
+            }
+            if guard.rr_temp != 0.0 {
+                state.tires.rr_temp = guard.rr_temp;
+            }
         }
 
         if let Ok(mut expr_guard) = self.expression.try_lock() {
