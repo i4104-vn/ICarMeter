@@ -56,7 +56,7 @@ impl GpsReceiver {
                         libc::tcsetattr(fd, libc::TCSANOW, &termios);
                     }
                 }
-                println!("[GPS] Connected to {} at {} baud", self.device_path, self.baud_rate);
+                eprintln!("[GPS] Connected to {} at {} baud", self.device_path, self.baud_rate);
                 self.file = Some(file);
                 self.logged_error = false;
             }

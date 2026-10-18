@@ -20,9 +20,9 @@ if [ -n "$CMDLINE_FILE" ]; then
     # 1. Remove console=serial0,115200 so kernel serial console doesn't conflict with GPS
     sed -i -E 's/console=serial0,[0-9]+[ ]*//g' "$CMDLINE_FILE"
 
-    # 2. Append quiet splash parameters if not already present
+    # 2. Append quiet splash & silent systemd parameters if not already present
     if ! grep -q "quiet splash" "$CMDLINE_FILE"; then
-        sed -i 's/$/ quiet splash loglevel=3 logo.nologo vt.global_cursor_default=0 plymouth.ignore-serial-consoles/' "$CMDLINE_FILE"
+        sed -i 's/$/ quiet splash loglevel=1 systemd.show_status=0 logo.nologo vt.global_cursor_default=0 plymouth.ignore-serial-consoles/' "$CMDLINE_FILE"
     fi
 fi
 
@@ -43,6 +43,8 @@ disable_splash=1
 boot_delay=0
 enable_uart=1
 dtoverlay=miniuart-bt
+framebuffer_depth=32
+framebuffer_ignore_alpha=1
 EOF
     fi
 fi

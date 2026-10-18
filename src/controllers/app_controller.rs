@@ -28,21 +28,21 @@ impl AppController {
         let mut backend = FramebufferBackend::open(&config.display.framebuffer_device)
             .map_err(|e| format!("Failed to initialize framebuffer backend: {}", e))?;
 
-        println!("============================================================");
-        println!("  Car Digital Dashboard - Raspberry Pi OS (/dev/fb0)");
-        println!(
+        eprintln!("============================================================");
+        eprintln!("  Car Digital Dashboard - Raspberry Pi OS (/dev/fb0)");
+        eprintln!(
             "  Screen: 7-inch ({:.0}mm x {:.0}mm, {}x{} pixels)",
             PHYSICAL_WIDTH_MM, PHYSICAL_HEIGHT_MM, SCREEN_WIDTH, SCREEN_HEIGHT
         );
-        println!("  Target FPS: {}", config.display.target_fps);
-        println!("  GPS device: {} (enabled: {})", config.gps.device, config.gps.enabled);
-        println!(
+        eprintln!("  Target FPS: {}", config.display.target_fps);
+        eprintln!("  GPS device: {} (enabled: {})", config.gps.device, config.gps.enabled);
+        eprintln!(
             "  TPMS 4-Tire Wireless BLE ({}, enabled: {}):",
             config.tpms.adapter, config.tpms.enabled
         );
-        println!("    FL: {} | FR: {}", config.tpms.fl_sensor, config.tpms.fr_sensor);
-        println!("    RL: {} | RR: {}", config.tpms.rl_sensor, config.tpms.rr_sensor);
-        println!("============================================================");
+        eprintln!("    FL: {} | FR: {}", config.tpms.fl_sensor, config.tpms.fr_sensor);
+        eprintln!("    RL: {} | RR: {}", config.tpms.rl_sensor, config.tpms.rr_sensor);
+        eprintln!("============================================================");
 
         let target_fps = config.display.target_fps.clamp(15, 240);
         let frame_duration = Duration::from_micros(1_000_000 / target_fps);

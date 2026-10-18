@@ -77,6 +77,7 @@ pub struct FramebufferBackend {
     pub width: usize,
     pub height: usize,
     pub line_length: usize,
+    pub bpp: usize,
     is_bgr: bool,
     offset_x: usize,
     offset_y: usize,
@@ -109,13 +110,25 @@ impl FramebufferBackend {
             }
         }
 
+        // Attempt to request 32-bit depth if current driver defaulted to 16 bpp
+        if var_info.bits_per_pixel != 32 {
+            let mut req = var_info;
+            req.bits_per_pixel = 32;
+            req.activate = 0; // FB_ACTIVATE_NOW
+            if unsafe { libc::ioctl(fd, 0x4601, &mut req) } == 0 { // FBIOPUT_VSCREENINFO
+                let _ = unsafe { libc::ioctl(fd, FBIOGET_VSCREENINFO, &mut var_info) };
+                let _ = unsafe { libc::ioctl(fd, FBIOGET_FSCREENINFO, &mut fix_info) };
+            }
+        }
+
         let width = var_info.xres as usize;
         let height = var_info.yres as usize;
         let bpp = var_info.bits_per_pixel as usize;
+        let bytes_per_pixel = (bpp / 8).max(2);
         let line_length = if fix_info.line_length > 0 {
             fix_info.line_length as usize
         } else {
-            width * 4
+            width * bytes_per_pixel
         };
 
         if width == 0 || height == 0 {
@@ -138,7 +151,12 @@ impl FramebufferBackend {
         // Clear display to pure black
         mmap.fill(0);
 
-        let is_bgr = var_info.red.offset == 0 && var_info.blue.offset >= 16;
+        let is_bgr = if bpp == 16 {
+            var_info.red.offset == 0 && var_info.blue.offset >= 10
+        } else {
+            var_info.red.offset == 0 && var_info.blue.offset >= 16
+        };
+
         let offset_x = if width > SCREEN_WIDTH { (width - SCREEN_WIDTH) / 2 } else { 0 };
         let offset_y = if height > SCREEN_HEIGHT { (height - SCREEN_HEIGHT) / 2 } else { 0 };
 
@@ -155,6 +173,7 @@ impl FramebufferBackend {
             width,
             height,
             line_length,
+            bpp,
             is_bgr,
             offset_x,
             offset_y,
@@ -170,40 +189,72 @@ impl FramebufferBackend {
         let copy_width = SCREEN_WIDTH.min(self.width.saturating_sub(self.offset_x));
         let copy_height = SCREEN_HEIGHT.min(self.height.saturating_sub(self.offset_y));
 
-        if !self.is_bgr {
-            // Standard Little-Endian 32-bit XRGB (matches buffer in memory)
+        if self.bpp == 16 {
+            // 16 bpp RGB565 / BGR565 format (2 bytes per pixel)
+            let is_bgr565 = self.is_bgr;
             for y in 0..copy_height {
                 let src_start = y * SCREEN_WIDTH;
-                let src_slice = &buffer[src_start..src_start + copy_width];
-                let dst_offset = (self.offset_y + y) * self.line_length + self.offset_x * 4;
-                let byte_count = copy_width * 4;
+                let row_offset = (self.offset_y + y) * self.line_length;
+                let dst_byte_start = row_offset + self.offset_x * 2;
+                let dst_byte_end = dst_byte_start + copy_width * 2;
 
-                if dst_offset + byte_count <= self.mmap.len() {
+                if dst_byte_end <= self.mmap.len() {
                     unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            src_slice.as_ptr() as *const u8,
-                            self.mmap.as_mut_ptr().add(dst_offset),
-                            byte_count,
-                        );
+                        let dst_ptr = self.mmap.as_mut_ptr().add(dst_byte_start) as *mut u16;
+                        for x in 0..copy_width {
+                            let pixel = buffer[src_start + x];
+                            let r = ((pixel >> 16) & 0xFF) as u16;
+                            let g = ((pixel >> 8) & 0xFF) as u16;
+                            let b = (pixel & 0xFF) as u16;
+
+                            let val16 = if is_bgr565 {
+                                ((b >> 3) << 11) | ((g >> 2) << 5) | (r >> 3)
+                            } else {
+                                ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+                            };
+
+                            *dst_ptr.add(x) = val16;
+                        }
                     }
                 }
             }
         } else {
-            // BGRX byte swap for screens with Red at byte 0
-            for y in 0..copy_height {
-                let src_start = y * SCREEN_WIDTH;
-                let dst_offset = (self.offset_y + y) * self.line_length + self.offset_x * 4;
+            // 24 bpp / 32 bpp ARGB / XRGB format (4 bytes per pixel)
+            if !self.is_bgr {
+                // Standard Little-Endian 32-bit XRGB (matches buffer in memory)
+                for y in 0..copy_height {
+                    let src_start = y * SCREEN_WIDTH;
+                    let src_slice = &buffer[src_start..src_start + copy_width];
+                    let dst_offset = (self.offset_y + y) * self.line_length + self.offset_x * 4;
+                    let byte_count = copy_width * 4;
 
-                if dst_offset + copy_width * 4 <= self.mmap.len() {
-                    let dst_ptr = unsafe { self.mmap.as_mut_ptr().add(dst_offset) as *mut u32 };
-                    for x in 0..copy_width {
-                        let pixel = buffer[src_start + x];
-                        let swapped = (pixel & 0x0000FF00)
-                            | ((pixel & 0x00FF0000) >> 16)
-                            | ((pixel & 0x000000FF) << 16)
-                            | 0xFF000000;
+                    if dst_offset + byte_count <= self.mmap.len() {
                         unsafe {
-                            *dst_ptr.add(x) = swapped;
+                            std::ptr::copy_nonoverlapping(
+                                src_slice.as_ptr() as *const u8,
+                                self.mmap.as_mut_ptr().add(dst_offset),
+                                byte_count,
+                            );
+                        }
+                    }
+                }
+            } else {
+                // BGRX byte swap for screens with Red at byte 0
+                for y in 0..copy_height {
+                    let src_start = y * SCREEN_WIDTH;
+                    let dst_offset = (self.offset_y + y) * self.line_length + self.offset_x * 4;
+
+                    if dst_offset + copy_width * 4 <= self.mmap.len() {
+                        let dst_ptr = unsafe { self.mmap.as_mut_ptr().add(dst_offset) as *mut u32 };
+                        for x in 0..copy_width {
+                            let pixel = buffer[src_start + x];
+                            let swapped = (pixel & 0x0000FF00)
+                                | ((pixel & 0x00FF0000) >> 16)
+                                | ((pixel & 0x000000FF) << 16)
+                                | 0xFF000000;
+                            unsafe {
+                                *dst_ptr.add(x) = swapped;
+                            }
                         }
                     }
                 }

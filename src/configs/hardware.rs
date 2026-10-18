@@ -80,9 +80,29 @@ impl AppConfig {
                 continue;
             }
 
-            if let Some((key, val)) = trimmed.split_once('=') {
+            if let Some((key, val_raw)) = trimmed.split_once('=') {
                 let key = key.trim();
-                let val = val.trim().trim_matches('"').trim_matches('\'');
+                let trimmed_val = val_raw.trim();
+                let val_str = if trimmed_val.starts_with('"') {
+                    if let Some(end_idx) = trimmed_val[1..].find('"') {
+                        trimmed_val[1..=end_idx].to_string()
+                    } else {
+                        trimmed_val.trim_matches('"').to_string()
+                    }
+                } else if trimmed_val.starts_with('\'') {
+                    if let Some(end_idx) = trimmed_val[1..].find('\'') {
+                        trimmed_val[1..=end_idx].to_string()
+                    } else {
+                        trimmed_val.trim_matches('\'').to_string()
+                    }
+                } else {
+                    let before_hash = match trimmed_val.split_once('#') {
+                        Some((before, _)) => before.trim(),
+                        None => trimmed_val,
+                    };
+                    before_hash.trim_matches('"').trim_matches('\'').trim().to_string()
+                };
+                let val = val_str.as_str();
 
                 match current_section {
                     "gps" => match key {

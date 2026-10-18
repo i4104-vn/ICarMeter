@@ -39,7 +39,7 @@ pub fn run_ble_scanner_loop(
             }
         };
 
-        println!(
+        eprintln!(
             "[TPMS-BLE] Bluetooth LE scanner actively listening on {}...",
             config.adapter
         );
@@ -125,7 +125,7 @@ pub fn run_ble_scanner_loop(
 
                         // Discovery notification for unmatched sensors (helps user find their sensor MACs)
                         if !matched && discovered_sensors.insert(mac_str.clone()) {
-                            println!(
+                            eprintln!(
                                 "[TPMS-BLE] Discovered sensor MAC: {} (Pressure: {:.1} bar)",
                                 mac_str, pressure
                             );

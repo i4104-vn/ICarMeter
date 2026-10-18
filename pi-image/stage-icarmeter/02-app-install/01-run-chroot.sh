@@ -16,6 +16,14 @@ setcap 'cap_net_raw,cap_net_admin+eip' /opt/icarmeter/car_dashboard 2>/dev/null 
 ln -sf /opt/icarmeter/car_dashboard /usr/local/bin/car_dashboard
 ln -sf /opt/icarmeter/car_dashboard /usr/local/bin/icarmeter
 
+# Ensure SSH host keys are generated and present so ssh.service never fails
+ssh-keygen -A || true
+
+# Offline mode optimizations: do not block or wait for WiFi/network on boot
+systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
+systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
+systemctl disable getty@tty1.service 2>/dev/null || true
+
 # Enable autostart service on boot
 systemctl daemon-reload || true
 systemctl enable icarmeter.service || true
