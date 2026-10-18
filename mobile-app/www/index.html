@@ -56,7 +56,7 @@
                 <div class="card speed-card">
                     <div class="speed-header">
                         <span class="card-label">TỐC ĐỘ GPS</span>
-                        <span class="badge" id="gpsSourceBadge">ĐIỆN THOẠI (BLE)</span>
+                        <span class="badge" id="gpsSourceBadge">ĐIỆN THOẠI</span>
                     </div>
                     <div class="speed-display">
                         <span class="speed-number" id="liveSpeedNumber">0</span>
@@ -114,7 +114,6 @@
                         <span class="card-label">CẤU HÌNH 4 VAN CẢM BIẾN (TPMS)</span>
                         <span class="card-meta" id="tpmsSyncTimestamp">Chờ đồng bộ...</span>
                     </div>
-                    <p class="section-desc">Cấu hình được lưu trực tiếp trên. Điện thoại đọc cấu hình gốc từ và gửi cập nhật chỉ với 1 chạm.</p>
 
                     <!-- Car Diagram Inputs -->
                     <div class="tpms-layout">
@@ -122,12 +121,12 @@
                         <div class="tpms-row">
                             <div class="tire-input-card">
                                 <div class="tire-badge">TRƯỚC TRÁI (FL)</div>
-                                <input type="text" class="input-flat" id="inputFlSensor" placeholder="Chờ đọc từ..." maxlength="17" spellcheck="false">
+                                <input type="text" class="input-flat" id="inputFlSensor" placeholder="Sync..." maxlength="17" spellcheck="false">
                             </div>
                             <div class="car-visual-front">▲ ĐẦU XE</div>
                             <div class="tire-input-card">
                                 <div class="tire-badge">TRƯỚC PHẢI (FR)</div>
-                                <input type="text" class="input-flat" id="inputFrSensor" placeholder="Chờ đọc từ..." maxlength="17" spellcheck="false">
+                                <input type="text" class="input-flat" id="inputFrSensor" placeholder="Sync..." maxlength="17" spellcheck="false">
                             </div>
                         </div>
 
@@ -135,12 +134,12 @@
                         <div class="tpms-row">
                             <div class="tire-input-card">
                                 <div class="tire-badge">SAU TRÁI (RL)</div>
-                                <input type="text" class="input-flat" id="inputRlSensor" placeholder="Chờ đọc từ..." maxlength="17" spellcheck="false">
+                                <input type="text" class="input-flat" id="inputRlSensor" placeholder="Sync..." maxlength="17" spellcheck="false">
                             </div>
                             <div class="car-visual-rear">▼ ĐUÔI XE</div>
                             <div class="tire-input-card">
                                 <div class="tire-badge">SAU PHẢI (RR)</div>
-                                <input type="text" class="input-flat" id="inputRrSensor" placeholder="Chờ đọc từ..." maxlength="17" spellcheck="false">
+                                <input type="text" class="input-flat" id="inputRrSensor" placeholder="Sync..." maxlength="17" spellcheck="false">
                             </div>
                         </div>
                     </div>
@@ -226,8 +225,8 @@
                     </div>
                     <div class="setting-item">
                         <div class="setting-text">
-                            <div class="setting-title">Dịch Vụ Chạy Ngầm (Foreground Service)</div>
-                            <div class="setting-desc">Duy trì truyền GPS ngay cả khi tắt màn hình điện thoại hoặc chuyển sang ứng dụng khác.</div>
+                            <div class="setting-title">Dịch Vụ Chạy Ngầm</div>
+                            <div class="setting-desc">Duy trì truyền GPS ngay cả khi tắt màn hình điện thoại.</div>
                         </div>
                         <label class="switch-flat">
                             <input type="checkbox" id="toggleBackgroundService" checked onchange="saveSettings()">
@@ -238,13 +237,12 @@
                     <div class="setting-item">
                         <div class="setting-text">
                             <div class="setting-title">Tần Số Gửi GPS</div>
-                            <div class="setting-desc">Tần số cao giúp đồng hồ mượt mà hơn, tần số thấp giúp tiết kiệmn hơn.</div>
+                            <select class="select-flat" id="selectGpsRate" onchange="saveSettings()">
+                                <option value="1">1 Hz (Tiết kiệmn tối đa)</option>
+                                <option value="5" selected>5 Hz (Cân bằng - Khuyên dùng)</option>
+                                <option value="10">10 Hz (Mượt mà nhất)</option>
+                            </select>
                         </div>
-                        <select class="select-flat" id="selectGpsRate" onchange="saveSettings()">
-                            <option value="1">1 Hz (Tiết kiệmn tối đa)</option>
-                            <option value="5" selected>5 Hz (Cân bằng - Khuyên dùng)</option>
-                            <option value="10">10 Hz (Mượt mà nhất)</option>
-                        </select>
                     </div>
                 </div>
             </section>
