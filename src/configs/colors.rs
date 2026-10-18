@@ -1,49 +1,49 @@
-// Theme color palette definitions
+// Theme color palette definitions - Pure Black Luxury Dashboard
 
 use tiny_skia::Color;
 
-// Backgrounds & Containers
+// Backgrounds & Containers (Pure OLED Pitch Black #000000)
 #[inline(always)]
 pub fn outer_bg() -> Color {
-    Color::from_rgba8(6, 16, 25, 255) // #061019 Deep dark navy/black
+    Color::from_rgba8(0, 0, 0, 255) // #000000 Pure pitch black
 }
 
 #[inline(always)]
 pub fn card_bg() -> Color {
-    Color::from_rgba8(0, 8, 13, 255) // #00080D Inner card background
+    Color::from_rgba8(0, 0, 0, 255) // #000000 Pure black container
 }
 
 #[inline(always)]
 pub fn card_border() -> Color {
-    Color::from_rgba8(24, 46, 66, 255) // #182E42 Border stroke
+    Color::from_rgba8(38, 38, 42, 255) // #26262A Subtle neutral dark gray border
 }
 
 #[inline(always)]
 pub fn card_border_glow() -> Color {
-    Color::from_rgba8(14, 52, 85, 80) // Border ambient glow
+    Color::from_rgba8(0, 0, 0, 0) // No blue glow
 }
 
 // Section Dividers
 #[inline(always)]
 pub fn divider() -> Color {
-    Color::from_rgba8(13, 30, 46, 255) // #0D1E2E
+    Color::from_rgba8(28, 28, 32, 255) // #1C1C20 Clean neutral dark divider
 }
 
 // Typography
 #[inline(always)]
 pub fn text_primary() -> Color {
-    Color::from_rgba8(255, 255, 255, 255) // #FFFFFF Crisp white
+    Color::from_rgba8(255, 255, 255, 255) // #FFFFFF Crisp pure white
 }
 
 #[inline(always)]
 pub fn text_muted() -> Color {
-    Color::from_rgba8(140, 163, 184, 255) // #8CA3B8 Muted grayish blue
+    Color::from_rgba8(160, 160, 165, 255) // #A0A0A5 Clean neutral light gray (no blue cast)
 }
 
 // TPMS & Accents
 #[inline(always)]
 pub fn accent_cyan() -> Color {
-    Color::from_rgba8(88, 180, 248, 255) // #58B4F8 Normal TPMS unit & leader lines
+    Color::from_rgba8(210, 215, 220, 255) // #D2D7DC Crisp silver-white accent for leader lines
 }
 
 #[inline(always)]
@@ -60,3 +60,4 @@ pub fn alert_red_fill() -> Color {
 pub fn alert_red_glow() -> Color {
     Color::from_rgba8(255, 50, 50, 110) // Ambient red glow for warning tire
 }
+

@@ -128,14 +128,27 @@ async function connectBle() {
         updateBleStatusUI("connecting", "Đang quét xe...");
         updateSyncBarUI(false, "Đang quét thiết bị ICarMeter...");
 
-        // Scan for ICarMeter device
-        const device = await navigator.bluetooth.requestDevice({
-            filters: [
-                { namePrefix: "ICar" },
-                { namePrefix: "icarmeter" }
-            ],
-            optionalServices: [BLE_SERVICE_UUID]
-        });
+        // Scan for ICarMeter by I4104 device
+        let device;
+        try {
+            device = await navigator.bluetooth.requestDevice({
+                filters: [
+                    { name: "ICarMeter by I4104" },
+                    { namePrefix: "ICarMeter" },
+                    { namePrefix: "ICar" }
+                ],
+                optionalServices: [BLE_SERVICE_UUID]
+            });
+        } catch (scanErr) {
+            if (scanErr.name !== 'NotFoundError' && scanErr.name !== 'SecurityError') {
+                throw scanErr;
+            }
+            // Fallback: accept all devices to allow manual selection
+            device = await navigator.bluetooth.requestDevice({
+                acceptAllDevices: true,
+                optionalServices: [BLE_SERVICE_UUID]
+            });
+        }
 
         state.connectedDevice = device;
         device.addEventListener('gattserverdisconnected', onBleDisconnected);

@@ -6,7 +6,9 @@
 APP_DIR="${ROOTFS_DIR}/opt/icarmeter"
 install -d -m 755 "${APP_DIR}"
 install -m 644 files/config.toml "${APP_DIR}/config.toml"
+install -m 755 files/icarmeter-bt-init.sh "${APP_DIR}/icarmeter-bt-init.sh"
 install -m 644 files/icarmeter.service "${ROOTFS_DIR}/etc/systemd/system/icarmeter.service"
+install -m 644 files/icarmeter-bluetooth.service "${ROOTFS_DIR}/etc/systemd/system/icarmeter-bluetooth.service"
 
 if [ -f files/car_dashboard ]; then
     echo "Found pre-compiled car_dashboard binary. Installing into rootfs..."

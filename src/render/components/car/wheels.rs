@@ -29,8 +29,8 @@ impl Wheels {
         let alert_red = colors::alert_red();
         let alert_red_fill = colors::alert_red_fill();
         let alert_red_glow = colors::alert_red_glow();
-        let normal_wheel_fill = Color::from_rgba8(15, 26, 38, 255);
-        let normal_wheel_border = colors::accent_cyan();
+        let normal_wheel_fill = Color::from_rgba8(22, 22, 24, 255);
+        let normal_wheel_border = Color::from_rgba8(75, 75, 80, 255);
 
         for &(wx, wy, pressure) in &wheel_items {
             let is_low = TirePressures::is_low(pressure);

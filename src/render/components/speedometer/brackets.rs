@@ -40,13 +40,13 @@ impl SpeedometerBrackets {
         let track_full_left = Self::sub_path(l_bottom, l_ctrl_low, l_ctrl_high, l_top, 1.0);
         let track_full_right = Self::sub_path(r_bottom, r_ctrl_low, r_ctrl_high, r_top, 1.0);
 
-        // Track ambient aura
-        let track_aura_color = Color::from_rgba8(0, 120, 170, (25.0 * alpha) as u8);
+        // Track ambient aura (neutral subtle dark glow)
+        let track_aura_color = Color::from_rgba8(50, 50, 55, (20.0 * alpha) as u8);
         Self::stroke_path(pixmap, &track_full_left, track_aura_color, glow_width * 0.85, BlendMode::Screen);
         Self::stroke_path(pixmap, &track_full_right, track_aura_color, glow_width * 0.85, BlendMode::Screen);
 
         // Track core channel (dark acrylic / unlit neon tube)
-        let track_core_color = Color::from_rgba8(16, 34, 48, (190.0 * alpha) as u8);
+        let track_core_color = Color::from_rgba8(28, 28, 32, (190.0 * alpha) as u8);
         Self::stroke_path(pixmap, &track_full_left, track_core_color, core_width, BlendMode::SourceOver);
         Self::stroke_path(pixmap, &track_full_right, track_core_color, core_width, BlendMode::SourceOver);
 

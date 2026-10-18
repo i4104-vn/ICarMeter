@@ -33,21 +33,24 @@ impl CardContainer {
         );
 
         // Card outer border glow
-        let mut glow_paint = Paint::default();
-        glow_paint.set_color(colors::card_border_glow());
-        glow_paint.anti_alias = true;
-        let glow_stroke = Stroke {
-            width: 4.5,
-            line_cap: LineCap::Round,
-            ..Default::default()
-        };
-        pixmap.stroke_path(
-            &card_path,
-            &glow_paint,
-            &glow_stroke,
-            Transform::identity(),
-            None,
-        );
+        let glow_color = colors::card_border_glow();
+        if glow_color.alpha() > 0.001 {
+            let mut glow_paint = Paint::default();
+            glow_paint.set_color(glow_color);
+            glow_paint.anti_alias = true;
+            let glow_stroke = Stroke {
+                width: 4.5,
+                line_cap: LineCap::Round,
+                ..Default::default()
+            };
+            pixmap.stroke_path(
+                &card_path,
+                &glow_paint,
+                &glow_stroke,
+                Transform::identity(),
+                None,
+            );
+        }
 
         // Card border stroke
         let mut border_paint = Paint::default();

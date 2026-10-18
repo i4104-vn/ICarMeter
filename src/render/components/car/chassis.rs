@@ -22,7 +22,7 @@ impl CarChassis {
         let rm = create_rounded_rect(body_x + body_w - 1.0, mirror_y, mirror_w, mirror_h, 3.0);
 
         let mut mirror_paint = Paint::default();
-        mirror_paint.set_color(Color::from_rgba8(35, 65, 95, 255));
+        mirror_paint.set_color(Color::from_rgba8(36, 36, 40, 255));
         mirror_paint.anti_alias = true;
         pixmap.fill_path(
             &lm,
@@ -42,9 +42,9 @@ impl CarChassis {
         // Body outline path
         let body_path = Self::create_car_body_path(body_x, body_y, body_w, body_h);
 
-        // Body fill (Deep luxury dark blue-gray metallic)
+        // Body fill (Deep luxury dark obsidian / metallic black)
         let mut body_fill = Paint::default();
-        body_fill.set_color(Color::from_rgba8(11, 23, 36, 255));
+        body_fill.set_color(Color::from_rgba8(18, 18, 20, 255));
         body_fill.anti_alias = true;
         pixmap.fill_path(
             &body_path,
@@ -56,7 +56,7 @@ impl CarChassis {
 
         // Body border stroke
         let mut body_stroke_paint = Paint::default();
-        body_stroke_paint.set_color(Color::from_rgba8(45, 90, 130, 255));
+        body_stroke_paint.set_color(Color::from_rgba8(70, 70, 76, 255));
         body_stroke_paint.anti_alias = true;
         let body_stroke = Stroke {
             width: 2.0,
@@ -78,7 +78,7 @@ impl CarChassis {
         pb_fw.quad_to(cx, cy - 38.0, body_x + body_w - 11.0, cy - 25.0);
         if let Some(fw_path) = pb_fw.finish() {
             let mut glass_paint = Paint::default();
-            glass_paint.set_color(Color::from_rgba8(75, 145, 195, 220));
+            glass_paint.set_color(Color::from_rgba8(140, 145, 150, 180));
             glass_paint.anti_alias = true;
             let glass_stroke = Stroke {
                 width: 2.0,
@@ -101,7 +101,7 @@ impl CarChassis {
         let roof_y = cy - 20.0;
         let roof_path = create_rounded_rect(roof_x, roof_y, roof_w, roof_h, 8.0);
         let mut roof_paint = Paint::default();
-        roof_paint.set_color(Color::from_rgba8(26, 52, 78, 140));
+        roof_paint.set_color(Color::from_rgba8(42, 42, 46, 140));
         let roof_stroke = Stroke {
             width: 1.2,
             ..Default::default()
@@ -120,7 +120,7 @@ impl CarChassis {
         pb_rw.quad_to(cx, cy + 36.0, body_x + body_w - 13.0, cy + 44.0);
         if let Some(rw_path) = pb_rw.finish() {
             let mut glass_paint = Paint::default();
-            glass_paint.set_color(Color::from_rgba8(75, 145, 195, 200));
+            glass_paint.set_color(Color::from_rgba8(140, 145, 150, 160));
             glass_paint.anti_alias = true;
             let glass_stroke = Stroke {
                 width: 1.6,

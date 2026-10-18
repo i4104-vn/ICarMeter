@@ -79,8 +79,8 @@ pub struct FramebufferBackend {
     pub line_length: usize,
     pub bpp: usize,
     is_bgr: bool,
-    offset_x: usize,
-    offset_y: usize,
+    x_map: Vec<usize>,
+    y_map: Vec<usize>,
     tty: TtyManager,
 }
 
@@ -157,14 +157,21 @@ impl FramebufferBackend {
             var_info.red.offset == 0 && var_info.blue.offset >= 16
         };
 
-        let offset_x = if width > SCREEN_WIDTH { (width - SCREEN_WIDTH) / 2 } else { 0 };
-        let offset_y = if height > SCREEN_HEIGHT { (height - SCREEN_HEIGHT) / 2 } else { 0 };
+        let mut x_map = Vec::with_capacity(width);
+        for x in 0..width {
+            x_map.push((x * SCREEN_WIDTH) / width);
+        }
+
+        let mut y_map = Vec::with_capacity(height);
+        for y in 0..height {
+            y_map.push((y * SCREEN_HEIGHT) / height);
+        }
 
         let tty = TtyManager::new();
 
         eprintln!(
-            "[Pi Framebuffer] Opened {}: {}x{} @ {} bpp (stride: {}B, BGR: {}). Centering: ({}, {})",
-            path, width, height, bpp, line_length, is_bgr, offset_x, offset_y
+            "[Pi Framebuffer] Opened {}: {}x{} @ {} bpp (stride: {}B, BGR: {}). Fullscreen scaling active.",
+            path, width, height, bpp, line_length, is_bgr
         );
 
         Ok(Self {
@@ -175,8 +182,8 @@ impl FramebufferBackend {
             line_length,
             bpp,
             is_bgr,
-            offset_x,
-            offset_y,
+            x_map,
+            y_map,
             tty,
         })
     }
@@ -186,47 +193,68 @@ impl FramebufferBackend {
     }
 
     pub fn present(&mut self, buffer: &[u32]) -> Result<(), String> {
-        let copy_width = SCREEN_WIDTH.min(self.width.saturating_sub(self.offset_x));
-        let copy_height = SCREEN_HEIGHT.min(self.height.saturating_sub(self.offset_y));
+        let is_1to1 = self.width == SCREEN_WIDTH && self.height == SCREEN_HEIGHT;
 
         if self.bpp == 16 {
-            // 16 bpp RGB565 / BGR565 format (2 bytes per pixel)
             let is_bgr565 = self.is_bgr;
-            for y in 0..copy_height {
-                let src_start = y * SCREEN_WIDTH;
-                let row_offset = (self.offset_y + y) * self.line_length;
-                let dst_byte_start = row_offset + self.offset_x * 2;
-                let dst_byte_end = dst_byte_start + copy_width * 2;
+            if is_1to1 {
+                for y in 0..SCREEN_HEIGHT {
+                    let src_start = y * SCREEN_WIDTH;
+                    let dst_offset = y * self.line_length;
+                    if dst_offset + SCREEN_WIDTH * 2 <= self.mmap.len() {
+                        unsafe {
+                            let dst_ptr = self.mmap.as_mut_ptr().add(dst_offset) as *mut u16;
+                            for x in 0..SCREEN_WIDTH {
+                                let pixel = buffer[src_start + x];
+                                let r = ((pixel >> 16) & 0xFF) as u16;
+                                let g = ((pixel >> 8) & 0xFF) as u16;
+                                let b = (pixel & 0xFF) as u16;
 
-                if dst_byte_end <= self.mmap.len() {
-                    unsafe {
-                        let dst_ptr = self.mmap.as_mut_ptr().add(dst_byte_start) as *mut u16;
-                        for x in 0..copy_width {
-                            let pixel = buffer[src_start + x];
-                            let r = ((pixel >> 16) & 0xFF) as u16;
-                            let g = ((pixel >> 8) & 0xFF) as u16;
-                            let b = (pixel & 0xFF) as u16;
+                                let val16 = if is_bgr565 {
+                                    ((b >> 3) << 11) | ((g >> 2) << 5) | (r >> 3)
+                                } else {
+                                    ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+                                };
+                                *dst_ptr.add(x) = val16;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Scaled to 100% full screen
+                for y in 0..self.height {
+                    let src_y = self.y_map[y];
+                    let src_start = src_y * SCREEN_WIDTH;
+                    let dst_offset = y * self.line_length;
 
-                            let val16 = if is_bgr565 {
-                                ((b >> 3) << 11) | ((g >> 2) << 5) | (r >> 3)
-                            } else {
-                                ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
-                            };
+                    if dst_offset + self.width * 2 <= self.mmap.len() {
+                        unsafe {
+                            let dst_ptr = self.mmap.as_mut_ptr().add(dst_offset) as *mut u16;
+                            for x in 0..self.width {
+                                let pixel = buffer[src_start + self.x_map[x]];
+                                let r = ((pixel >> 16) & 0xFF) as u16;
+                                let g = ((pixel >> 8) & 0xFF) as u16;
+                                let b = (pixel & 0xFF) as u16;
 
-                            *dst_ptr.add(x) = val16;
+                                let val16 = if is_bgr565 {
+                                    ((b >> 3) << 11) | ((g >> 2) << 5) | (r >> 3)
+                                } else {
+                                    ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+                                };
+                                *dst_ptr.add(x) = val16;
+                            }
                         }
                     }
                 }
             }
         } else {
-            // 24 bpp / 32 bpp ARGB / XRGB format (4 bytes per pixel)
-            if !self.is_bgr {
-                // Standard Little-Endian 32-bit XRGB (matches buffer in memory)
-                for y in 0..copy_height {
+            // 24 bpp / 32 bpp
+            if is_1to1 && !self.is_bgr {
+                for y in 0..SCREEN_HEIGHT {
                     let src_start = y * SCREEN_WIDTH;
-                    let src_slice = &buffer[src_start..src_start + copy_width];
-                    let dst_offset = (self.offset_y + y) * self.line_length + self.offset_x * 4;
-                    let byte_count = copy_width * 4;
+                    let src_slice = &buffer[src_start..src_start + SCREEN_WIDTH];
+                    let dst_offset = y * self.line_length;
+                    let byte_count = SCREEN_WIDTH * 4;
 
                     if dst_offset + byte_count <= self.mmap.len() {
                         unsafe {
@@ -239,21 +267,27 @@ impl FramebufferBackend {
                     }
                 }
             } else {
-                // BGRX byte swap for screens with Red at byte 0
-                for y in 0..copy_height {
-                    let src_start = y * SCREEN_WIDTH;
-                    let dst_offset = (self.offset_y + y) * self.line_length + self.offset_x * 4;
+                // Scaled 32bpp to 100% full screen
+                let is_bgr = self.is_bgr;
+                for y in 0..self.height {
+                    let src_y = self.y_map[y];
+                    let src_start = src_y * SCREEN_WIDTH;
+                    let dst_offset = y * self.line_length;
 
-                    if dst_offset + copy_width * 4 <= self.mmap.len() {
-                        let dst_ptr = unsafe { self.mmap.as_mut_ptr().add(dst_offset) as *mut u32 };
-                        for x in 0..copy_width {
-                            let pixel = buffer[src_start + x];
-                            let swapped = (pixel & 0x0000FF00)
-                                | ((pixel & 0x00FF0000) >> 16)
-                                | ((pixel & 0x000000FF) << 16)
-                                | 0xFF000000;
-                            unsafe {
-                                *dst_ptr.add(x) = swapped;
+                    if dst_offset + self.width * 4 <= self.mmap.len() {
+                        unsafe {
+                            let dst_ptr = self.mmap.as_mut_ptr().add(dst_offset) as *mut u32;
+                            for x in 0..self.width {
+                                let pixel = buffer[src_start + self.x_map[x]];
+                                let out_pixel = if is_bgr {
+                                    (pixel & 0x0000FF00)
+                                        | ((pixel & 0x00FF0000) >> 16)
+                                        | ((pixel & 0x000000FF) << 16)
+                                        | 0xFF000000
+                                } else {
+                                    pixel | 0xFF000000
+                                };
+                                *dst_ptr.add(x) = out_pixel;
                             }
                         }
                     }

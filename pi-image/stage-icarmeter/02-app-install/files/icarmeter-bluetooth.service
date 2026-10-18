@@ -1,0 +1,13 @@
+[Unit]
+Description=ICarMeter Always-On Bluetooth Beacon and Discoverable Service
+After=bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /opt/icarmeter/icarmeter-bt-init.sh
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
