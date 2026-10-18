@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0f172a">
+    <title>ICarMeter Companion</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="app-logo">ICAR</div>
+                <div class="header-title-wrap">
+                    <h1 class="header-title">ICarMeter</h1>
+                    <span class="header-subtitle">BLE Companion</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="status-indicator" id="bleStatusBadge">
+                    <span class="status-dot" id="bleStatusDot"></span>
+                    <span class="status-text" id="bleStatusText">Chưa kết nối</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Screens -->
+        <main class="main-content">
+            <!-- TAB 1: DASHBOARD -->
+            <section class="tab-pane active" id="tabDashboard">
+                <!-- BLE Connection Card -->
+                <div class="card ble-card">
+                    <div class="card-header">
+                        <span class="card-label">KẾT NỐI XE</span>
+                        <span class="card-meta" id="connectedDeviceName">Pi Chưa Ghép Nối</span>
+                    </div>
+                    <div class="ble-actions">
+                        <button class="btn btn-primary" id="btnConnectBle" onclick="toggleBleConnection()">
+                            <span id="btnConnectText">Quét & Kết nối ICarMeter</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- GPS Speedometer Display -->
+                <div class="card speed-card">
+                    <div class="speed-header">
+                        <span class="card-label">TỐC ĐỘ GPS TRUYỀN SANG PI</span>
+                        <span class="badge" id="gpsSourceBadge">ĐIỆN THOẠI (BLE)</span>
+                    </div>
+                    <div class="speed-display">
+                        <span class="speed-number" id="liveSpeedNumber">0</span>
+                        <span class="speed-unit">KM/H</span>
+                    </div>
+                    <div class="gps-telemetry-grid">
+                        <div class="telemetry-item">
+                            <span class="tel-label">Độ chính xác</span>
+                            <span class="tel-val" id="telAccuracy">-- m</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">Độ cao</span>
+                            <span class="tel-val" id="telAltitude">-- m</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">Tần số gửi</span>
+                            <span class="tel-val" id="telSendRate">0 Hz</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Trip Recording -->
+                <div class="card trip-record-card">
+                    <div class="card-header">
+                        <span class="card-label">CHUYẾN ĐI HIỆN TẠI</span>
+                        <span class="recording-badge" id="tripRecordBadge" style="display: none;">ĐANG GHI</span>
+                    </div>
+                    <div class="current-trip-grid">
+                        <div class="trip-stat">
+                            <span class="stat-num" id="currentTripDistance">0.0</span>
+                            <span class="stat-unit">km</span>
+                            <span class="stat-desc">Quãng đường</span>
+                        </div>
+                        <div class="trip-stat">
+                            <span class="stat-num" id="currentTripDuration">00:00</span>
+                            <span class="stat-unit">phút</span>
+                            <span class="stat-desc">Thời gian</span>
+                        </div>
+                        <div class="trip-stat">
+                            <span class="stat-num" id="currentTripAvgSpeed">0</span>
+                            <span class="stat-unit">km/h</span>
+                            <span class="stat-desc">Vận tốc TB</span>
+                        </div>
+                    </div>
+                    <div class="trip-actions">
+                        <button class="btn btn-success" id="btnTripAction" onclick="toggleTripRecording()">Bắt đầu chuyến đi</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: TPMS SENSORS CONFIG -->
+            <section class="tab-pane" id="tabTpms">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">CẤU HÌNH 4 VAN CẢM BIẾN (TPMS)</span>
+                        <span class="card-meta">Lưu vào Pi qua BLE</span>
+                    </div>
+                    <p class="section-desc">Nhập mã Bluetooth ID hoặc địa chỉ MAC trên thân van để ICarMeter nhận diện chính xác 4 bánh xe.</p>
+
+                    <!-- Car Diagram Inputs -->
+                    <div class="tpms-layout">
+                        <!-- Front Axle -->
+                        <div class="tpms-row">
+                            <div class="tire-input-card">
+                                <div class="tire-badge">TRƯỚC TRÁI (FL)</div>
+                                <input type="text" class="input-flat" id="inputFlSensor" placeholder="A4:C1:38:00:00:01" maxlength="17" spellcheck="false">
+                            </div>
+                            <div class="car-visual-front">▲ ĐẦU XE</div>
+                            <div class="tire-input-card">
+                                <div class="tire-badge">TRƯỚC PHẢI (FR)</div>
+                                <input type="text" class="input-flat" id="inputFrSensor" placeholder="A4:C1:38:00:00:02" maxlength="17" spellcheck="false">
+                            </div>
+                        </div>
+
+                        <!-- Rear Axle -->
+                        <div class="tpms-row">
+                            <div class="tire-input-card">
+                                <div class="tire-badge">SAU TRÁI (RL)</div>
+                                <input type="text" class="input-flat" id="inputRlSensor" placeholder="A4:C1:38:00:00:03" maxlength="17" spellcheck="false">
+                            </div>
+                            <div class="car-visual-rear">▼ ĐUÔI XE</div>
+                            <div class="tire-input-card">
+                                <div class="tire-badge">SAU PHẢI (RR)</div>
+                                <input type="text" class="input-flat" id="inputRrSensor" placeholder="A4:C1:38:00:00:04" maxlength="17" spellcheck="false">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Pressure Threshold -->
+                    <div class="form-group" style="margin-top: 16px;">
+                        <label class="form-label">Ngưỡng cảnh báo áp suất thấp (Bar)</label>
+                        <div class="range-container">
+                            <input type="number" class="input-flat" id="inputPressureAlert" step="0.1" min="1.5" max="3.5" value="2.2" style="max-width: 120px;">
+                            <span class="range-hint">Mặc định: 2.2 bar (khoảng 32 PSI)</span>
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="actions-row">
+                        <button class="btn btn-secondary" onclick="saveTpmsLocal()">Lưu Cục Bộ</button>
+                        <button class="btn btn-primary" onclick="syncTpmsToPi()">Gửi Cấu Hình Xuống Pi</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: TRIP HISTORY LOGS -->
+            <section class="tab-pane" id="tabTrips">
+                <div class="card trips-overview-card">
+                    <div class="card-header">
+                        <span class="card-label">TỔNG HỢP HÀNH TRÌNH</span>
+                        <button class="btn-text-danger" onclick="clearTripHistory()">Xóa Lịch Sử</button>
+                    </div>
+                    <div class="trips-summary-grid">
+                        <div class="summary-box">
+                            <span class="sum-num" id="totalTripsCount">0</span>
+                            <span class="sum-desc">Chuyến Đi</span>
+                        </div>
+                        <div class="summary-box">
+                            <span class="sum-num" id="totalDistanceCount">0.0</span>
+                            <span class="sum-desc">Tổng Km</span>
+                        </div>
+                        <div class="summary-box">
+                            <span class="sum-num" id="maxSpeedEver">0</span>
+                            <span class="sum-desc">Max Km/h</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trip List -->
+                <div class="trip-list-wrap">
+                    <div class="section-title">Danh Sách Chuyến Đi Đã Lưu</div>
+                    <div class="trip-list" id="tripListContainer">
+                        <!-- Populated by JS -->
+                        <div class="empty-state" id="emptyTripsState">
+                            Chưa có chuyến đi nào được ghi nhận.<br>
+                            Hãy nhấn "Bắt đầu chuyến đi" ở màn hình chính khi xe lăn bánh!
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: SETTINGS & GPS SELECTION -->
+            <section class="tab-pane" id="tabSettings">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">CHẾ ĐỘ ĐỊNH VỊ GPS</span>
+                    </div>
+
+                    <!-- GPS Option Switch -->
+                    <div class="setting-item">
+                        <div class="setting-text">
+                            <div class="setting-title" id="gpsToggleTitle">Dùng GPS từ Điện Thoại (BLE)</div>
+                            <div class="setting-desc" id="gpsToggleDesc">
+                                Đang TẮT module Pi: Điện thoại sẽ lấy GPS độ chính xác cao và truyền liên tục sang ICarMeter qua Bluetooth.
+                            </div>
+                        </div>
+                        <label class="switch-flat">
+                            <input type="checkbox" id="toggleHardwareGps" onchange="onGpsModeToggle(this)">
+                            <span class="slider-flat"></span>
+                        </label>
+                    </div>
+                    <div class="note-box" id="gpsModeNote">
+                        <strong>Lưu ý:</strong> BẬT công tắc này nếu bạn gắn module phần cứng GPS rời vào Raspberry Pi. TẮT công tắc để ứng dụng điện thoại phát GPS qua Bluetooth Low Energy cho Pi.
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">CHẠY NGẦM & TIẾT KIỆM PIN</span>
+                    </div>
+                    <div class="setting-item">
+                        <div class="setting-text">
+                            <div class="setting-title">Dịch Vụ Chạy Ngầm (Foreground Service)</div>
+                            <div class="setting-desc">Duy trì truyền GPS ngay cả khi tắt màn hình điện thoại hoặc chuyển sang ứng dụng khác (Google Maps/Zalo).</div>
+                        </div>
+                        <label class="switch-flat">
+                            <input type="checkbox" id="toggleBackgroundService" checked onchange="saveSettings()">
+                            <span class="slider-flat"></span>
+                        </label>
+                    </div>
+
+                    <div class="setting-item">
+                        <div class="setting-text">
+                            <div class="setting-title">Tần Số Gửi GPS</div>
+                            <div class="setting-desc">Tần số cao giúp đồng hồ mượt mà hơn, tần số thấp giúp tiết kiệm pin hơn.</div>
+                        </div>
+                        <select class="select-flat" id="selectGpsRate" onchange="saveSettings()">
+                            <option value="1">1 Hz (Tiết kiệm pin tối đa)</option>
+                            <option value="5" selected>5 Hz (Cân bằng - Khuyên dùng)</option>
+                            <option value="10">10 Hz (Mượt mà nhất)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">THÔNG TIN HỆ THỐNG</span>
+                    </div>
+                    <div class="info-row">
+                        <span>Phiên bản App</span>
+                        <span>1.0.0 (Build 2026.10)</span>
+                    </div>
+                    <div class="info-row">
+                        <span>Thiết bị đích</span>
+                        <span>Raspberry Pi OS Bookworm 64-bit</span>
+                    </div>
+                    <div class="info-row">
+                        <span>Giao thức BLE</span>
+                        <span>ICarMeter GATT Standard (500kbps)</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Floating Pill Navbar -->
+        <nav class="pill-navbar">
+            <button class="pill-nav-item active" data-tab="tabDashboard" onclick="switchTab('tabDashboard')">
+                <svg class="pill-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M13 2.05v2.02c3.95.49 7 3.85 7 7.93 0 3.21-1.9 6-4.72 7.28L14 17c2.38-1.19 4-3.66 4-6.5 0-3.53-2.61-6.43-6-6.95M11 2.05C7.05 2.54 4 5.9 4 9.98c0 2.84 1.62 5.31 4 6.5l-1.28 2.26C3.9 17.46 2 14.67 2 11.46c0-4.08 3.05-7.44 7-7.93v2.02M12 6a4 4 0 0 0-4 4c0 1.61.96 3 2.34 3.65l1.66-2.9v-.75a1 1 0 0 1 2 0v.75l1.66 2.9C17.04 13 18 11.61 18 10a4 4 0 0 0-4-4Z"/></svg>
+                <span class="pill-text">Đồng Hồ</span>
+            </button>
+            <button class="pill-nav-item" data-tab="tabTpms" onclick="switchTab('tabTpms')">
+                <svg class="pill-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8Zm1-13h-2v6h6v-2h-4Z"/></svg>
+                <span class="pill-text">TPMS</span>
+            </button>
+            <button class="pill-nav-item" data-tab="tabTrips" onclick="switchTab('tabTrips')">
+                <svg class="pill-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2Zm-7 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3Zm6 12H6v-1.4c0-2 4-3.1 6-3.1s6 1.1 6 3.1V18Z"/></svg>
+                <span class="pill-text">Hành Trình</span>
+            </button>
+            <button class="pill-nav-item" data-tab="tabSettings" onclick="switchTab('tabSettings')">
+                <svg class="pill-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58ZM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6Z"/></svg>
+                <span class="pill-text">Cài Đặt</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Alert / Toast Modal -->
+    <div class="toast" id="appToast"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
