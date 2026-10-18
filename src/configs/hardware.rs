@@ -125,4 +125,132 @@ impl AppConfig {
 
         config
     }
+
+    /// Serializes configuration back into standardized TOML format
+    pub fn to_toml_string(&self) -> String {
+        format!(
+            "# ==============================================================================\n\
+             # Car Digital Dashboard - Hardware Configuration for Raspberry Pi OS\n\
+             # Synchronized dynamically via ICarMeter Companion\n\
+             # ==============================================================================\n\n\
+             [gps]\n\
+             device = \"{}\"\n\
+             baud_rate = {}\n\
+             enabled = {}\n\n\
+             [tpms]\n\
+             enabled = {}\n\
+             adapter = \"{}\"\n\
+             fl_sensor = \"{}\"\n\
+             fr_sensor = \"{}\"\n\
+             rl_sensor = \"{}\"\n\
+             rr_sensor = \"{}\"\n\
+             low_pressure_alert = {:.1}\n\n\
+             [display]\n\
+             framebuffer_device = \"{}\"\n\
+             target_fps = {}\n",
+            self.gps.device,
+            self.gps.baud_rate,
+            self.gps.enabled,
+            self.tpms.enabled,
+            self.tpms.adapter,
+            self.tpms.fl_sensor,
+            self.tpms.fr_sensor,
+            self.tpms.rl_sensor,
+            self.tpms.rr_sensor,
+            self.tpms.low_pressure_alert,
+            self.display.framebuffer_device,
+            self.display.target_fps
+        )
+    }
+
+    /// Writes configuration directly to disk on the Raspberry Pi
+    pub fn save(&self, path: &str) -> std::io::Result<()> {
+        fs::write(path, self.to_toml_string())
+    }
+
+    /// Serializes configuration into a compact JSON string for Bluetooth transmission
+    pub fn to_json_string(&self) -> String {
+        format!(
+            "{{\"gps\":{{\"enabled\":{},\"device\":\"{}\",\"baud_rate\":{}}},\"tpms\":{{\"enabled\":{},\"adapter\":\"{}\",\"fl\":\"{}\",\"fr\":\"{}\",\"rl\":\"{}\",\"rr\":\"{}\",\"low_pressure_alert\":{:.1}}},\"display\":{{\"framebuffer_device\":\"{}\",\"target_fps\":{}}}}}",
+            self.gps.enabled,
+            self.gps.device,
+            self.gps.baud_rate,
+            self.tpms.enabled,
+            self.tpms.adapter,
+            self.tpms.fl_sensor,
+            self.tpms.fr_sensor,
+            self.tpms.rl_sensor,
+            self.tpms.rr_sensor,
+            self.tpms.low_pressure_alert,
+            self.display.framebuffer_device,
+            self.display.target_fps
+        )
+    }
+
+    /// Dynamically updates configuration from a received JSON payload from mobile app
+    pub fn update_from_json(&mut self, json_str: &str) -> Result<(), String> {
+        // Fast key-value extraction without extra heavy dependencies
+        if let Some(fl) = extract_json_str(json_str, "fl") {
+            self.tpms.fl_sensor = fl;
+        }
+        if let Some(fr) = extract_json_str(json_str, "fr") {
+            self.tpms.fr_sensor = fr;
+        }
+        if let Some(rl) = extract_json_str(json_str, "rl") {
+            self.tpms.rl_sensor = rl;
+        }
+        if let Some(rr) = extract_json_str(json_str, "rr") {
+            self.tpms.rr_sensor = rr;
+        }
+        if let Some(alert) = extract_json_float(json_str, "alert")
+            .or_else(|| extract_json_float(json_str, "low_pressure_alert"))
+        {
+            self.tpms.low_pressure_alert = alert;
+        }
+        if let Some(gps_enabled) = extract_json_bool(json_str, "gps_enabled") {
+            self.gps.enabled = gps_enabled;
+        } else if let Some(mode) = extract_json_str(json_str, "gps_mode") {
+            self.gps.enabled = mode == "hardware";
+        }
+
+        // Automatically persist to config.toml on disk
+        let _ = self.save("config.toml");
+        let _ = self.save("/opt/icarmeter/config.toml");
+
+        Ok(())
+    }
+}
+
+fn extract_json_str(json: &str, key: &str) -> Option<String> {
+    let pattern = format!("\"{}\":", key);
+    let start_idx = json.find(&pattern)? + pattern.len();
+    let rest = json[start_idx..].trim_start();
+    if rest.starts_with('"') {
+        let content = &rest[1..];
+        let end_idx = content.find('"')?;
+        Some(content[..end_idx].to_string())
+    } else {
+        None
+    }
+}
+
+fn extract_json_float(json: &str, key: &str) -> Option<f32> {
+    let pattern = format!("\"{}\":", key);
+    let start_idx = json.find(&pattern)? + pattern.len();
+    let rest = json[start_idx..].trim_start();
+    let end_idx = rest.find(|c: char| !c.is_ascii_digit() && c != '.').unwrap_or(rest.len());
+    rest[..end_idx].parse().ok()
+}
+
+fn extract_json_bool(json: &str, key: &str) -> Option<bool> {
+    let pattern = format!("\"{}\":", key);
+    let start_idx = json.find(&pattern)? + pattern.len();
+    let rest = json[start_idx..].trim_start();
+    if rest.starts_with("true") {
+        Some(true)
+    } else if rest.starts_with("false") {
+        Some(false)
+    } else {
+        None
+    }
 }

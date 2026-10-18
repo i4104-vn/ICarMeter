@@ -135,6 +135,64 @@ body {
 }
 
 /* ==========================================
+   Sync Status Bar (Pi is Single Source of Truth)
+   ========================================== */
+.sync-bar {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.sync-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sync-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--color-warning);
+}
+
+.sync-bar.synced .sync-dot {
+    background-color: var(--color-success);
+}
+
+.sync-status {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.sync-bar.synced .sync-status {
+    color: var(--color-success);
+}
+
+.btn-reload {
+    background-color: var(--bg-surface-elevated);
+    border: 1px solid var(--border-strong);
+    color: var(--text-primary);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.btn-reload:active {
+    background-color: var(--color-primary);
+    color: #ffffff;
+}
+
+/* ==========================================
    Main Content & Tab Management
    ========================================== */
 .main-content {

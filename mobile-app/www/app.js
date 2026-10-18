@@ -1,13 +1,15 @@
 /**
  * ICarMeter Companion App - Pure Flat Architecture
- * Handles BLE Communication, Phone GPS Forwarding, TPMS Setup & Trip History.
+ * Single Source of Truth: All configs are stored on Raspberry Pi.
+ * Mobile only reads, displays, and synchronizes back to Pi over Bluetooth LE.
  */
 
 // ICarMeter Custom BLE GATT UUIDs
-const BLE_SERVICE_UUID     = "1c480001-0000-1000-8000-00805f9b34fb";
-const CHAR_TPMS_CONFIG_UUID = "1c480002-0000-1000-8000-00805f9b34fb";
-const CHAR_GPS_FEED_UUID   = "1c480003-0000-1000-8000-00805f9b34fb";
-const CHAR_SYSTEM_CTRL_UUID= "1c480004-0000-1000-8000-00805f9b34fb";
+const BLE_SERVICE_UUID      = "1c480001-0000-1000-8000-00805f9b34fb";
+const CHAR_TPMS_CONFIG_UUID = "1c480002-0000-1000-8000-00805f9b34fb"; // Read / Write Config
+const CHAR_GPS_FEED_UUID    = "1c480003-0000-1000-8000-00805f9b34fb"; // Write GPS speed/coords
+const CHAR_SYSTEM_CTRL_UUID = "1c480004-0000-1000-8000-00805f9b34fb"; // Read / Write System status
+const CHAR_TRIP_STATS_UUID  = "1c480005-0000-1000-8000-00805f9b34fb"; // Read / Write Trips
 
 // App State
 const state = {
@@ -16,9 +18,25 @@ const state = {
     charTpmsConfig: null,
     charGpsFeed: null,
     charSystemCtrl: null,
+    charTripStats: null,
     
-    // GPS & Telemetry
-    hardwareGpsEnabled: false, // false = Use Phone GPS (BLE), true = Use Pi Hardware GPS
+    // Synced State from Pi (Single Source of Truth)
+    isSyncedWithPi: false,
+    lastSyncTime: null,
+    piConfig: {
+        tpms: {
+            fl: "",
+            fr: "",
+            rl: "",
+            rr: "",
+            alert: 2.2
+        },
+        gps: {
+            enabled: false // false = Phone BLE GPS, true = Pi hardware GPS module
+        }
+    },
+    
+    // Telemetry & GPS Forwarding
     watchId: null,
     lastPosition: null,
     liveSpeedKmh: 0,
@@ -34,42 +52,21 @@ const state = {
     tripSpeedSamples: [],
     tripInterval: null,
     
-    // Storage
-    tpmsConfig: {
-        fl: "A4:C1:38:00:00:01",
-        fr: "A4:C1:38:00:00:02",
-        rl: "A4:C1:38:00:00:03",
-        rr: "A4:C1:38:00:00:04",
-        alertPressure: 2.2
-    },
     trips: []
 };
 
 // ==============================================================================
-// Initialization & Local Storage
+// App Lifecycle & Initialization
 // ==============================================================================
 document.addEventListener('DOMContentLoaded', () => {
-    loadLocalSettings();
-    renderTpmsInputs();
+    loadLocalFallbackSettings();
+    updateSyncBarUI(false, "Nguồn dữ liệu: Đang chờ kết nối ICarMeter trên xe...");
     renderTripHistory();
     startGpsTracker();
 });
 
-function loadLocalSettings() {
+function loadLocalFallbackSettings() {
     try {
-        const savedTpms = localStorage.getItem('icarmeter_tpms');
-        if (savedTpms) {
-            state.tpmsConfig = JSON.parse(savedTpms);
-        }
-
-        const savedGpsMode = localStorage.getItem('icarmeter_hw_gps');
-        if (savedGpsMode !== null) {
-            state.hardwareGpsEnabled = savedGpsMode === 'true';
-            const toggle = document.getElementById('toggleHardwareGps');
-            if (toggle) toggle.checked = state.hardwareGpsEnabled;
-            updateGpsModeUI();
-        }
-
         const savedRate = localStorage.getItem('icarmeter_gps_rate');
         if (savedRate) {
             state.sendRateHz = parseInt(savedRate, 10) || 5;
@@ -92,7 +89,7 @@ function saveSettings() {
         state.sendRateHz = parseInt(sel.value, 10);
         localStorage.setItem('icarmeter_gps_rate', state.sendRateHz.toString());
     }
-    showToast("Đã lưu cài đặt");
+    showToast("Đã lưu thiết lập trên điện thoại");
 }
 
 // ==============================================================================
@@ -110,7 +107,7 @@ function switchTab(tabId) {
 }
 
 // ==============================================================================
-// Bluetooth Low Energy (BLE) Client
+// Bluetooth Low Energy (BLE) Client & Auto-Sync
 // ==============================================================================
 async function toggleBleConnection() {
     if (state.gattServer && state.gattServer.connected) {
@@ -127,7 +124,8 @@ async function connectBle() {
     }
 
     try {
-        updateBleStatusUI("connecting", "Đang quét...");
+        updateBleStatusUI("connecting", "Đang quét xe...");
+        updateSyncBarUI(false, "Đang quét thiết bị ICarMeter...");
 
         // Scan for ICarMeter device
         const device = await navigator.bluetooth.requestDevice({
@@ -142,28 +140,31 @@ async function connectBle() {
         device.addEventListener('gattserverdisconnected', onBleDisconnected);
 
         updateBleStatusUI("connecting", "Đang kết nối...");
+        updateSyncBarUI(false, "Đang kết nối Bluetooth Low Energy...");
         const server = await device.gatt.connect();
         state.gattServer = server;
 
         // Retrieve GATT Service & Characteristics
         try {
             const service = await server.getPrimaryService(BLE_SERVICE_UUID);
-            state.charTpmsConfig = await service.getCharacteristic(CHAR_TPMS_CONFIG_UUID).catch(() => null);
-            state.charGpsFeed    = await service.getCharacteristic(CHAR_GPS_FEED_UUID).catch(() => null);
-            state.charSystemCtrl = await service.getCharacteristic(CHAR_SYSTEM_CTRL_UUID).catch(() => null);
+            state.charTpmsConfig  = await service.getCharacteristic(CHAR_TPMS_CONFIG_UUID).catch(() => null);
+            state.charGpsFeed     = await service.getCharacteristic(CHAR_GPS_FEED_UUID).catch(() => null);
+            state.charSystemCtrl  = await service.getCharacteristic(CHAR_SYSTEM_CTRL_UUID).catch(() => null);
+            state.charTripStats   = await service.getCharacteristic(CHAR_TRIP_STATS_UUID).catch(() => null);
         } catch (e) {
-            console.warn("Custom service not found on device, connected in generic mode:", e);
+            console.warn("Custom service characteristics query:", e);
         }
 
         updateBleStatusUI("connected", device.name || "ICarMeter Pi");
-        showToast(`Đã kết nối thành công: ${device.name}`);
+        showToast(`Đã kết nối: ${device.name}`);
 
-        // Sync initial GPS mode to Pi
-        sendGpsModeToPi();
+        // AUTOMATIC SYNC: Read entire configuration directly from Pi!
+        await fetchConfigFromPi();
     } catch (err) {
-        console.error("BLE connection failed:", err);
+        console.error("BLE connection error:", err);
         updateBleStatusUI("disconnected", "Chưa kết nối");
-        if (err.name !== 'NotFoundError') { // Not canceled by user
+        updateSyncBarUI(false, "Chưa kết nối Pi");
+        if (err.name !== 'NotFoundError') {
             showToast(`Lỗi kết nối: ${err.message}`);
         }
     }
@@ -181,8 +182,15 @@ function onBleDisconnected() {
     state.charTpmsConfig = null;
     state.charGpsFeed = null;
     state.charSystemCtrl = null;
+    state.charTripStats = null;
+    state.isSyncedWithPi = false;
+
     updateBleStatusUI("disconnected", "Chưa kết nối");
-    showToast("Đã ngắt kết nối với xe");
+    updateSyncBarUI(false, "Nguồn dữ liệu: Đã ngắt kết nối với Pi");
+    const meta = document.getElementById('tpmsSyncTimestamp');
+    if (meta) meta.textContent = "Chưa kết nối Pi";
+
+    showToast("Đã ngắt kết nối với ICarMeter");
 }
 
 function updateBleStatusUI(status, label) {
@@ -208,12 +216,132 @@ function updateBleStatusUI(status, label) {
     }
 }
 
+function updateSyncBarUI(synced, message) {
+    const bar = document.getElementById('syncBar');
+    const text = document.getElementById('syncStatusText');
+    if (!bar || !text) return;
+
+    if (synced) {
+        bar.classList.add('synced');
+    } else {
+        bar.classList.remove('synced');
+    }
+    text.textContent = message;
+}
+
+// ==============================================================================
+// Pi-Centric Sync: Read Config from Pi
+// ==============================================================================
+async function fetchConfigFromPi() {
+    if (!state.charTpmsConfig || !state.gattServer || !state.gattServer.connected) {
+        // Fallback for offline demonstration
+        updateSyncBarUI(false, "Chưa kết nối Pi. Hãy bật Bluetooth để kéo cấu hình từ xe.");
+        showToast("Vui lòng kết nối Bluetooth với ICarMeter trước!");
+        return;
+    }
+
+    try {
+        updateSyncBarUI(false, "Đang tải cấu hình gốc từ Pi...");
+        const value = await state.charTpmsConfig.readValue();
+        const decoder = new TextDecoder('utf-8');
+        const jsonStr = decoder.decode(value);
+        const data = JSON.parse(jsonStr);
+
+        // Apply Pi config directly to App UI
+        if (data.tpms) {
+            state.piConfig.tpms.fl = data.tpms.fl || "";
+            state.piConfig.tpms.fr = data.tpms.fr || "";
+            state.piConfig.tpms.rl = data.tpms.rl || "";
+            state.piConfig.tpms.rr = data.tpms.rr || "";
+            state.piConfig.tpms.alert = data.tpms.low_pressure_alert || data.tpms.alert || 2.2;
+
+            document.getElementById('inputFlSensor').value = state.piConfig.tpms.fl;
+            document.getElementById('inputFrSensor').value = state.piConfig.tpms.fr;
+            document.getElementById('inputRlSensor').value = state.piConfig.tpms.rl;
+            document.getElementById('inputRrSensor').value = state.piConfig.tpms.rr;
+            document.getElementById('inputPressureAlert').value = state.piConfig.tpms.alert;
+        }
+
+        if (data.gps) {
+            state.piConfig.gps.enabled = !!data.gps.enabled;
+            const toggle = document.getElementById('toggleHardwareGps');
+            if (toggle) toggle.checked = state.piConfig.gps.enabled;
+            updateGpsModeUI();
+        }
+
+        state.isSyncedWithPi = true;
+        const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        updateSyncBarUI(true, `Nguồn chuẩn: Đã đồng bộ từ Pi (${nowStr})`);
+        
+        const meta = document.getElementById('tpmsSyncTimestamp');
+        if (meta) meta.textContent = `Đã khớp Pi (${nowStr})`;
+
+        showToast("Đã tải cấu hình gốc từ Pi thành công!");
+    } catch (err) {
+        console.error("Fetch from Pi failed:", err);
+        updateSyncBarUI(false, "Lỗi khi đọc cấu hình từ Pi");
+        showToast(`Không thể đọc cấu hình từ Pi: ${err.message}`);
+    }
+}
+
+// ==============================================================================
+// Pi-Centric Sync: Save & Push Config to Pi (1-Tap Synchronize)
+// ==============================================================================
+async function saveAndSyncTpmsToPi() {
+    if (!state.charTpmsConfig || !state.gattServer || !state.gattServer.connected) {
+        showToast("Chưa kết nối Pi! Vui lòng kết nối Bluetooth để lưu cấu hình trực tiếp vào Pi.");
+        return;
+    }
+
+    // Read inputs from screen
+    const fl = document.getElementById('inputFlSensor').value.trim().toUpperCase();
+    const fr = document.getElementById('inputFrSensor').value.trim().toUpperCase();
+    const rl = document.getElementById('inputRlSensor').value.trim().toUpperCase();
+    const rr = document.getElementById('inputRrSensor').value.trim().toUpperCase();
+    const alertPressure = parseFloat(document.getElementById('inputPressureAlert').value) || 2.2;
+    const gpsHwEnabled = document.getElementById('toggleHardwareGps')?.checked || false;
+
+    const payload = JSON.stringify({
+        action: "update_config",
+        fl: fl,
+        fr: fr,
+        rl: rl,
+        rr: rr,
+        alert: alertPressure,
+        gps_enabled: gpsHwEnabled
+    });
+
+    try {
+        const encoder = new TextEncoder();
+        await state.charTpmsConfig.writeValue(encoder.encode(payload));
+
+        state.piConfig.tpms.fl = fl;
+        state.piConfig.tpms.fr = fr;
+        state.piConfig.tpms.rl = rl;
+        state.piConfig.tpms.rr = rr;
+        state.piConfig.tpms.alert = alertPressure;
+        state.piConfig.gps.enabled = gpsHwEnabled;
+        state.isSyncedWithPi = true;
+
+        const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+        updateSyncBarUI(true, `Nguồn chuẩn: Đã lưu vào Pi (${nowStr})`);
+        
+        const meta = document.getElementById('tpmsSyncTimestamp');
+        if (meta) meta.textContent = `Đã lưu trên Pi (${nowStr})`;
+
+        showToast("Cấu hình đã được lưu vĩnh viễn trên Pi thành công!");
+    } catch (err) {
+        console.error("Save to Pi failed:", err);
+        showToast(`Lỗi khi ghi cấu hình vào Pi: ${err.message}`);
+    }
+}
+
 // ==============================================================================
 // GPS Tracking & BLE Forwarding (Tethering)
 // ==============================================================================
 function startGpsTracker() {
     if (!('geolocation' in navigator)) {
-        showToast("Điện thoại không có dịch vụ định vị GPS.");
+        showToast("Thiết bị không hỗ trợ định vị GPS.");
         return;
     }
 
@@ -244,13 +372,13 @@ function onGpsPositionUpdate(pos) {
     document.getElementById('telAccuracy').textContent = coords.accuracy ? `${Math.round(coords.accuracy)} m` : '-- m';
     document.getElementById('telAltitude').textContent = coords.altitude ? `${Math.round(coords.altitude)} m` : '-- m';
 
-    // If trip recording is active, sample speed
+    // If trip recording is active, sample telemetry
     if (state.isRecordingTrip) {
         sampleTripTelemetry(speedKmh);
     }
 
-    // Forward to Pi over BLE (if enabled and connected)
-    if (!state.hardwareGpsEnabled) {
+    // Forward to Pi over BLE (only if hardware GPS on Pi is disabled)
+    if (!state.piConfig.gps.enabled) {
         maybeTransmitGpsToPi(coords, speedKmh);
     }
 }
@@ -264,7 +392,7 @@ function maybeTransmitGpsToPi(coords, speedKmh) {
     const intervalMs = 1000 / state.sendRateHz;
 
     if (now - state.lastSendTime < intervalMs) {
-        return; // Throttle to target Hz to preserve battery
+        return; // Throttle to target Hz to preserve phone battery
     }
     state.lastSendTime = now;
     state.sendCount++;
@@ -290,10 +418,9 @@ function maybeTransmitGpsToPi(coords, speedKmh) {
 
 // GPS Option Toggle: Hardware GPS vs Phone BLE GPS
 function onGpsModeToggle(checkbox) {
-    state.hardwareGpsEnabled = checkbox.checked;
-    localStorage.setItem('icarmeter_hw_gps', state.hardwareGpsEnabled.toString());
+    state.piConfig.gps.enabled = checkbox.checked;
     updateGpsModeUI();
-    sendGpsModeToPi();
+    saveAndSyncTpmsToPi();
 }
 
 function updateGpsModeUI() {
@@ -301,87 +428,21 @@ function updateGpsModeUI() {
     const title = document.getElementById('gpsToggleTitle');
     const desc  = document.getElementById('gpsToggleDesc');
 
-    if (state.hardwareGpsEnabled) {
+    if (state.piConfig.gps.enabled) {
         badge.textContent = "MODULE PI (HW)";
         badge.classList.add('hardware-gps');
-        title.textContent = "Dùng Module GPS";
-        desc.textContent = "Đang BẬT: ICarMeter sẽ tự đọc cổng serial phần cứng.";
+        title.textContent = "Dùng Module GPS Trên Pi";
+        desc.textContent = "Đang BẬT: ICarMeter sẽ tự đọc cổng serial phần cứng trên Pi. Điện thoại tạm dừng truyền GPS để tiết kiệm pin.";
     } else {
         badge.textContent = "ĐIỆN THOẠI (BLE)";
         badge.classList.remove('hardware-gps');
-        title.textContent = "Dùng GPS Từ Điện Thoại";
-        desc.textContent = "Đang TẮT: Đọc GPS từ điện thoại.";
-    }
-}
-
-function sendGpsModeToPi() {
-    if (!state.charSystemCtrl || !state.gattServer || !state.gattServer.connected) {
-        return;
-    }
-
-    const payload = JSON.stringify({
-        gps_mode: state.hardwareGpsEnabled ? "hardware" : "phone"
-    });
-
-    const encoder = new TextEncoder();
-    state.charSystemCtrl.writeValue(encoder.encode(payload))
-        .then(() => showToast(`Đã đồng bộ chế độ GPS: ${state.hardwareGpsEnabled ? "Module Pi" : "Điện thoại BLE"}`))
-        .catch(err => console.warn("Failed to sync GPS mode to Pi:", err));
-}
-
-// ==============================================================================
-// TPMS Configuration
-// ==============================================================================
-function renderTpmsInputs() {
-    document.getElementById('inputFlSensor').value = state.tpmsConfig.fl || '';
-    document.getElementById('inputFrSensor').value = state.tpmsConfig.fr || '';
-    document.getElementById('inputRlSensor').value = state.tpmsConfig.rl || '';
-    document.getElementById('inputRrSensor').value = state.tpmsConfig.rr || '';
-    document.getElementById('inputPressureAlert').value = state.tpmsConfig.alertPressure || 2.2;
-}
-
-function readTpmsInputs() {
-    state.tpmsConfig.fl = document.getElementById('inputFlSensor').value.trim().toUpperCase();
-    state.tpmsConfig.fr = document.getElementById('inputFrSensor').value.trim().toUpperCase();
-    state.tpmsConfig.rl = document.getElementById('inputRlSensor').value.trim().toUpperCase();
-    state.tpmsConfig.rr = document.getElementById('inputRrSensor').value.trim().toUpperCase();
-    state.tpmsConfig.alertPressure = parseFloat(document.getElementById('inputPressureAlert').value) || 2.2;
-}
-
-function saveTpmsLocal() {
-    readTpmsInputs();
-    localStorage.setItem('icarmeter_tpms', JSON.stringify(state.tpmsConfig));
-    showToast("Đã lưu cấu hình 4 van xe trên điện thoại");
-}
-
-async function syncTpmsToPi() {
-    saveTpmsLocal();
-
-    if (!state.charTpmsConfig || !state.gattServer || !state.gattServer.connected) {
-        showToast("Chưa kết nối Bluetooth với ICarMeter! Hãy kết nối ở tab Đồng Hồ trước.");
-        return;
-    }
-
-    try {
-        const payload = JSON.stringify({
-            fl: state.tpmsConfig.fl,
-            fr: state.tpmsConfig.fr,
-            rl: state.tpmsConfig.rl,
-            rr: state.tpmsConfig.rr,
-            alert: state.tpmsConfig.alertPressure
-        });
-
-        const encoder = new TextEncoder();
-        await state.charTpmsConfig.writeValue(encoder.encode(payload));
-        showToast("Đã gửi thành công cấu hình TPMS xuống ICarMeter!");
-    } catch (err) {
-        console.error("TPMS BLE Sync error:", err);
-        showToast(`Lỗi truyền Bluetooth: ${err.message}`);
+        title.textContent = "Dùng GPS Từ Điện Thoại (BLE)";
+        desc.textContent = "Đang TẮT: Điện thoại lấy GPS độ chính xác cao và truyền liên tục sang ICarMeter qua Bluetooth Low Energy.";
     }
 }
 
 // ==============================================================================
-// Trip History & Logging
+// Trip History & Logging (Recorded & Synced with Pi)
 // ==============================================================================
 function toggleTripRecording() {
     if (state.isRecordingTrip) {
@@ -404,7 +465,7 @@ function startTripRecording() {
     btn.className = "btn btn-danger";
 
     state.tripInterval = setInterval(updateTripTimerUI, 1000);
-    showToast("Đã bắt đầu ghi nhận hành trình mới");
+    showToast("Bắt đầu ghi nhận hành trình mới");
 }
 
 function sampleTripTelemetry(speedKmh) {
@@ -413,7 +474,7 @@ function sampleTripTelemetry(speedKmh) {
         state.tripMaxSpeed = speedKmh;
     }
 
-    // Approximate distance delta (km) = (v / 3600) * dt
+    // Distance delta = (v / 3600) * 1s
     state.tripDistanceKm += (speedKmh / 3600.0) * 1.0;
     document.getElementById('currentTripDistance').textContent = state.tripDistanceKm.toFixed(1);
 
@@ -438,7 +499,6 @@ function stopTripRecording() {
         ? Math.round(state.tripSpeedSamples.reduce((a, b) => a + b, 0) / state.tripSpeedSamples.length)
         : 0;
 
-    // Save trip object
     const newTrip = {
         id: Date.now(),
         dateStr: new Date().toLocaleDateString('vi-VN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),

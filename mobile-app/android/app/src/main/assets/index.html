@@ -28,13 +28,22 @@
 
         <!-- Main Content Screens -->
         <main class="main-content">
+            <!-- Sync Status Bar (Pi is Single Source of Truth) -->
+            <div class="sync-bar" id="syncBar">
+                <div class="sync-info">
+                    <span class="sync-dot" id="syncDot"></span>
+                    <span class="sync-status" id="syncStatusText">Đang chờ kết nối...</span>
+                </div>
+                <button class="btn-reload" id="btnReloadConfig" onclick="fetchConfigFromPi()" title="Kéo cấu hình mới nhất từ Pi">Tải từ Pi</button>
+            </div>
+
             <!-- TAB 1: DASHBOARD -->
             <section class="tab-pane active" id="tabDashboard">
                 <!-- BLE Connection Card -->
                 <div class="card ble-card">
                     <div class="card-header">
                         <span class="card-label">KẾT NỐI XE</span>
-                        <span class="card-meta" id="connectedDeviceName">Pi Chưa Ghép Nối</span>
+                        <span class="card-meta" id="connectedDeviceName">Chưa Ghép Nối</span>
                     </div>
                     <div class="ble-actions">
                         <button class="btn btn-primary" id="btnConnectBle" onclick="toggleBleConnection()">
@@ -46,7 +55,7 @@
                 <!-- GPS Speedometer Display -->
                 <div class="card speed-card">
                     <div class="speed-header">
-                        <span class="card-label">TỐC ĐỘ GPS TRUYỀN SANG PI</span>
+                        <span class="card-label">TỐC ĐỘ GPS</span>
                         <span class="badge" id="gpsSourceBadge">ĐIỆN THOẠI (BLE)</span>
                     </div>
                     <div class="speed-display">
@@ -103,9 +112,9 @@
                 <div class="card">
                     <div class="card-header">
                         <span class="card-label">CẤU HÌNH 4 VAN CẢM BIẾN (TPMS)</span>
-                        <span class="card-meta">Lưu vào Pi qua BLE</span>
+                        <span class="card-meta" id="tpmsSyncTimestamp">Chờ đồng bộ...</span>
                     </div>
-                    <p class="section-desc">Nhập mã Bluetooth ID hoặc địa chỉ MAC trên thân van để ICarMeter nhận diện chính xác 4 bánh xe.</p>
+                    <p class="section-desc">Cấu hình được lưu trực tiếp trên Pi. Điện thoại đọc cấu hình gốc từ Pi và gửi cập nhật chỉ với 1 chạm.</p>
 
                     <!-- Car Diagram Inputs -->
                     <div class="tpms-layout">
@@ -113,12 +122,12 @@
                         <div class="tpms-row">
                             <div class="tire-input-card">
                                 <div class="tire-badge">TRƯỚC TRÁI (FL)</div>
-                                <input type="text" class="input-flat" id="inputFlSensor" placeholder="A4:C1:38:00:00:01" maxlength="17" spellcheck="false">
+                                <input type="text" class="input-flat" id="inputFlSensor" placeholder="Chờ đọc từ Pi..." maxlength="17" spellcheck="false">
                             </div>
                             <div class="car-visual-front">▲ ĐẦU XE</div>
                             <div class="tire-input-card">
                                 <div class="tire-badge">TRƯỚC PHẢI (FR)</div>
-                                <input type="text" class="input-flat" id="inputFrSensor" placeholder="A4:C1:38:00:00:02" maxlength="17" spellcheck="false">
+                                <input type="text" class="input-flat" id="inputFrSensor" placeholder="Chờ đọc từ Pi..." maxlength="17" spellcheck="false">
                             </div>
                         </div>
 
@@ -126,12 +135,12 @@
                         <div class="tpms-row">
                             <div class="tire-input-card">
                                 <div class="tire-badge">SAU TRÁI (RL)</div>
-                                <input type="text" class="input-flat" id="inputRlSensor" placeholder="A4:C1:38:00:00:03" maxlength="17" spellcheck="false">
+                                <input type="text" class="input-flat" id="inputRlSensor" placeholder="Chờ đọc từ Pi..." maxlength="17" spellcheck="false">
                             </div>
                             <div class="car-visual-rear">▼ ĐUÔI XE</div>
                             <div class="tire-input-card">
                                 <div class="tire-badge">SAU PHẢI (RR)</div>
-                                <input type="text" class="input-flat" id="inputRrSensor" placeholder="A4:C1:38:00:00:04" maxlength="17" spellcheck="false">
+                                <input type="text" class="input-flat" id="inputRrSensor" placeholder="Chờ đọc từ Pi..." maxlength="17" spellcheck="false">
                             </div>
                         </div>
                     </div>
@@ -141,14 +150,14 @@
                         <label class="form-label">Ngưỡng cảnh báo áp suất thấp (Bar)</label>
                         <div class="range-container">
                             <input type="number" class="input-flat" id="inputPressureAlert" step="0.1" min="1.5" max="3.5" value="2.2" style="max-width: 120px;">
-                            <span class="range-hint">Mặc định: 2.2 bar (khoảng 32 PSI)</span>
+                            <span class="range-hint">Lưu trong config.toml của Pi</span>
                         </div>
                     </div>
 
                     <!-- Actions -->
                     <div class="actions-row">
-                        <button class="btn btn-secondary" onclick="saveTpmsLocal()">Lưu Cục Bộ</button>
-                        <button class="btn btn-primary" onclick="syncTpmsToPi()">Gửi Cấu Hình Xuống Pi</button>
+                        <button class="btn btn-secondary" onclick="fetchConfigFromPi()">Tải lại từ Pi</button>
+                        <button class="btn btn-primary" onclick="saveAndSyncTpmsToPi()">Lưu & Đồng Bộ Sang Pi</button>
                     </div>
                 </div>
             </section>
@@ -201,16 +210,13 @@
                         <div class="setting-text">
                             <div class="setting-title" id="gpsToggleTitle">Dùng GPS từ Điện Thoại (BLE)</div>
                             <div class="setting-desc" id="gpsToggleDesc">
-                                Đang TẮT module Pi: Điện thoại sẽ lấy GPS độ chính xác cao và truyền liên tục sang ICarMeter qua Bluetooth.
+                                Đang TẮT: Đọc GPS từ điện thoại.
                             </div>
                         </div>
                         <label class="switch-flat">
                             <input type="checkbox" id="toggleHardwareGps" onchange="onGpsModeToggle(this)">
                             <span class="slider-flat"></span>
                         </label>
-                    </div>
-                    <div class="note-box" id="gpsModeNote">
-                        <strong>Lưu ý:</strong> BẬT công tắc này nếu bạn gắn module phần cứng GPS rời vào Raspberry Pi. TẮT công tắc để ứng dụng điện thoại phát GPS qua Bluetooth Low Energy cho Pi.
                     </div>
                 </div>
 
