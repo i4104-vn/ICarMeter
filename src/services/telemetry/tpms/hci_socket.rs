@@ -96,12 +96,12 @@ impl HciSocket {
 
     /// Sends HCI command packets to start active/passive LE scanning
     fn enable_le_scan(&self) -> io::Result<()> {
-        // LE Set Scan Parameters (passive scan, 10ms interval / 10ms window)
+        // LE Set Scan Parameters (passive scan, 100ms interval / 50ms window to allow simultaneous advertising)
         let scan_params_cmd = [
             0x01, 0x0B, 0x20, 7, // OCF 0x000B, OGF 0x08, Len 7
             0x00, // Passive scan
-            0x10, 0x00, // Scan interval: 10ms
-            0x10, 0x00, // Scan window: 10ms
+            0xA0, 0x00, // Scan interval: 100ms (160 * 0.625ms)
+            0x50, 0x00, // Scan window: 50ms (80 * 0.625ms)
             0x00, // Public address
             0x00, // All packets
         ];

@@ -52,6 +52,9 @@ elif [ -f "/boot/config.txt" ]; then
 fi
 
 if [ -n "$CONFIG_FILE" ]; then
+    # Sanitize any legacy miniuart-bt overlay that disables onboard Bluetooth hardware
+    sed -i '/miniuart-bt/d' "$CONFIG_FILE" 2>/dev/null || true
+
     if ! grep -q "ICarMeter" "$CONFIG_FILE"; then
         cat << 'EOF' >> "$CONFIG_FILE"
 
@@ -59,7 +62,6 @@ if [ -n "$CONFIG_FILE" ]; then
 disable_splash=1
 boot_delay=0
 enable_uart=1
-dtoverlay=miniuart-bt
 framebuffer_depth=32
 framebuffer_ignore_alpha=1
 EOF

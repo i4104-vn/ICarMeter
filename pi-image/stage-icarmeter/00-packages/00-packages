@@ -1,5 +1,9 @@
 bluez
 bluez-tools
+pi-bluetooth
+rfkill
+python3-dbus
+python3-gi
 libcap2-bin
 plymouth
 plymouth-themes

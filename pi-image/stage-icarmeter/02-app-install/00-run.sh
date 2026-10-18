@@ -7,6 +7,7 @@ APP_DIR="${ROOTFS_DIR}/opt/icarmeter"
 install -d -m 755 "${APP_DIR}"
 install -m 644 files/config.toml "${APP_DIR}/config.toml"
 install -m 755 files/icarmeter-bt-init.sh "${APP_DIR}/icarmeter-bt-init.sh"
+install -m 755 files/icarmeter-ble-service.py "${APP_DIR}/icarmeter-ble-service.py"
 install -m 644 files/icarmeter.service "${ROOTFS_DIR}/etc/systemd/system/icarmeter.service"
 install -m 644 files/icarmeter-bluetooth.service "${ROOTFS_DIR}/etc/systemd/system/icarmeter-bluetooth.service"
 
