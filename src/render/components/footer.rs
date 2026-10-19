@@ -14,7 +14,14 @@ impl FooterRenderer {
         let white_color = Color::from_rgba8(255, 255, 255, 255);
         let dim_color = Color::from_rgba8(110, 110, 120, 255);
 
-        // 1. Bluetooth item:
+        // 1. Wi-Fi Hotspot item
+        let (wifi_color, wifi_label) = if state.wifi_active {
+            (white_color, "Wi-Fi")
+        } else {
+            (dim_color, "Wi-Fi")
+        };
+
+        // 2. Bluetooth item:
         // - Connected: white icon + connected device name
         // - Active/On (waiting): white icon + "Bluetooth"
         // - Disabled/Error: dim muted gray icon + "Bluetooth"
@@ -26,14 +33,14 @@ impl FooterRenderer {
             (dim_color, "Bluetooth")
         };
 
-        // 2. App item
+        // 3. App item
         let (app_color, app_label) = if state.app_connected {
             (white_color, "App Connected")
         } else {
             (dim_color, "App")
         };
 
-        // 3. GPS item
+        // 4. GPS item
         let (gps_color, gps_label) = if state.gps_connected {
             (white_color, "GPS")
         } else {
@@ -41,20 +48,21 @@ impl FooterRenderer {
         };
 
         let items = [
-            (0, bt_color, bt_label),
-            (1, app_color, app_label),
-            (2, gps_color, gps_label),
+            (0, wifi_color, wifi_label),
+            (1, bt_color, bt_label),
+            (2, app_color, app_label),
+            (3, gps_color, gps_label),
         ];
 
         let font_size = 13.0;
         let icon_box_w = 12.0;
         let icon_text_gap = 7.0;
-        let item_spacing = 45.0;
+        let item_spacing = 38.0;
         let baseline_y = 458.0;
         let icon_cy = baseline_y - 4.5;
 
-        // Measure widths to center the 3 items horizontally
-        let mut item_widths = Vec::with_capacity(3);
+        // Measure widths to center the 4 items horizontally
+        let mut item_widths = Vec::with_capacity(4);
         let mut total_w = 0.0;
         for (i, &(_, _, label)) in items.iter().enumerate() {
             let tw = fonts.measure_width(&fonts.bold, label, font_size);
@@ -74,8 +82,9 @@ impl FooterRenderer {
 
             // Draw Icon
             match kind {
-                0 => Self::draw_bluetooth_icon(pixmap, icon_cx, icon_cy, color),
-                1 => Self::draw_app_icon(pixmap, icon_cx, icon_cy, color),
+                0 => Self::draw_wifi_icon(pixmap, icon_cx, icon_cy, color),
+                1 => Self::draw_bluetooth_icon(pixmap, icon_cx, icon_cy, color),
+                2 => Self::draw_app_icon(pixmap, icon_cx, icon_cy, color),
                 _ => Self::draw_gps_icon(pixmap, icon_cx, icon_cy, color),
             }
 
@@ -152,6 +161,35 @@ impl FooterRenderer {
             paint.anti_alias = true;
             let stroke = Stroke {
                 width: 1.3,
+                line_cap: LineCap::Round,
+                line_join: LineJoin::Round,
+                ..Default::default()
+            };
+            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+        }
+    }
+
+    /// Minimalist Wi-Fi Hotspot Icon
+    fn draw_wifi_icon(pixmap: &mut Pixmap, cx: f32, cy: f32, color: Color) {
+        let mut pb = PathBuilder::new();
+        // 1. Center base dot
+        pb.move_to(cx - 1.2, cy + 4.6);
+        pb.line_to(cx + 1.2, cy + 4.6);
+
+        // 2. Middle arc
+        pb.move_to(cx - 3.6, cy + 1.0);
+        pb.quad_to(cx, cy - 2.2, cx + 3.6, cy + 1.0);
+
+        // 3. Top outer arc
+        pb.move_to(cx - 6.5, cy - 3.0);
+        pb.quad_to(cx, cy - 7.0, cx + 6.5, cy - 3.0);
+
+        if let Some(path) = pb.finish() {
+            let mut paint = Paint::default();
+            paint.set_color(color);
+            paint.anti_alias = true;
+            let stroke = Stroke {
+                width: 1.4,
                 line_cap: LineCap::Round,
                 line_join: LineJoin::Round,
                 ..Default::default()

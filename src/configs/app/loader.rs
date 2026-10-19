@@ -3,6 +3,17 @@
 use super::AppConfig;
 use std::fs;
 
+pub(super) fn get_config_mtime() -> Option<std::time::SystemTime> {
+    for path in &["config.toml", "/opt/icarmeter/config.toml"] {
+        if let Ok(meta) = fs::metadata(path) {
+            if let Ok(mtime) = meta.modified() {
+                return Some(mtime);
+            }
+        }
+    }
+    None
+}
+
 pub(super) fn load() -> AppConfig {
     let mut config = AppConfig::default();
     let content = match fs::read_to_string("config.toml")
@@ -76,6 +87,9 @@ fn apply_value(config: &mut AppConfig, section: &str, key: &str, value: String) 
             "rr_sensor" => config.tpms.rr_sensor = value,
             "low_pressure_alert" => {
                 set_if_parses(&value, |alert| config.tpms.low_pressure_alert = alert)
+            }
+            "high_temp_alert" => {
+                set_if_parses(&value, |alert| config.tpms.high_temp_alert = alert)
             }
             _ => {}
         },

@@ -33,6 +33,23 @@ pub fn matches_sensor_id(target: &str, mac: &str, payload: &[u8]) -> bool {
         }
     }
 
+    // 3. Check if target ID is contained anywhere in payload bytes (hex representation)
+    let payload_hex: String = payload.iter().map(|b| format!("{:02X}", b)).collect();
+    if payload_hex.contains(&target_clean) {
+        return true;
+    }
+
+    // 4. Reverse byte chunks of target (for endianness differences)
+    let target_clean_rev: String = target_clean
+        .as_bytes()
+        .chunks(2)
+        .rev()
+        .map(|chunk| std::str::from_utf8(chunk).unwrap_or(""))
+        .collect();
+    if !target_clean_rev.is_empty() && payload_hex.contains(&target_clean_rev) {
+        return true;
+    }
+
     false
 }
 

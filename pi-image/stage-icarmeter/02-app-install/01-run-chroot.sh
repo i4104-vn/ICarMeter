@@ -19,31 +19,40 @@ ln -sf /opt/icarmeter/car_dashboard /usr/local/bin/icarmeter
 # Ensure SSH host keys are generated and present so ssh.service never fails
 ssh-keygen -A || true
 
-# Configure Bluetooth: Set name to "ICarMeter" and keep always discoverable/powered on
+# Configure Bluetooth: Controller powered on for TPMS LE scanner (non-pairable, non-discoverable for phones)
 mkdir -p /etc/bluetooth
 cat << 'EOF' > /etc/bluetooth/main.conf
 [General]
 Name = ICarMeter
-Class = 0x000100
-DiscoverableTimeout = 0
-PairableTimeout = 0
 AutoEnable = true
 ControllerMode = dual
-FastConnectable = true
-JustWorksRepairing = always
 
 [Policy]
 AutoEnable = true
 EOF
 
-# Set system machine-info pretty hostname for Bluetooth discovery
+# Set system machine-info pretty hostname
 echo 'PRETTY_HOSTNAME="ICarMeter"' > /etc/machine-info
 
-# Ensure bluetooth scripts have execute permission
+# Ensure scripts and NetworkManager hotspot connection have proper permissions
 chmod 755 /opt/icarmeter/icarmeter-bt-init.sh 2>/dev/null || true
-chmod 755 /opt/icarmeter/icarmeter-ble-service.py 2>/dev/null || true
+chmod 755 /opt/icarmeter/icarmeter-wifi-init.sh 2>/dev/null || true
+chmod 755 /opt/icarmeter/icarmeter-api.py 2>/dev/null || true
+chmod 600 /etc/NetworkManager/system-connections/icarmeter-hotspot.nmconnection 2>/dev/null || true
 
-# Offline mode optimizations: do not block or wait for WiFi/network on boot
+# Ensure Wi-Fi is enabled in NetworkManager state
+mkdir -p /var/lib/NetworkManager
+cat << 'EOF' > /var/lib/NetworkManager/NetworkManager.state
+[main]
+NetworkingEnabled=true
+WirelessEnabled=true
+WWANEnabled=true
+EOF
+
+# Set Wi-Fi country code to unblock wireless bands
+raspi-config nonint do_wifi_country VN 2>/dev/null || true
+
+# Offline mode optimizations: do not block or wait for external internet on boot
 systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
 systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
 
@@ -67,4 +76,5 @@ systemctl daemon-reload || true
 systemctl enable bluetooth.service 2>/dev/null || true
 systemctl enable hciuart.service 2>/dev/null || true
 systemctl enable icarmeter-bluetooth.service || true
-systemctl enable icarmeter-ble.service || true
+systemctl enable icarmeter-hotspot.service || true
+systemctl enable icarmeter-api.service || true

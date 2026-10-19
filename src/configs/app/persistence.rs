@@ -22,7 +22,8 @@ pub(super) fn to_toml(config: &AppConfig) -> String {
          fr_sensor = \"{}\"\n\
          rl_sensor = \"{}\"\n\
          rr_sensor = \"{}\"\n\
-         low_pressure_alert = {:.1}\n\n\
+         low_pressure_alert = {:.1}\n\
+         high_temp_alert = {:.1}\n\n\
          [display]\n\
          framebuffer_device = \"{}\"\n\
          target_fps = {}\n",
@@ -36,6 +37,7 @@ pub(super) fn to_toml(config: &AppConfig) -> String {
         config.tpms.rl_sensor,
         config.tpms.rr_sensor,
         config.tpms.low_pressure_alert,
+        config.tpms.high_temp_alert,
         config.display.framebuffer_device,
         config.display.target_fps
     )
@@ -47,7 +49,7 @@ pub(super) fn save(config: &AppConfig, path: &str) -> std::io::Result<()> {
 
 pub(super) fn to_json(config: &AppConfig) -> String {
     format!(
-        "{{\"gps\":{{\"enabled\":{},\"device\":\"{}\",\"baud_rate\":{}}},\"tpms\":{{\"enabled\":{},\"adapter\":\"{}\",\"fl\":\"{}\",\"fr\":\"{}\",\"rl\":\"{}\",\"rr\":\"{}\",\"low_pressure_alert\":{:.1}}},\"display\":{{\"framebuffer_device\":\"{}\",\"target_fps\":{}}}}}",
+        "{{\"gps\":{{\"enabled\":{},\"device\":\"{}\",\"baud_rate\":{}}},\"tpms\":{{\"enabled\":{},\"adapter\":\"{}\",\"fl\":\"{}\",\"fr\":\"{}\",\"rl\":\"{}\",\"rr\":\"{}\",\"low_pressure_alert\":{:.1},\"high_temp_alert\":{:.1}}},\"display\":{{\"framebuffer_device\":\"{}\",\"target_fps\":{}}}}}",
         config.gps.enabled,
         config.gps.device,
         config.gps.baud_rate,
@@ -58,6 +60,7 @@ pub(super) fn to_json(config: &AppConfig) -> String {
         config.tpms.rl_sensor,
         config.tpms.rr_sensor,
         config.tpms.low_pressure_alert,
+        config.tpms.high_temp_alert,
         config.display.framebuffer_device,
         config.display.target_fps
     )
@@ -79,6 +82,11 @@ pub(super) fn update_from_json(config: &mut AppConfig, json: &str) -> Result<(),
         extract_float(json, "alert").or_else(|| extract_float(json, "low_pressure_alert"))
     {
         config.tpms.low_pressure_alert = alert;
+    }
+    if let Some(temp_alert) =
+        extract_float(json, "high_temp_alert").or_else(|| extract_float(json, "temp_alert"))
+    {
+        config.tpms.high_temp_alert = temp_alert;
     }
     if let Some(enabled) = extract_bool(json, "gps_enabled") {
         config.gps.enabled = enabled;

@@ -3,3 +3,7 @@ plymouth-themes
 pix-plym-splash
 libcap2-bin
 fontconfig
+dnsmasq-base
+wireless-regdb
+iw
+iptables

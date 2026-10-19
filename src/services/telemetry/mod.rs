@@ -32,6 +32,14 @@ impl TelemetryService {
         Self { gps, sensors }
     }
 
+    pub fn reload_config(&mut self, config: &AppConfig) {
+        if let Some(ref mut sensors) = self.sensors {
+            sensors.update_config(&config.tpms);
+        } else if config.tpms.enabled {
+            self.sensors = Some(BleTpmsReceiver::new(&config.tpms));
+        }
+    }
+
     pub fn update(&mut self, state: &mut VehicleState, dt: f32) {
         // 1. Poll GPS for live speed and connection state
         if let Some(ref mut gps) = self.gps {

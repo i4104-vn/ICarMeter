@@ -7,33 +7,42 @@ pub mod scanner;
 use crate::configs::app::BleTpmsConfig;
 use crate::models::VehicleState;
 use scanner::{SharedTirePressures, run_ble_scanner_loop};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 pub struct BleTpmsReceiver {
     pressures: Arc<Mutex<SharedTirePressures>>,
     expression: Arc<Mutex<Option<String>>>,
+    config: Arc<RwLock<BleTpmsConfig>>,
 }
 
 impl BleTpmsReceiver {
     pub fn new(config: &BleTpmsConfig) -> Self {
         let pressures = Arc::new(Mutex::new(SharedTirePressures::default()));
         let expression = Arc::new(Mutex::new(None));
+        let shared_config = Arc::new(RwLock::new(config.clone()));
 
         let thread_pressures = Arc::clone(&pressures);
         let thread_expression = Arc::clone(&expression);
-        let config_clone = config.clone();
+        let thread_config = Arc::clone(&shared_config);
 
         thread::Builder::new()
             .name("bt-tpms-scanner".to_string())
             .spawn(move || {
-                run_ble_scanner_loop(config_clone, thread_pressures, thread_expression);
+                run_ble_scanner_loop(thread_config, thread_pressures, thread_expression);
             })
             .expect("Failed to spawn Bluetooth TPMS scanner thread");
 
         Self {
             pressures,
             expression,
+            config: shared_config,
+        }
+    }
+
+    pub fn update_config(&mut self, new_config: &BleTpmsConfig) {
+        if let Ok(mut lock) = self.config.write() {
+            *lock = new_config.clone();
         }
     }
 

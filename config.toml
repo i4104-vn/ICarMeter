@@ -16,7 +16,6 @@ enabled = true
 adapter = "hci0"
 
 # Địa chỉ MAC Bluetooth (hoặc Serial ID) của 4 van cảm biến gắn trên 4 bánh xe:
-# Bạn có thể điền dạng có dấu hai chấm ("A4:C1:38:11:22:33") hoặc viết liền ("A4C138112233").
 fl_sensor = "A4:C1:38:00:00:01" 
 fr_sensor = "A4:C1:38:00:00:02" 
 rl_sensor = "A4:C1:38:00:00:03" 
@@ -24,6 +23,9 @@ rr_sensor = "A4:C1:38:00:00:04"
 
 # Ngưỡng cảnh báo áp suất lốp thấp (bar)
 low_pressure_alert = 2.2
+
+# Ngưỡng cảnh báo nhiệt độ lốp cao (°C)
+high_temp_alert = 70.0
 
 [display]
 # Đường dẫn Framebuffer hiển thị TTY

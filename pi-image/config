@@ -22,6 +22,7 @@ LOCALE_DEFAULT="en_US.UTF-8"
 TIMEZONE_DEFAULT="Asia/Ho_Chi_Minh"
 KEYBOARD_KEYMAP="us"
 KEYBOARD_LAYOUT="English (US)"
+WPA_COUNTRY="VN"
 
 # Output Archive Format (zip for fast compression and 100% flashing tool compatibility)
 DEPLOY_COMPRESSION="zip"

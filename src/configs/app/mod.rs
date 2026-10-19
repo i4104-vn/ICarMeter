@@ -19,6 +19,7 @@ pub struct BleTpmsConfig {
     pub rl_sensor: String,
     pub rr_sensor: String,
     pub low_pressure_alert: f32,
+    pub high_temp_alert: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +51,7 @@ impl Default for AppConfig {
                 rl_sensor: "A4:C1:38:00:00:03".to_string(),
                 rr_sensor: "A4:C1:38:00:00:04".to_string(),
                 low_pressure_alert: 2.2,
+                high_temp_alert: 70.0,
             },
             display: DisplayConfig {
                 framebuffer_device: "/dev/fb0".to_string(),
@@ -63,6 +65,10 @@ impl Default for AppConfig {
 impl AppConfig {
     pub fn load() -> Self {
         loader::load()
+    }
+
+    pub fn last_modified() -> Option<std::time::SystemTime> {
+        loader::get_config_mtime()
     }
 
     pub fn to_toml_string(&self) -> String {

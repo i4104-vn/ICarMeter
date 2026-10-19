@@ -4,10 +4,12 @@ use crate::models::VehicleState;
 use std::path::Path;
 
 const APP_CONNECTION_MARKER: &str = "/dev/shm/icarmeter_app_connected";
+const HOTSPOT_MARKER: &str = "/dev/shm/icarmeter_hotspot_active";
 const APP_CONNECTION_TIMEOUT_SECS: u64 = 15;
 
 pub(super) fn update_connection_state(state: &mut VehicleState) {
     state.bt_active = bluetooth_adapter_is_active();
+    state.wifi_active = wifi_hotspot_is_active();
 
     match read_app_connection() {
         Some(device_name) => {
@@ -19,6 +21,12 @@ pub(super) fn update_connection_state(state: &mut VehicleState) {
             state.bt_device_name = None;
         }
     }
+}
+
+fn wifi_hotspot_is_active() -> bool {
+    Path::new(HOTSPOT_MARKER).exists()
+        || Path::new("/sys/class/net/wlan0").exists()
+        || cfg!(target_os = "windows")
 }
 
 fn bluetooth_adapter_is_active() -> bool {

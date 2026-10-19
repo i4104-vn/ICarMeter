@@ -1,0 +1,15 @@
+[Unit]
+Description=ICarMeter Mobile Companion Wi-Fi API Service
+After=network.target NetworkManager.service icarmeter-hotspot.service
+Wants=icarmeter-hotspot.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -u /opt/icarmeter/icarmeter-api.py
+Restart=always
+RestartSec=3s
+User=root
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,9 +1,8 @@
 [Unit]
-Description=ICarMeter Bluetooth adapter setup
+Description=ICarMeter Bluetooth adapter setup (TPMS LE Scanner)
 Requires=bluetooth.service
 Requires=hciuart.service
 After=bluetooth.service hciuart.service
-Before=icarmeter-ble.service
 
 [Service]
 Type=oneshot

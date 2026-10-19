@@ -25,6 +25,9 @@ rr_sensor = "A4:C1:38:00:00:04"  # Bánh sau - phải (Rear-Right)
 # Ngưỡng cảnh báo áp suất lốp thấp (bar)
 low_pressure_alert = 2.2
 
+# Ngưỡng cảnh báo nhiệt độ lốp cao (°C)
+high_temp_alert = 70.0
+
 [display]
 # Đường dẫn Framebuffer hiển thị TTY
 framebuffer_device = "/dev/fb0"

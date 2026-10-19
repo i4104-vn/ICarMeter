@@ -17,6 +17,8 @@ impl AppController {
         let config = AppConfig::load();
 
         let mut state = VehicleState::new();
+        state.tires.low_pressure_alert = config.tpms.low_pressure_alert;
+        state.tires.high_temp_alert = config.tpms.high_temp_alert;
         let mut demo_speed = DemoSpeed::new();
 
         // 2. Initialize real telemetry service (GPS & Bluetooth sensors)
@@ -30,36 +32,36 @@ impl AppController {
         let mut backend = FramebufferBackend::open(&config.display.framebuffer_device)
             .map_err(|e| format!("Failed to initialize framebuffer backend: {}", e))?;
 
-        eprintln!("============================================================");
-        eprintln!("  Car Digital Dashboard - Raspberry Pi OS (/dev/fb0)");
-        eprintln!(
-            "  Screen: 7-inch ({:.0}mm x {:.0}mm, {}x{} pixels)",
-            PHYSICAL_WIDTH_MM, PHYSICAL_HEIGHT_MM, SCREEN_WIDTH, SCREEN_HEIGHT
-        );
-        eprintln!("  Target FPS: {}", config.display.target_fps);
-        eprintln!(
-            "  GPS device: {} (enabled: {})",
-            config.gps.device, config.gps.enabled
-        );
-        eprintln!(
-            "  TPMS 4-Tire Wireless BLE ({}, enabled: {}):",
-            config.tpms.adapter, config.tpms.enabled
-        );
-        eprintln!(
-            "    FL: {} | FR: {}",
-            config.tpms.fl_sensor, config.tpms.fr_sensor
-        );
-        eprintln!(
-            "    RL: {} | RR: {}",
-            config.tpms.rl_sensor, config.tpms.rr_sensor
-        );
-        eprintln!("============================================================");
-
         let target_fps = config.display.target_fps.clamp(15, 240);
         let frame_duration = Duration::from_micros(1_000_000 / target_fps);
         let mut last_time = Instant::now();
+        let mut last_config_check = Instant::now();
+        let mut last_config_mtime = AppConfig::last_modified();
 
         while backend.is_open() && is_app_running() {
+            // Check and re-read config.toml dynamically in real time
+            if last_config_check.elapsed() >= Duration::from_millis(500) {
+                last_config_check = Instant::now();
+                let current_mtime = AppConfig::last_modified();
+                if current_mtime != last_config_mtime {
+                    last_config_mtime = current_mtime;
+                    let new_config = AppConfig::load();
+                    eprintln!(
+                        "[Config] Real-time config.toml update detected:\n  TPMS FL: {} | FR: {}\n  TPMS RL: {} | RR: {}\n  Alert: {:.1} bar | {:.1} °C | Enabled: {}",
+                        new_config.tpms.fl_sensor,
+                        new_config.tpms.fr_sensor,
+                        new_config.tpms.rl_sensor,
+                        new_config.tpms.rr_sensor,
+                        new_config.tpms.low_pressure_alert,
+                        new_config.tpms.high_temp_alert,
+                        new_config.tpms.enabled
+                    );
+                    state.tires.low_pressure_alert = new_config.tpms.low_pressure_alert;
+                    state.tires.high_temp_alert = new_config.tpms.high_temp_alert;
+                    telemetry.reload_config(&new_config);
+                }
+            }
+
             if let Some(key) = backend.poll_key() {
                 if key.to_ascii_lowercase() == b'a' {
                     demo_speed.toggle(&mut state);

@@ -16,6 +16,7 @@ pub struct VehicleState {
     pub bt_device_name: Option<String>,
     pub app_connected: bool,
     pub gps_connected: bool,
+    pub wifi_active: bool,
 }
 
 impl Default for VehicleState {
@@ -32,6 +33,7 @@ impl Default for VehicleState {
             bt_device_name: None,
             app_connected: false,
             gps_connected: false,
+            wifi_active: true,
         }
     }
 }

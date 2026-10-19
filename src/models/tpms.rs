@@ -13,6 +13,8 @@ pub struct TirePressures {
     pub fr_temp: f32, // Front-Right temp (°C)
     pub rl_temp: f32, // Rear-Left temp (°C)
     pub rr_temp: f32, // Rear-Right temp (°C)
+    pub low_pressure_alert: f32, // Alert threshold in bar (default: 2.2)
+    pub high_temp_alert: f32,    // Alert threshold in °C (default: 70.0)
 }
 
 impl Default for TirePressures {
@@ -26,18 +28,35 @@ impl Default for TirePressures {
             fr_temp: 0.0,
             rl_temp: 0.0,
             rr_temp: 0.0,
+            low_pressure_alert: LOW_PRESSURE_THRESHOLD,
+            high_temp_alert: HIGH_TEMP_THRESHOLD,
         }
     }
 }
 
 impl TirePressures {
     #[inline(always)]
-    pub fn is_low(pressure: f32) -> bool {
-        pressure > 0.0 && pressure < LOW_PRESSURE_THRESHOLD
+    pub fn is_low(&self, pressure: f32) -> bool {
+        let threshold = if self.low_pressure_alert > 0.0 {
+            self.low_pressure_alert
+        } else {
+            LOW_PRESSURE_THRESHOLD
+        };
+        pressure > 0.0 && pressure < threshold
     }
 
     #[inline(always)]
-    pub fn is_high_temp(temp: f32) -> bool {
-        temp >= HIGH_TEMP_THRESHOLD
+    pub fn is_high_temp(&self, temp: f32) -> bool {
+        let threshold = if self.high_temp_alert > 0.0 {
+            self.high_temp_alert
+        } else {
+            HIGH_TEMP_THRESHOLD
+        };
+        temp >= threshold
+    }
+
+    #[inline(always)]
+    pub fn is_disconnected(&self, pressure: f32) -> bool {
+        pressure <= 0.0
     }
 }

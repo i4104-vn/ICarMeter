@@ -4,7 +4,7 @@ use super::decoder::{decode_tpms_pressure, decode_tpms_temperature, matches_sens
 use super::hci_socket::{EVT_LE_ADVERTISING_REPORT, EVT_LE_META_EVENT, HCI_EVENT_PKT, HciSocket};
 use crate::configs::app::BleTpmsConfig;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
@@ -22,19 +22,24 @@ pub struct SharedTirePressures {
 
 /// Continuous BLE advertising packet receiver loop running in background thread
 pub fn run_ble_scanner_loop(
-    config: BleTpmsConfig,
+    config: Arc<RwLock<BleTpmsConfig>>,
     pressures: Arc<Mutex<SharedTirePressures>>,
     expression: Arc<Mutex<Option<String>>>,
 ) {
     let mut discovered_sensors = HashSet::new();
 
     loop {
-        let socket = match HciSocket::open(&config.adapter) {
+        let adapter = match config.read() {
+            Ok(c) => c.adapter.clone(),
+            Err(_) => "hci0".to_string(),
+        };
+
+        let socket = match HciSocket::open(&adapter) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!(
                     "[TPMS-BLE] Could not open raw Bluetooth socket on {}: {} (retrying in 5s)",
-                    config.adapter, e
+                    adapter, e
                 );
                 thread::sleep(Duration::from_secs(5));
                 continue;
@@ -43,7 +48,7 @@ pub fn run_ble_scanner_loop(
 
         eprintln!(
             "[TPMS-BLE] Bluetooth LE scanner actively listening on {}...",
-            config.adapter
+            adapter
         );
 
         let mut read_buf = [0u8; 1024];
@@ -104,7 +109,12 @@ pub fn run_ble_scanner_loop(
                     let temp = decode_tpms_temperature(payload).unwrap_or(0.0);
                     let mut matched = false;
 
-                    if matches_sensor_id(&config.fl_sensor, &mac_str, payload) {
+                    let (fl_target, fr_target, rl_target, rr_target) = match config.read() {
+                        Ok(c) => (c.fl_sensor.clone(), c.fr_sensor.clone(), c.rl_sensor.clone(), c.rr_sensor.clone()),
+                        Err(_) => continue,
+                    };
+
+                    if matches_sensor_id(&fl_target, &mac_str, payload) {
                         if let Ok(mut p) = pressures.lock() {
                             p.fl = pressure;
                             if temp != 0.0 {
@@ -112,7 +122,7 @@ pub fn run_ble_scanner_loop(
                             }
                         }
                         matched = true;
-                    } else if matches_sensor_id(&config.fr_sensor, &mac_str, payload) {
+                    } else if matches_sensor_id(&fr_target, &mac_str, payload) {
                         if let Ok(mut p) = pressures.lock() {
                             p.fr = pressure;
                             if temp != 0.0 {
@@ -120,7 +130,7 @@ pub fn run_ble_scanner_loop(
                             }
                         }
                         matched = true;
-                    } else if matches_sensor_id(&config.rl_sensor, &mac_str, payload) {
+                    } else if matches_sensor_id(&rl_target, &mac_str, payload) {
                         if let Ok(mut p) = pressures.lock() {
                             p.rl = pressure;
                             if temp != 0.0 {
@@ -128,7 +138,7 @@ pub fn run_ble_scanner_loop(
                             }
                         }
                         matched = true;
-                    } else if matches_sensor_id(&config.rr_sensor, &mac_str, payload) {
+                    } else if matches_sensor_id(&rr_target, &mac_str, payload) {
                         if let Ok(mut p) = pressures.lock() {
                             p.rr = pressure;
                             if temp != 0.0 {

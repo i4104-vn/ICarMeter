@@ -1,20 +1,17 @@
 #!/bin/bash
-# Prepare the onboard Bluetooth adapter for Classic BT discovery and BLE GATT.
-# The long-running GATT process is managed by icarmeter-ble.service.
-
+# ==============================================================================
+# Initialize onboard Bluetooth controller strictly for TPMS LE sensor scanning.
+# Classic BT discovery/pairing and BLE GATT peripheral modes are disabled.
+# ==============================================================================
 set -u
 
-NAME="ICarMeter"
-BLUETOOTHCTL="/usr/bin/bluetoothctl"
-BTMGMT="/usr/bin/btmgmt"
-
-echo "[Bluetooth-Init] Waiting for a BlueZ controller..."
+echo "[Bluetooth-Init] Initializing Bluetooth adapter for TPMS sensor scanning..."
 rfkill unblock bluetooth 2>/dev/null || true
 
 controller_found=0
 for _ in $(seq 1 45); do
-    if "${BTMGMT}" info 2>/dev/null | grep -Eq "hci[0-9]+:" || \
-        "${BLUETOOTHCTL}" list 2>/dev/null | grep -q "Controller"; then
+    if /usr/bin/bluetoothctl list 2>/dev/null | grep -q "Controller" || \
+       /usr/bin/btmgmt info 2>/dev/null | grep -Eq "hci[0-9]+:"; then
         controller_found=1
         break
     fi
@@ -22,28 +19,19 @@ for _ in $(seq 1 45); do
 done
 
 if [ "${controller_found}" != "1" ]; then
-    echo "[Bluetooth-Init] No Bluetooth controller appeared after 45s." >&2
-    rfkill list bluetooth 2>/dev/null || true
-    exit 1
+    echo "[Bluetooth-Init] Warning: No Bluetooth controller appeared after 45s." >&2
+    exit 0
 fi
 
-# Bring the controller up through the kernel management API first. This avoids
-# relying on the deprecated hciconfig/hcitool utilities and works with both
-# Raspberry Pi UART Bluetooth and newer controllers.
-if [ -x "${BTMGMT}" ]; then
-    "${BTMGMT}" power on || true
-    "${BTMGMT}" connectable on || true
-    "${BTMGMT}" bondable on || true
-    "${BTMGMT}" advertising on || true
+# Power on the controller so the raw HCI socket in car_dashboard can capture TPMS LE advertisements
+if [ -x /usr/bin/btmgmt ]; then
+    /usr/bin/btmgmt power on || true
 fi
+/usr/bin/bluetoothctl power on || true
 
-# Keep the full human-readable alias for Classic Bluetooth discovery and
-# pairing. The BLE GATT advertisement uses a shorter payload-safe name.
-"${BLUETOOTHCTL}" power on || true
-"${BLUETOOTHCTL}" system-alias "${NAME}" || true
-"${BLUETOOTHCTL}" discoverable-timeout 0 || true
-"${BLUETOOTHCTL}" pairable-timeout 0 || true
-"${BLUETOOTHCTL}" discoverable on || true
-"${BLUETOOTHCTL}" pairable on || true
+# Turn off discoverable and pairable: Pi does NOT act as a Bluetooth peripheral for phones.
+# Bluetooth is solely dedicated to receiving TPMS sensor broadcasts.
+/usr/bin/bluetoothctl discoverable off 2>/dev/null || true
+/usr/bin/bluetoothctl pairable off 2>/dev/null || true
 
-echo "[Bluetooth-Init] Controller is powered, pairable, and discoverable as '${NAME}'."
+echo "[Bluetooth-Init] Controller powered and configured for TPMS LE scanning."

@@ -1,0 +1,13 @@
+[Unit]
+Description=ICarMeter Wi-Fi Hotspot setup and persistent keeper
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=forking
+ExecStart=/opt/icarmeter/icarmeter-wifi-init.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
