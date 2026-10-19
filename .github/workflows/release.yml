@@ -45,19 +45,19 @@ jobs:
   # ==============================================================================
   build-apk:
     name: Build Android Companion APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Java JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: "zulu"
           java-version: "17"
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "8.5"
 
@@ -86,7 +86,7 @@ jobs:
           ls -lah apk_dist/ICarMeter.apk
 
       - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: icarmeter-apk
           path: apk_dist/ICarMeter.apk
@@ -100,7 +100,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -134,7 +134,7 @@ jobs:
           ls -lah dist_bin/
 
       - name: Upload compiled binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: car_dashboard-bin
           path: dist_bin/
@@ -146,11 +146,11 @@ jobs:
   build-image:
     name: Build Pi OS Image (arm64)
     needs: [build-binary]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Free disk space on runner
         run: |
@@ -165,7 +165,7 @@ jobs:
           df -h
 
       - name: Download compiled binary artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: car_dashboard-bin
           path: bin_artifact/
@@ -208,7 +208,7 @@ jobs:
           ls -lah ../../image_dist/
 
       - name: Upload Image Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: icarmeter-image
           path: image_dist/
@@ -220,28 +220,28 @@ jobs:
   publish-release:
     name: Publish GitHub Release (OS Image & APK)
     needs: [build-apk, build-binary, build-image]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Create release assets directory
         run: mkdir -p release_assets
 
       - name: Download APK artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: icarmeter-apk
           path: release_assets/
 
       - name: Download OS Image artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: icarmeter-image
           path: release_assets/
 
       - name: Download Binary artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: car_dashboard-bin
           path: release_assets/
@@ -282,7 +282,7 @@ jobs:
           echo "title=${TITLE}" >> $GITHUB_OUTPUT
 
       - name: Publish to GitHub Releases
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.rel_meta.outputs.tag }}
           name: ${{ steps.rel_meta.outputs.title }}
