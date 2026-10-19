@@ -8,14 +8,14 @@ RELEASE="bookworm"
 ARCH="arm64"
 
 # User Credentials & Autologin prep
-FIRST_USER_NAME="pi"
-FIRST_USER_PASS="raspberry"
+FIRST_USER_NAME="i4104"
+FIRST_USER_PASS="icarmeter"
 DISABLE_FIRST_BOOT_USER_RENAME=1
 PASSWORDLESS_SUDO=1
 
 # Networking & Remote Management
-TARGET_HOSTNAME="icarmeter"
-ENABLE_SSH=1
+TARGET_HOSTNAME="i4104"
+ENABLE_SSH=0
 
 # Localization & Region
 LOCALE_DEFAULT="en_US.UTF-8"
@@ -24,8 +24,8 @@ KEYBOARD_KEYMAP="us"
 KEYBOARD_LAYOUT="English (US)"
 WPA_COUNTRY="VN"
 
-# Output Archive Format (zip for fast compression and 100% flashing tool compatibility)
-DEPLOY_COMPRESSION="zip"
+# Output Archive Format (none to output raw .img ready for flashing without unzipping)
+DEPLOY_COMPRESSION="none"
 COMPRESSION_LEVEL=1
 
 # Pipeline Stages to run:

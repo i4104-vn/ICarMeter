@@ -11,6 +11,10 @@ import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
 import android.webkit.*
@@ -29,6 +33,9 @@ class MainActivity : AppCompatActivity() {
         // Request runtime permissions on modern Android versions
         checkAndRequestPermissions()
 
+        // Bind network sockets to Wi-Fi even if the car hotspot has no upstream internet
+        bindToCarWifiNetwork()
+
         setupWebView()
     }
 
@@ -44,11 +51,16 @@ class MainActivity : AppCompatActivity() {
             setGeolocationEnabled(true)
             allowFileAccess = true
             allowContentAccess = true
+            allowFileAccessFromFileURLs = true
+            allowUniversalAccessFromFileURLs = true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            }
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
         }
 
-        // Bridge native BLE TPMS advertising to Web companion UI
+        // Bridge native BLE TPMS advertising and native HTTP socket to Web companion UI
         bleTpmsInterface = BleTpmsInterface()
         webView.addJavascriptInterface(bleTpmsInterface!!, "AndroidBleTpms")
 
@@ -108,6 +120,37 @@ class MainActivity : AppCompatActivity() {
 
         if (needed.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, needed.toTypedArray(), 1001)
+        }
+    }
+
+    private fun bindToCarWifiNetwork() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+            val request = NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .build()
+
+            cm.requestNetwork(request, object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    super.onAvailable(network)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        cm.bindProcessToNetwork(network)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        ConnectivityManager.setProcessDefaultNetwork(network)
+                    }
+                    android.util.Log.i("ICarMeter", "Bound app process to Wi-Fi: $network")
+                }
+
+                override fun onLost(network: Network) {
+                    super.onLost(network)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        cm.bindProcessToNetwork(null)
+                    }
+                }
+            })
+        } catch (e: Exception) {
+            android.util.Log.w("ICarMeter", "bindToCarWifiNetwork error: ${e.message}")
         }
     }
 
@@ -227,6 +270,61 @@ class MainActivity : AppCompatActivity() {
                 advertiseCallback = null
             } catch (e: Exception) {
                 android.util.Log.e("BleTpms", "Error stopping BLE advertising: ${e.message}")
+            }
+        }
+
+        @JavascriptInterface
+        fun httpGet(urlStr: String): String {
+            return try {
+                val url = java.net.URL(urlStr)
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 3000
+                conn.readTimeout = 3000
+                conn.requestMethod = "GET"
+                conn.connect()
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+                val text = stream.bufferedReader().use { it.readText() }
+                conn.disconnect()
+                org.json.JSONObject().apply {
+                    put("status", code)
+                    put("body", text)
+                }.toString()
+            } catch (e: Exception) {
+                org.json.JSONObject().apply {
+                    put("status", 0)
+                    put("error", e.message ?: "Network error")
+                }.toString()
+            }
+        }
+
+        @JavascriptInterface
+        fun httpPost(urlStr: String, jsonBody: String): String {
+            return try {
+                val url = java.net.URL(urlStr)
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 3500
+                conn.readTimeout = 3500
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                conn.doOutput = true
+                conn.outputStream.use { os ->
+                    val bytes = jsonBody.toByteArray(Charsets.UTF_8)
+                    os.write(bytes, 0, bytes.size)
+                }
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+                val text = stream.bufferedReader().use { it.readText() }
+                conn.disconnect()
+                org.json.JSONObject().apply {
+                    put("status", code)
+                    put("body", text)
+                }.toString()
+            } catch (e: Exception) {
+                org.json.JSONObject().apply {
+                    put("status", 0)
+                    put("error", e.message ?: "Network error")
+                }.toString()
             }
         }
 

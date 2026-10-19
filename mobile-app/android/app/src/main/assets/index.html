@@ -33,6 +33,24 @@
         <main class="main-content">
             <!-- TAB 1: DASHBOARD -->
             <section class="tab-pane active" id="tabDashboard">
+                <!-- GPS Mode Setting Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">CHẾ ĐỘ ĐỊNH VỊ GPS</span>
+                    </div>
+                    <div class="setting-item">
+                        <div class="setting-text">
+                            <div class="setting-title" id="gpsToggleTitle">Module GPS</div>
+                            <div class="setting-desc" id="gpsToggleDesc">
+                                Đang BẬT: Lấy tốc độ qua Module GPS phần cứng.
+                            </div>
+                        </div>
+                        <label class="switch-flat">
+                            <input type="checkbox" id="toggleHardwareGps" onchange="onGpsModeToggle(this)">
+                            <span class="slider-flat"></span>
+                        </label>
+                    </div>
+                </div>
                 <!-- GPS Speedometer Display -->
                 <div class="card speed-card">
                     <div class="speed-header">
@@ -85,25 +103,6 @@
                     <div class="trip-actions">
                         <button class="btn btn-success" id="btnTripAction" onclick="toggleTripRecording()">Bắt đầu
                             chuyến đi</button>
-                    </div>
-                </div>
-
-                <!-- GPS Mode Setting Card -->
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-label">CHẾ ĐỘ ĐỊNH VỊ GPS</span>
-                    </div>
-                    <div class="setting-item">
-                        <div class="setting-text">
-                            <div class="setting-title" id="gpsToggleTitle">Module GPS</div>
-                            <div class="setting-desc" id="gpsToggleDesc">
-                                Đang BẬT: Lấy tốc độ qua Module GPS phần cứng.
-                            </div>
-                        </div>
-                        <label class="switch-flat">
-                            <input type="checkbox" id="toggleHardwareGps" onchange="onGpsModeToggle(this)">
-                            <span class="slider-flat"></span>
-                        </label>
                     </div>
                 </div>
 

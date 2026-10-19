@@ -17,11 +17,12 @@ on:
         default: ""
         type: string
       compression:
-        description: "Pi OS Image compression format"
+        description: "Pi OS Image compression format (default: none / uncompressed raw .img)"
         required: true
-        default: "zip"
+        default: "none"
         type: choice
         options:
+          - none
           - zip
           - xz
       draft:
@@ -183,7 +184,7 @@ jobs:
 
       - name: Configure pi-gen compression
         run: |
-          COMPRESSION="${{ github.event.inputs.compression || 'zip' }}"
+          COMPRESSION="${{ github.event.inputs.compression || 'none' }}"
           sed -i "s/^DEPLOY_COMPRESSION=.*/DEPLOY_COMPRESSION=\"${COMPRESSION}\"/" pi-image/config
 
       - name: Build Pi OS Image with pi-gen Docker
@@ -197,7 +198,13 @@ jobs:
         run: |
           mkdir -p image_dist
           cd pi-image/deploy
-          cp -v *.{zip,img.xz,img,info} ../../image_dist/ 2>/dev/null || true
+          for f in *.img; do
+            [ -f "$f" ] || continue
+            sha256sum "$f" > "${f}.sha"
+            sha256sum "$f" > "${f}.sha256"
+            sha256sum "$f" > "${f%.img}.sha"
+          done
+          cp -v *.{img,sha,sha256,info,bmap,zip,img.xz} ../../image_dist/ 2>/dev/null || true
           ls -lah ../../image_dist/
 
       - name: Upload Image Artifact
@@ -244,7 +251,13 @@ jobs:
         run: |
           find . -mindepth 2 -type f -exec mv -v {} . \; || true
           rm -f SHA256SUMS.txt
-          sha256sum ICarMeter.apk car_dashboard *.{zip,img.xz,img} 2>/dev/null | tee SHA256SUMS.txt || true
+          for f in *.img; do
+            [ -f "$f" ] || continue
+            sha256sum "$f" > "${f}.sha"
+            sha256sum "$f" > "${f}.sha256"
+            sha256sum "$f" > "${f%.img}.sha"
+          done
+          sha256sum ICarMeter.apk car_dashboard *.img *.{zip,img.xz} 2>/dev/null | tee SHA256SUMS.txt || true
           echo "=== Release Assets Ready ==="
           ls -lah
 
@@ -277,12 +290,15 @@ jobs:
           prerelease: ${{ github.event.inputs.prerelease == true }}
           files: |
             release_assets/ICarMeter.apk
-            release_assets/*.zip
-            release_assets/*.img.xz
             release_assets/*.img
+            release_assets/*.sha
+            release_assets/*.sha256
             release_assets/*.info
+            release_assets/*.bmap
             release_assets/car_dashboard
             release_assets/SHA256SUMS.txt
+            release_assets/*.zip
+            release_assets/*.img.xz
           generate_release_notes: true
           body: |
             ## ICarMeter Release ${{ steps.rel_meta.outputs.tag }}

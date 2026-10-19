@@ -48,6 +48,41 @@ const state = {
     trips: []
 };
 
+/**
+ * Universal API Fetch
+ * Uses native Android HTTP bridge when running in Android Companion APK
+ * (bypasses Android WebView cleartext blocks, CORS restrictions, and cellular 4G/5G routing conflicts).
+ * Falls back to standard fetch in browsers.
+ */
+async function apiFetch(url, options = {}) {
+    const method = (options.method || 'GET').toUpperCase();
+    const bodyStr = options.body ? (typeof options.body === 'string' ? options.body : JSON.stringify(options.body)) : '';
+
+    if (window.AndroidBleTpms && typeof window.AndroidBleTpms.httpGet === 'function') {
+        try {
+            const resJsonStr = method === 'POST'
+                ? window.AndroidBleTpms.httpPost(url, bodyStr)
+                : window.AndroidBleTpms.httpGet(url);
+
+            const res = JSON.parse(resJsonStr);
+            if (res.status >= 200 && res.status < 300) {
+                return {
+                    ok: true,
+                    status: res.status,
+                    json: async () => JSON.parse(res.body || '{}'),
+                    text: async () => res.body || ''
+                };
+            } else {
+                throw new Error(res.error || `HTTP ${res.status}`);
+            }
+        } catch (bridgeErr) {
+            console.warn("[BridgeFetch] Native bridge error, attempting window.fetch fallback:", bridgeErr);
+        }
+    }
+
+    return fetch(url, options);
+}
+
 // ==============================================================================
 // App Lifecycle & Initialization
 // ==============================================================================
@@ -173,8 +208,8 @@ async function checkAndAutoConnect(isManual = false) {
     if (autoTestState.running) return;
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000);
-        const res = await fetch(`http://${state.piHost}/api/status`, { signal: controller.signal });
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const res = await apiFetch(`http://${state.piHost}/api/status`, { signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (res.ok) {
@@ -204,7 +239,7 @@ async function fetchConfigFromPi(isManual = false) {
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3500);
-        const res = await fetch(`http://${state.piHost}/api/config`, { signal: controller.signal });
+        const res = await apiFetch(`http://${state.piHost}/api/config`, { signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -284,7 +319,7 @@ async function saveAndSyncTpmsToPi(overrideConfig = null) {
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 4000);
-        const res = await fetch(`http://${state.piHost}/api/config`, {
+        const res = await apiFetch(`http://${state.piHost}/api/config`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -572,7 +607,7 @@ function maybeTransmitGpsToPi(coords, speedKmh) {
         hdg: coords.heading ? Math.round(coords.heading) : 0
     };
 
-    fetch(`http://${host}/api/gps`, {
+    apiFetch(`http://${host}/api/gps`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

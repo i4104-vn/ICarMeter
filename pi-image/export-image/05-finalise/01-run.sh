@@ -150,3 +150,12 @@ if [ -f "${BMAP_FILE}" ]; then
 fi
 cp "$INFO_FILE" "$DEPLOY_DIR/"
 cp "$RELEASE_NOTES_FILE" "$DEPLOY_DIR/"
+
+if [ -f "${DEPLOY_DIR}/${IMG_FILENAME}${IMG_SUFFIX}.img" ]; then
+	pushd "${DEPLOY_DIR}" > /dev/null
+	sha256sum "${IMG_FILENAME}${IMG_SUFFIX}.img" > "${IMG_FILENAME}${IMG_SUFFIX}.img.sha"
+	sha256sum "${IMG_FILENAME}${IMG_SUFFIX}.img" > "${IMG_FILENAME}${IMG_SUFFIX}.img.sha256"
+	sha256sum "${IMG_FILENAME}${IMG_SUFFIX}.img" > "${IMG_FILENAME}${IMG_SUFFIX}.sha"
+	popd > /dev/null
+fi
+
