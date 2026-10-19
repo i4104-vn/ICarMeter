@@ -16,15 +16,6 @@ on:
         required: false
         default: ""
         type: string
-      compression:
-        description: "Pi OS Image compression format (default: none / uncompressed raw .img)"
-        required: true
-        default: "none"
-        type: choice
-        options:
-          - none
-          - zip
-          - xz
       draft:
         description: "Create Draft Release"
         required: false
@@ -182,11 +173,6 @@ jobs:
         run: |
           docker run --privileged --rm tonistiigi/binfmt --install all
 
-      - name: Configure pi-gen compression
-        run: |
-          COMPRESSION="${{ github.event.inputs.compression || 'none' }}"
-          sed -i "s/^DEPLOY_COMPRESSION=.*/DEPLOY_COMPRESSION=\"${COMPRESSION}\"/" pi-image/config
-
       - name: Build Pi OS Image with pi-gen Docker
         run: |
           cd pi-image
@@ -194,28 +180,37 @@ jobs:
           find . -type f \( -name "*.sh" -o -name "EXPORT_IMAGE" \) -exec chmod +x {} + || true
           ./build-docker.sh
 
-      - name: Stage Image Artifacts
+      - name: Package Image & Related Files into Single Zip
         run: |
           mkdir -p image_dist
           cd pi-image/deploy
+
+          # Generate sha256 checksum for the raw img before packaging
           for f in *.img; do
             [ -f "$f" ] || continue
-            sha256sum "$f" > "${f}.sha"
             sha256sum "$f" > "${f}.sha256"
-            sha256sum "$f" > "${f%.img}.sha"
           done
-          cp -v *.{img,sha,sha256,info,bmap,zip,img.xz} ../../image_dist/ 2>/dev/null || true
+
+          echo "=== Deploy contents before zipping ==="
+          ls -lah
+
+          # Package all image related files into one single zip archive
+          ZIP_NAME="ICarMeter-RaspberryPiOS-arm64.zip"
+          zip -6 -j "../../image_dist/${ZIP_NAME}" *.{img,info,sha256,bmap} release_notes.txt 2>/dev/null || \
+          zip -6 -j "../../image_dist/${ZIP_NAME}" *.{img,info,sha256}
+
+          echo "=== Output Zipped Artifact ==="
           ls -lah ../../image_dist/
 
       - name: Upload Image Artifact
         uses: actions/upload-artifact@v6
         with:
-          name: icarmeter-image
-          path: image_dist/
+          name: icarmeter-image-zip
+          path: image_dist/ICarMeter-RaspberryPiOS-arm64.zip
           retention-days: 7
 
   # ==============================================================================
-  # Job 4: Publish GitHub Release (Both Image & APK)
+  # Job 4: Publish GitHub Release (Both Image Zip & APK)
   # ==============================================================================
   publish-release:
     name: Publish GitHub Release (OS Image & APK)
@@ -237,13 +232,7 @@ jobs:
       - name: Download OS Image artifact
         uses: actions/download-artifact@v6
         with:
-          name: icarmeter-image
-          path: release_assets/
-
-      - name: Download Binary artifact
-        uses: actions/download-artifact@v6
-        with:
-          name: car_dashboard-bin
+          name: icarmeter-image-zip
           path: release_assets/
 
       - name: Flatten assets and compute unified SHA256 checksums
@@ -251,13 +240,7 @@ jobs:
         run: |
           find . -mindepth 2 -type f -exec mv -v {} . \; || true
           rm -f SHA256SUMS.txt
-          for f in *.img; do
-            [ -f "$f" ] || continue
-            sha256sum "$f" > "${f}.sha"
-            sha256sum "$f" > "${f}.sha256"
-            sha256sum "$f" > "${f%.img}.sha"
-          done
-          sha256sum ICarMeter.apk car_dashboard *.img *.{zip,img.xz} 2>/dev/null | tee SHA256SUMS.txt || true
+          sha256sum ICarMeter.apk ICarMeter-RaspberryPiOS-arm64.zip 2>/dev/null | tee SHA256SUMS.txt || true
           echo "=== Release Assets Ready ==="
           ls -lah
 
@@ -290,15 +273,13 @@ jobs:
           prerelease: ${{ github.event.inputs.prerelease == true }}
           files: |
             release_assets/ICarMeter.apk
-            release_assets/*.img
-            release_assets/*.sha
-            release_assets/*.sha256
-            release_assets/*.info
-            release_assets/*.bmap
-            release_assets/car_dashboard
+            release_assets/ICarMeter-RaspberryPiOS-arm64.zip
             release_assets/SHA256SUMS.txt
-            release_assets/*.zip
-            release_assets/*.img.xz
           generate_release_notes: true
           body: |
             ## ICarMeter Release ${{ steps.rel_meta.outputs.tag }}
+
+            ### Tệp tải về / Downloads:
+            - **ICarMeter.apk**: Ứng dụng Android điều khiển và giám sát thông số xe
+            - **ICarMeter-RaspberryPiOS-arm64.zip**: Trọn gói hệ điều hành Raspberry Pi OS (chứa file `.img`, `.info`, `.sha256`)
+            - **SHA256SUMS.txt**: Mã băm SHA256 để kiểm tra tính toàn vẹn của tệp tải về
