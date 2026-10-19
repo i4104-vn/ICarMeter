@@ -78,7 +78,7 @@ const wsConn = {
         }
 
         if (this.socket) {
-            try { this.socket.close(); } catch (_) {}
+            try { this.socket.close(); } catch (_) { }
             this.socket = null;
         }
 
@@ -161,7 +161,7 @@ const wsConn = {
             try {
                 this._manualClose = true;
                 this.socket.close();
-            } catch (_) {}
+            } catch (_) { }
             this.socket = null;
         }
         this.connect();
@@ -188,7 +188,7 @@ const wsConn = {
                 applyConfigToStateAndUI(msg.data);
             }
             if (msg.message === 'Saved') {
-                showToast("Đã lưu & đồng bộ cấu hình vào Pi!");
+                showToast("Đã lưu & đồng bộ cấu hình");
             }
         } else if (type === 'status' || type === 'heartbeat') {
             updateWifiStatusUI(true);
@@ -681,7 +681,7 @@ async function startAutoTpmsTest() {
         if (window.AndroidBleTpms && typeof window.AndroidBleTpms.stopBleAdvertising === 'function') {
             try {
                 window.AndroidBleTpms.stopBleAdvertising();
-            } catch (_) {}
+            } catch (_) { }
         }
     }
 
@@ -694,7 +694,7 @@ async function restoreOriginalTpmsConfig() {
     if (window.AndroidBleTpms && typeof window.AndroidBleTpms.stopBleAdvertising === 'function') {
         try {
             window.AndroidBleTpms.stopBleAdvertising();
-        } catch (_) {}
+        } catch (_) { }
     }
 
     if (!autoTestState.original) return;
@@ -739,7 +739,7 @@ function stopAutoTpmsTest() {
     if (window.AndroidBleTpms && typeof window.AndroidBleTpms.stopBleAdvertising === 'function') {
         try {
             window.AndroidBleTpms.stopBleAdvertising();
-        } catch (_) {}
+        } catch (_) { }
     }
     restoreOriginalTpmsConfig();
     showToast("Đã dừng Auto Test và khôi phục cấu hình gốc.");

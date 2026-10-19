@@ -117,6 +117,33 @@ HTTP_PORT = 80
 CONFIG_PATH = "/opt/icarmeter/config.toml"
 FALLBACK_CONFIG_PATHS = ["/home/pi/config.toml", "./config.toml"]
 APP_CONN_MARKER = "/dev/shm/icarmeter_app_connected"
+WS_EVENT_MARKER = "/dev/shm/icarmeter_ws_event"
+
+_last_ws_event = None
+_last_ws_event_time = 0.0
+
+def log_ws_event(event_name):
+    """Writes a clean, short event name to /dev/shm/icarmeter_ws_event for dashboard slide-up display"""
+    global _last_ws_event, _last_ws_event_time
+    now = time.time()
+    event_name = event_name.strip()
+
+    # Priority hold: keep high-value events (Config Saved, Connected, Config Synced) visible for at least 2.5s before Telemetry replaces it
+    if event_name == "Telemetry" and _last_ws_event in ("Connected", "Config Saved", "Config Synced"):
+        if now - _last_ws_event_time < 2.5:
+            return
+
+    # Avoid redundant writes if event is unchanged and within 1s
+    if _last_ws_event == event_name and (now - _last_ws_event_time < 1.0):
+        return
+
+    _last_ws_event = event_name
+    _last_ws_event_time = now
+    try:
+        with open(WS_EVENT_MARKER, "w", encoding="utf-8") as f:
+            f.write(event_name + "\n")
+    except Exception:
+        pass
 
 WWW_ROOT = "/opt/icarmeter/www"
 FALLBACK_WWW_PATHS = [
@@ -490,6 +517,7 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
         sock = self.connection
         sock.settimeout(60.0)
         touch_app_connected("WebSocket Companion")
+        log_ws_event("Connected")
         with ws_clients_lock:
             connected_ws_clients.add(sock)
 
@@ -548,6 +576,7 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
         finally:
             with ws_clients_lock:
                 connected_ws_clients.discard(sock)
+            log_ws_event("Disconnected")
             print(f"[WS] Client disconnected from {client_info}")
 
     def process_ws_message(self, sock, text):
@@ -565,6 +594,7 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             return
 
         if msg_type == "get_config":
+            log_ws_event("Config Synced")
             reply = {"type": "config", "data": read_config()}
             sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
             return
@@ -573,6 +603,7 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             payload = msg.get("payload", {})
             try:
                 write_config(payload)
+                log_ws_event("Config Saved")
                 # Broadcast updated config to ALL connected clients so every open UI syncs
                 ws_broadcast({
                     "type": "config",
@@ -593,6 +624,7 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                 alt = float(msg.get("alt", 0.0))
                 with open("/dev/shm/icarmeter_phone_telemetry", "w", encoding="utf-8") as f:
                     f.write(f"spd={spd}\nlat={lat}\nlon={lon}\nalt={alt}\n")
+                log_ws_event("Telemetry")
             except Exception:
                 pass
             return
@@ -623,6 +655,7 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             try:
                 payload = json.loads(post_body.decode("utf-8"))
                 write_config(payload)
+                log_ws_event("Config Saved")
                 # Broadcast updated config to all WebSocket clients
                 ws_broadcast({
                     "type": "config",
@@ -645,6 +678,7 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                 with open("/dev/shm/icarmeter_phone_telemetry", "w", encoding="utf-8") as f:
                     f.write(f"spd={spd}\nlat={lat}\nlon={lon}\nalt={alt}\n")
                 touch_app_connected("Wi-Fi Mobile App")
+                log_ws_event("Telemetry")
                 self.send_json(200, {"status": "ok"})
             except Exception as e:
                 self.send_json(400, {"status": "error", "message": str(e)})

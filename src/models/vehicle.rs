@@ -17,6 +17,7 @@ pub struct VehicleState {
     pub app_connected: bool,
     pub gps_connected: bool,
     pub wifi_active: bool,
+    pub ws_event_log: Option<String>,
 }
 
 impl Default for VehicleState {
@@ -34,6 +35,7 @@ impl Default for VehicleState {
             app_connected: false,
             gps_connected: false,
             wifi_active: true,
+            ws_event_log: None,
         }
     }
 }

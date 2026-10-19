@@ -14,31 +14,6 @@ impl CarChassis {
         let body_x = cx - (body_w / 2.0);
         let body_y = cy - (body_h / 2.0);
 
-        // Side mirrors
-        let mirror_w = 8.0;
-        let mirror_h = 14.0;
-        let mirror_y = cy - 32.0;
-        let lm = create_rounded_rect(body_x - mirror_w + 1.0, mirror_y, mirror_w, mirror_h, 3.0);
-        let rm = create_rounded_rect(body_x + body_w - 1.0, mirror_y, mirror_w, mirror_h, 3.0);
-
-        let mut mirror_paint = Paint::default();
-        mirror_paint.set_color(Color::from_rgba8(36, 36, 40, 255));
-        mirror_paint.anti_alias = true;
-        pixmap.fill_path(
-            &lm,
-            &mirror_paint,
-            FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
-        pixmap.fill_path(
-            &rm,
-            &mirror_paint,
-            FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
-
         // Body outline path
         let body_path = Self::create_car_body_path(body_x, body_y, body_w, body_h);
 

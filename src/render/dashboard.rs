@@ -16,6 +16,7 @@ pub struct DashboardRenderer {
     car_panel: CarPanel,
     speed_panel: SpeedometerPanel,
     stats_panel: StatsPanel,
+    footer_panel: FooterRenderer,
     startup_elapsed: f32,
 }
 
@@ -27,6 +28,7 @@ impl DashboardRenderer {
         let car_panel = CarPanel::new();
         let speed_panel = SpeedometerPanel::new();
         let stats_panel = StatsPanel::new();
+        let footer_panel = FooterRenderer::new();
 
         Ok(Self {
             pixmap,
@@ -35,6 +37,7 @@ impl DashboardRenderer {
             car_panel,
             speed_panel,
             stats_panel,
+            footer_panel,
             startup_elapsed: 0.0,
         })
     }
@@ -53,8 +56,8 @@ impl DashboardRenderer {
         // 4. Render Right Panel (Trip Statistics)
         self.stats_panel.draw(&mut self.pixmap, &self.fonts, state);
 
-        // 5. Render Bottom Footer (Bluetooth, App, GPS status)
-        FooterRenderer::draw(&mut self.pixmap, &self.fonts, state);
+        // 5. Render Bottom Footer with slide-up event ticker in left corner
+        self.footer_panel.draw(&mut self.pixmap, &self.fonts, state, dt);
 
         // Fade the complete dashboard in after initialization instead of
         // exposing a fully rendered frame abruptly.
@@ -64,6 +67,11 @@ impl DashboardRenderer {
         self.pixel_buffer.update_from_pixmap(&self.pixmap);
 
         self.pixel_buffer.as_slice()
+    }
+
+    #[cfg(test)]
+    pub fn pixmap(&self) -> &Pixmap {
+        &self.pixmap
     }
 }
 

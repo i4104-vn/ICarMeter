@@ -32,3 +32,31 @@ impl CarPanel {
         TpmsOverlay::draw(pixmap, fonts, cx, cy, &state.tires);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_car_error() {
+        let mut pixmap = Pixmap::new(440, 480).unwrap();
+        pixmap.fill(tiny_skia::Color::BLACK);
+        let fonts = FontRenderer::new().unwrap();
+        let state = VehicleState::default(); // default tires are all 0.0 (disconnected / error)
+        let panel = CarPanel::new();
+        panel.draw(&mut pixmap, &fonts, &state);
+        pixmap.save_png("/home/i4104/.gemini/antigravity-ide/brain/be3d16d5-a5f8-4926-bf08-b4eebe1ec757/car_error_preview.png").unwrap();
+    }
+
+    #[test]
+    fn test_render_full_dashboard() {
+        use crate::render::DashboardRenderer;
+        let mut renderer = DashboardRenderer::new().unwrap();
+        let state = VehicleState::default();
+        let _ = renderer.render(&state, 2.0); // complete startup fade
+        renderer
+            .pixmap()
+            .save_png("/home/i4104/.gemini/antigravity-ide/brain/be3d16d5-a5f8-4926-bf08-b4eebe1ec757/full_dashboard_preview.png")
+            .unwrap();
+    }
+}

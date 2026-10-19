@@ -7,13 +7,104 @@ use crate::models::VehicleState;
 use crate::render::core::FontRenderer;
 use tiny_skia::{Color, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
-pub struct FooterRenderer;
+#[derive(Debug, Clone)]
+pub struct FooterRenderer {
+    current_event: String,
+    prev_event: Option<String>,
+    slide_anim: f32,
+}
+
+impl Default for FooterRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl FooterRenderer {
-    pub fn draw(pixmap: &mut Pixmap, fonts: &FontRenderer, state: &VehicleState) {
+    pub fn new() -> Self {
+        Self {
+            current_event: "Standby".to_string(),
+            prev_event: None,
+            slide_anim: 1.0,
+        }
+    }
+
+    pub fn draw(&mut self, pixmap: &mut Pixmap, fonts: &FontRenderer, state: &VehicleState, dt: f32) {
         let white_color = Color::from_rgba8(255, 255, 255, 255);
         let dim_color = Color::from_rgba8(110, 110, 120, 255);
+        let baseline_y = 458.0;
 
+        // ─── 1. WebSocket Event Log with Slide-Up Animation (Bottom-Left) ────
+        // Strictly 1-line event ticker: only shows the concise event name, slides up on new event
+        let new_event = state.ws_event_log.as_deref().unwrap_or("Standby");
+        if new_event != self.current_event {
+            self.prev_event = Some(self.current_event.clone());
+            self.current_event = new_event.to_string();
+            self.slide_anim = 0.0; // Trigger slide-up animation
+        }
+
+        if self.slide_anim < 1.0 {
+            self.slide_anim = (self.slide_anim + dt * 4.0).min(1.0);
+        }
+
+        // Hard vertical clip range: strictly 1 line height (15px slot)
+        let clip_min_y = (baseline_y - 12.0) as i32;
+        let clip_max_y = (baseline_y + 3.0) as i32;
+
+        let t = 1.0 - (1.0 - self.slide_anim).powi(3); // ease-out cubic
+        let slide_dist = 15.0;
+        let event_x = 28.0;
+
+        if self.slide_anim < 1.0 {
+            // 1. Previous event slides UP and exits the top of the single-line slot
+            if let Some(ref prev) = self.prev_event {
+                let prev_y = baseline_y - t * slide_dist;
+                let prev_alpha = ((1.0 - t) * 150.0) as u8;
+                if prev_alpha > 0 {
+                    fonts.draw_text_clipped_y(
+                        pixmap,
+                        &fonts.regular,
+                        prev,
+                        event_x,
+                        prev_y,
+                        11.5,
+                        Color::from_rgba8(115, 120, 132, prev_alpha),
+                        clip_min_y,
+                        clip_max_y,
+                    );
+                }
+            }
+
+            // 2. Incoming event slides UP from below and enters the single-line slot
+            let cur_y = baseline_y + (1.0 - t) * slide_dist;
+            let cur_alpha = (t * 180.0) as u8;
+            fonts.draw_text_clipped_y(
+                pixmap,
+                &fonts.regular,
+                &self.current_event,
+                event_x,
+                cur_y,
+                11.5,
+                Color::from_rgba8(120, 125, 138, cur_alpha),
+                clip_min_y,
+                clip_max_y,
+            );
+        } else {
+            // At rest: strictly 1 single line, static and crystal clear dim text
+            fonts.draw_text_clipped_y(
+                pixmap,
+                &fonts.regular,
+                &self.current_event,
+                event_x,
+                baseline_y,
+                11.5,
+                Color::from_rgba8(120, 125, 138, 180),
+                clip_min_y,
+                clip_max_y,
+            );
+        }
+
+        // ─── 2. Center Status Icons: Wi-Fi, Bluetooth, GPS ───────────────────
         // 1. Wi-Fi Hotspot item
         let (wifi_color, wifi_label) = if state.wifi_active {
             (white_color, "Wi-Fi")
@@ -21,10 +112,7 @@ impl FooterRenderer {
             (dim_color, "Wi-Fi")
         };
 
-        // 2. Bluetooth item:
-        // - Connected: white icon + connected device name
-        // - Active/On (waiting): white icon + "Bluetooth"
-        // - Disabled/Error: dim muted gray icon + "Bluetooth"
+        // 2. Bluetooth item (pure Bluetooth / BLE sensors, isolated from WebSocket)
         let (bt_color, bt_label) = if let Some(ref name) = state.bt_device_name {
             (white_color, name.as_str())
         } else if state.bt_active {
@@ -33,14 +121,7 @@ impl FooterRenderer {
             (dim_color, "Bluetooth")
         };
 
-        // 3. App item
-        let (app_color, app_label) = if state.app_connected {
-            (white_color, "App Connected")
-        } else {
-            (dim_color, "App")
-        };
-
-        // 4. GPS item
+        // 3. GPS item
         let (gps_color, gps_label) = if state.gps_connected {
             (white_color, "GPS")
         } else {
@@ -50,19 +131,17 @@ impl FooterRenderer {
         let items = [
             (0, wifi_color, wifi_label),
             (1, bt_color, bt_label),
-            (2, app_color, app_label),
             (3, gps_color, gps_label),
         ];
 
         let font_size = 13.0;
         let icon_box_w = 12.0;
         let icon_text_gap = 7.0;
-        let item_spacing = 38.0;
-        let baseline_y = 458.0;
+        let item_spacing = 42.0;
         let icon_cy = baseline_y - 4.5;
 
-        // Measure widths to center the 4 items horizontally
-        let mut item_widths = Vec::with_capacity(4);
+        // Measure widths to center the 3 items horizontally
+        let mut item_widths = Vec::with_capacity(3);
         let mut total_w = 0.0;
         for (i, &(_, _, label)) in items.iter().enumerate() {
             let tw = fonts.measure_width(&fonts.bold, label, font_size);
@@ -84,7 +163,6 @@ impl FooterRenderer {
             match kind {
                 0 => Self::draw_wifi_icon(pixmap, icon_cx, icon_cy, color),
                 1 => Self::draw_bluetooth_icon(pixmap, icon_cx, icon_cy, color),
-                2 => Self::draw_app_icon(pixmap, icon_cx, icon_cy, color),
                 _ => Self::draw_gps_icon(pixmap, icon_cx, icon_cy, color),
             }
 
@@ -101,6 +179,25 @@ impl FooterRenderer {
             );
 
             cur_x += iw + item_spacing;
+        }
+    }
+
+    /// Minimalist filled circle dot
+    #[allow(dead_code)]
+    fn draw_dot(pixmap: &mut Pixmap, cx: f32, cy: f32, r: f32, color: Color) {
+        let mut pb = PathBuilder::new();
+        pb.push_circle(cx, cy, r);
+        if let Some(path) = pb.finish() {
+            let mut paint = Paint::default();
+            paint.set_color(color);
+            paint.anti_alias = true;
+            pixmap.fill_path(
+                &path,
+                &paint,
+                tiny_skia::FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
         }
     }
 
@@ -133,6 +230,7 @@ impl FooterRenderer {
     }
 
     /// Minimalist Smartphone App Icon
+    #[allow(dead_code)]
     fn draw_app_icon(pixmap: &mut Pixmap, cx: f32, cy: f32, color: Color) {
         let w = 8.4;
         let h = 13.0;
