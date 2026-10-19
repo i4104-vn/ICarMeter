@@ -5,17 +5,146 @@ Listens for JSON API requests from the ICarMeter Mobile App over Wi-Fi Hotspot (
 to read, write, and synchronize /opt/icarmeter/config.toml in real time.
 """
 
+import base64
+import hashlib
 import http.server
 import json
 import os
+import socket
+import struct
 import sys
+import threading
 import time
 import urllib.parse
 
+WS_MAGIC_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+# Thread-safe WebSocket client registry
+connected_ws_clients = set()
+ws_clients_lock = threading.Lock()
+
+def encode_ws_frame(payload_bytes, opcode=0x1):
+    """Encodes server-to-client WebSocket frame (unmasked per RFC 6455)."""
+    length = len(payload_bytes)
+    b0 = 0x80 | (opcode & 0x0F)
+    if length < 126:
+        header = bytes([b0, length])
+    elif length <= 65535:
+        header = bytes([b0, 126]) + struct.pack("!H", length)
+    else:
+        header = bytes([b0, 127]) + struct.pack("!Q", length)
+    return header + payload_bytes
+
+def decode_ws_frame(sock):
+    """
+    Reads a masked frame from client socket.
+    Returns (opcode, payload_bytes) or (None, None) if socket closed/error.
+    """
+    b = sock.recv(2)
+    if not b or len(b) < 2:
+        return None, None
+    b0, b1 = b[0], b[1]
+    opcode = b0 & 0x0F
+    is_masked = (b1 & 0x80) != 0
+    payload_len = b1 & 0x7F
+
+    if payload_len == 126:
+        ext = sock.recv(2)
+        if len(ext) < 2:
+            return None, None
+        payload_len = struct.unpack("!H", ext)[0]
+    elif payload_len == 127:
+        ext = sock.recv(8)
+        if len(ext) < 8:
+            return None, None
+        payload_len = struct.unpack("!Q", ext)[0]
+
+    mask = sock.recv(4) if is_masked else None
+    if is_masked and (not mask or len(mask) < 4):
+        return None, None
+
+    chunks = []
+    received = 0
+    while received < payload_len:
+        chunk = sock.recv(min(payload_len - received, 65536))
+        if not chunk:
+            return None, None
+        chunks.append(chunk)
+        received += len(chunk)
+    raw = b"".join(chunks)
+
+    if is_masked and mask:
+        unmasked = bytearray(raw)
+        for i in range(len(unmasked)):
+            unmasked[i] ^= mask[i % 4]
+        return opcode, bytes(unmasked)
+    return opcode, raw
+
+def ws_broadcast(msg_dict):
+    """Broadcasts a JSON message to all connected WebSocket clients."""
+    try:
+        data = json.dumps(msg_dict).encode("utf-8")
+        frame = encode_ws_frame(data, opcode=0x1)
+        with ws_clients_lock:
+            dead = []
+            for sock in connected_ws_clients:
+                try:
+                    sock.sendall(frame)
+                except Exception:
+                    dead.append(sock)
+            for d in dead:
+                connected_ws_clients.discard(d)
+    except Exception as e:
+        print(f"[WS] Broadcast error: {e}", file=sys.stderr)
+
+def ws_heartbeat_worker():
+    """Background worker: keeps app connection marker fresh when clients are active."""
+    while True:
+        time.sleep(4)
+        with ws_clients_lock:
+            num = len(connected_ws_clients)
+        if num > 0:
+            touch_app_connected("WebSocket Companion")
+            ws_broadcast({
+                "type": "heartbeat",
+                "status": "online",
+                "clients": num,
+                "timestamp": int(time.time())
+            })
+
 PORT = 8080
+HTTP_PORT = 80
 CONFIG_PATH = "/opt/icarmeter/config.toml"
 FALLBACK_CONFIG_PATHS = ["/home/pi/config.toml", "./config.toml"]
 APP_CONN_MARKER = "/dev/shm/icarmeter_app_connected"
+
+WWW_ROOT = "/opt/icarmeter/www"
+FALLBACK_WWW_PATHS = [
+    "/home/pi/www",
+    os.path.join(os.path.dirname(__file__), "www"),
+    os.path.join(os.path.dirname(__file__), "../../../mobile-app/www"),
+    "./www",
+    "./mobile-app/www"
+]
+
+MIME_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".htm": "text/html; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".mjs": "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".txt": "text/plain; charset=utf-8",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf"
+}
 
 def touch_app_connected(name="Wi-Fi Mobile App"):
     try:
@@ -31,6 +160,15 @@ def get_actual_config_path():
         if os.path.exists(path):
             return path
     return CONFIG_PATH
+
+def get_actual_www_root():
+    if os.path.isdir(WWW_ROOT):
+        return WWW_ROOT
+    for path in FALLBACK_WWW_PATHS:
+        abs_p = os.path.abspath(path)
+        if os.path.isdir(abs_p):
+            return abs_p
+    return WWW_ROOT
 
 
 def read_config():
@@ -226,10 +364,66 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def serve_static(self, path):
+        www_dir = get_actual_www_root()
+        clean_path = path.lstrip("/")
+        if not clean_path or clean_path == "/":
+            clean_path = "index.html"
+
+        # Sanitize path to prevent directory traversal
+        file_path = os.path.abspath(os.path.join(www_dir, clean_path))
+        if not file_path.startswith(os.path.abspath(www_dir)):
+            self.send_error(403, "Forbidden")
+            return
+
+        # If file doesn't exist or is a directory, fallback to index.html (SPA routing)
+        if not os.path.exists(file_path) or os.path.isdir(file_path):
+            file_path = os.path.join(www_dir, "index.html")
+
+        if not os.path.exists(file_path):
+            self.send_error(404, "Not Found")
+            return
+
+        ext = os.path.splitext(file_path)[1].lower()
+        content_type = MIME_TYPES.get(ext, "application/octet-stream")
+
+        try:
+            with open(file_path, "rb") as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_cors_headers()
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception as e:
+            self.send_error(500, f"Error reading file: {e}")
+
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
+        # ─── WebSocket Upgrade Handling ───────────────────────────────────────
+        if self.headers.get("Upgrade", "").lower() == "websocket" or path in ("/ws", "/ws/"):
+            key = self.headers.get("Sec-WebSocket-Key")
+            if not key:
+                self.send_error(400, "Missing Sec-WebSocket-Key")
+                return
+            accept_token = base64.b64encode(hashlib.sha1((key.strip() + WS_MAGIC_GUID).encode("utf-8")).digest()).decode("utf-8")
+
+            # Send 101 Switching Protocols
+            self.send_response(101, "Switching Protocols")
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept_token)
+            self.end_headers()
+
+            # Take over socket for WebSocket protocol on this worker thread
+            self.handle_websocket()
+            return
+
+        # ─── API Routes (Fallback & Diagnostic) ──────────────────────────────
         if path == "/api/config":
             touch_app_connected("Wi-Fi Mobile App")
             data = read_config()
@@ -238,14 +432,185 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/api/status":
             touch_app_connected("Wi-Fi Mobile App")
+            with ws_clients_lock:
+                num_clients = len(connected_ws_clients)
             self.send_json(200, {
                 "status": "online",
                 "app_connected": True,
+                "ws_clients": num_clients,
                 "timestamp": int(time.time()),
             })
             return
 
-        self.send_error(404, "Not Found")
+        # ─── Captive Portal Detection Endpoints ──────────────────────────────
+        # Android generate_204 probe
+        if path in ("/generate_204", "/gen_204"):
+            self.send_response(204)
+            self.send_cors_headers()
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        # Apple iOS hotspot-detect probe
+        if path in ("/hotspot-detect.html", "/canonical.html", "/success.html", "/library/test/success.html"):
+            body = b"<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_cors_headers()
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        # Microsoft NCSI / Connect Test probes
+        if path in ("/connecttest.txt",):
+            body = b"Microsoft Connect Test"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_cors_headers()
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path in ("/ncsi.txt",):
+            body = b"Microsoft NCSI"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_cors_headers()
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        # ─── Static Web Companion Files ──────────────────────────────────────
+        self.serve_static(path)
+
+    def handle_websocket(self):
+        sock = self.connection
+        sock.settimeout(60.0)
+        touch_app_connected("WebSocket Companion")
+        with ws_clients_lock:
+            connected_ws_clients.add(sock)
+
+        client_info = f"{self.client_address[0]}:{self.client_address[1]}"
+        print(f"[WS] Client connected from {client_info}")
+
+        # Send welcome payload with full configuration and status
+        welcome = {
+            "type": "welcome",
+            "status": "online",
+            "app_connected": True,
+            "timestamp": int(time.time()),
+            "config": read_config()
+        }
+        try:
+            sock.sendall(encode_ws_frame(json.dumps(welcome).encode("utf-8"), 0x1))
+        except Exception:
+            with ws_clients_lock:
+                connected_ws_clients.discard(sock)
+            return
+
+        try:
+            while True:
+                try:
+                    opcode, payload = decode_ws_frame(sock)
+                except socket.timeout:
+                    # Timeout reached — send ping to check client liveness
+                    try:
+                        sock.sendall(encode_ws_frame(b"ping", opcode=0x9))
+                        continue
+                    except Exception:
+                        break
+
+                if opcode is None or opcode == 0x8:  # Socket closed or Close frame
+                    try:
+                        sock.sendall(encode_ws_frame(b"", opcode=0x8))
+                    except Exception:
+                        pass
+                    break
+
+                if opcode == 0x9:  # Ping from client
+                    try:
+                        sock.sendall(encode_ws_frame(payload, opcode=0xA))
+                    except Exception:
+                        break
+                    continue
+
+                if opcode == 0xA:  # Pong from client
+                    continue
+
+                if opcode == 0x1:  # Text message
+                    text = payload.decode("utf-8", errors="ignore")
+                    self.process_ws_message(sock, text)
+        except Exception as e:
+            print(f"[WS] Connection error from {client_info}: {e}", file=sys.stderr)
+        finally:
+            with ws_clients_lock:
+                connected_ws_clients.discard(sock)
+            print(f"[WS] Client disconnected from {client_info}")
+
+    def process_ws_message(self, sock, text):
+        touch_app_connected("WebSocket Companion")
+        try:
+            msg = json.loads(text)
+        except Exception:
+            return
+
+        msg_type = msg.get("type", "")
+
+        if msg_type == "ping":
+            reply = {"type": "pong", "timestamp": int(time.time())}
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type == "get_config":
+            reply = {"type": "config", "data": read_config()}
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type == "set_config":
+            payload = msg.get("payload", {})
+            try:
+                write_config(payload)
+                # Broadcast updated config to ALL connected clients so every open UI syncs
+                ws_broadcast({
+                    "type": "config",
+                    "data": read_config(),
+                    "message": "Saved",
+                    "status": "ok"
+                })
+            except Exception as e:
+                err_reply = {"type": "error", "message": str(e)}
+                sock.sendall(encode_ws_frame(json.dumps(err_reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type in ("telemetry", "gps"):
+            try:
+                spd = float(msg.get("spd", 0.0))
+                lat = float(msg.get("lat", 0.0))
+                lon = float(msg.get("lon", 0.0))
+                alt = float(msg.get("alt", 0.0))
+                with open("/dev/shm/icarmeter_phone_telemetry", "w", encoding="utf-8") as f:
+                    f.write(f"spd={spd}\nlat={lat}\nlon={lon}\nalt={alt}\n")
+            except Exception:
+                pass
+            return
+
+        if msg_type == "get_status":
+            with ws_clients_lock:
+                num_clients = len(connected_ws_clients)
+            reply = {
+                "type": "status",
+                "data": {
+                    "status": "online",
+                    "app_connected": True,
+                    "clients": num_clients,
+                    "timestamp": int(time.time())
+                }
+            }
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -258,6 +623,13 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             try:
                 payload = json.loads(post_body.decode("utf-8"))
                 write_config(payload)
+                # Broadcast updated config to all WebSocket clients
+                ws_broadcast({
+                    "type": "config",
+                    "data": read_config(),
+                    "message": "Saved",
+                    "status": "ok"
+                })
                 self.send_json(200, {"status": "ok", "message": "Saved"})
             except Exception as e:
                 self.send_json(400, {"status": "error", "message": str(e)})
@@ -290,10 +662,30 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+def start_http_listener(port):
+    """Starts an HTTP server on the specified port. Runs in background thread."""
+    try:
+        httpd = http.server.ThreadingHTTPServer(("", port), ApiHandler)
+        print(f"[API] ICarMeter HTTP listener active on port {port}")
+        httpd.serve_forever()
+    except Exception as e:
+        print(f"[API] Note: port {port} listener not active ({e})", file=sys.stderr)
+
+
 def main():
+    # Start WebSocket background heartbeat worker
+    t_hb = threading.Thread(target=ws_heartbeat_worker, daemon=True)
+    t_hb.start()
+
+    # Start port 80 listener in background thread (standard web & captive portal)
+    if HTTP_PORT != PORT:
+        t80 = threading.Thread(target=start_http_listener, args=(HTTP_PORT,), daemon=True)
+        t80.start()
+
+    # Primary listener on PORT 8080 (serves WebSocket at /ws + HTTP Web Companion)
     server_address = ("", PORT)
     httpd = http.server.ThreadingHTTPServer(server_address, ApiHandler)
-    print(f"[API] ICarMeter headless API server running on port {PORT}...")
+    print(f"[API] ICarMeter primary WebSocket (/ws) & Web server running on port {PORT}...")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0f172a">
+    <title>ICarMeter Companion</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Top Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="app-logo">ICAR</div>
+                <div class="header-title-wrap">
+                    <h1 class="header-title">ICarMeter</h1>
+                    <span class="header-subtitle">Wi-Fi Companion</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="status-indicator" id="wifiStatusBadge">
+                    <span class="status-dot" id="wifiStatusDot"></span>
+                    <span class="status-text" id="wifiStatusText">Chưa kết nối</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Screens -->
+        <main class="main-content">
+            <!-- TAB 1: DASHBOARD -->
+            <section class="tab-pane active" id="tabDashboard">
+                <!-- GPS Mode Setting Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">CHẾ ĐỘ ĐỊNH VỊ GPS</span>
+                    </div>
+                    <div class="setting-item">
+                        <div class="setting-text">
+                            <div class="setting-title" id="gpsToggleTitle">Module GPS</div>
+                            <div class="setting-desc" id="gpsToggleDesc">
+                                Đang BẬT: Lấy tốc độ qua Module GPS phần cứng.
+                            </div>
+                        </div>
+                        <label class="switch-flat">
+                            <input type="checkbox" id="toggleHardwareGps" onchange="onGpsModeToggle(this)">
+                            <span class="slider-flat"></span>
+                        </label>
+                    </div>
+                </div>
+                <!-- GPS Speedometer Display -->
+                <div class="card speed-card">
+                    <div class="speed-header">
+                        <span class="card-label">TỐC ĐỘ GPS</span>
+                        <span class="badge" id="gpsSourceBadge">ĐIỆN THOẠI</span>
+                    </div>
+                    <div class="speed-display">
+                        <span class="speed-number" id="liveSpeedNumber">0</span>
+                        <span class="speed-unit">KM/H</span>
+                    </div>
+                    <div class="gps-telemetry-grid">
+                        <div class="telemetry-item">
+                            <span class="tel-label">Độ chính xác</span>
+                            <span class="tel-val" id="telAccuracy">-- m</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">Độ cao</span>
+                            <span class="tel-val" id="telAltitude">-- m</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="tel-label">Tần số gửi</span>
+                            <span class="tel-val" id="telSendRate">0 Hz</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Trip Recording -->
+                <div class="card trip-record-card">
+                    <div class="card-header">
+                        <span class="card-label">CHUYẾN ĐI HIỆN TẠI</span>
+                        <span class="recording-badge" id="tripRecordBadge" style="display: none;">ĐANG GHI</span>
+                    </div>
+                    <div class="current-trip-grid">
+                        <div class="trip-stat">
+                            <span class="stat-num" id="currentTripDistance">0.0</span>
+                            <span class="stat-unit">km</span>
+                            <span class="stat-desc">Quãng đường</span>
+                        </div>
+                        <div class="trip-stat">
+                            <span class="stat-num" id="currentTripDuration">00:00</span>
+                            <span class="stat-unit">phút</span>
+                            <span class="stat-desc">Thời gian</span>
+                        </div>
+                        <div class="trip-stat">
+                            <span class="stat-num" id="currentTripAvgSpeed">0</span>
+                            <span class="stat-unit">km/h</span>
+                            <span class="stat-desc">Vận tốc TB</span>
+                        </div>
+                    </div>
+                    <div class="trip-actions">
+                        <button class="btn btn-success" id="btnTripAction" onclick="toggleTripRecording()">Bắt đầu
+                            chuyến đi</button>
+                    </div>
+                </div>
+
+                <!-- Background & GPS Rate Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">CHẠY NGẦM</span>
+                    </div>
+                    <div class="setting-item">
+                        <div class="setting-text">
+                            <div class="setting-title">Dịch Vụ Chạy Ngầm</div>
+                            <div class="setting-desc">Duy trì truyền GPS ngay cả khi tắt màn hình điện thoại.</div>
+                        </div>
+                        <label class="switch-flat">
+                            <input type="checkbox" id="toggleBackgroundService" checked onchange="saveSettings()">
+                            <span class="slider-flat"></span>
+                        </label>
+                    </div>
+
+                    <div class="setting-item">
+                        <div class="setting-text">
+                            <div class="setting-title">Tần Số Gửi GPS</div>
+                            <select class="select-flat" id="selectGpsRate" onchange="saveSettings()">
+                                <option value="1">1 Hz (Tiết kiệm pin)</option>
+                                <option value="5" selected>5 Hz (Cân bằng - Khuyên dùng)</option>
+                                <option value="10">10 Hz (Mượt mà nhất)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: TPMS SENSORS CONFIG -->
+            <section class="tab-pane" id="tabTpms">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">CẤU HÌNH 4 VAN CẢM BIẾN (TPMS)</span>
+                        <span class="card-meta" id="tpmsSyncTimestamp">Chờ đồng bộ...</span>
+                    </div>
+
+                    <!-- Car Diagram Inputs -->
+                    <div class="tpms-layout">
+                        <!-- Front Axle -->
+                        <div class="tpms-row">
+                            <div class="tire-input-card">
+                                <div class="tire-badge">TRƯỚC TRÁI (FL)</div>
+                                <input type="text" class="input-flat" id="inputFlSensor" placeholder="Sync..."
+                                    maxlength="17" spellcheck="false">
+                            </div>
+                            <div class="car-visual-front">▲ ĐẦU XE</div>
+                            <div class="tire-input-card">
+                                <div class="tire-badge">TRƯỚC PHẢI (FR)</div>
+                                <input type="text" class="input-flat" id="inputFrSensor" placeholder="Sync..."
+                                    maxlength="17" spellcheck="false">
+                            </div>
+                        </div>
+
+                        <!-- Rear Axle -->
+                        <div class="tpms-row">
+                            <div class="tire-input-card">
+                                <div class="tire-badge">SAU TRÁI (RL)</div>
+                                <input type="text" class="input-flat" id="inputRlSensor" placeholder="Sync..."
+                                    maxlength="17" spellcheck="false">
+                            </div>
+                            <div class="car-visual-rear">▼ ĐUÔI XE</div>
+                            <div class="tire-input-card">
+                                <div class="tire-badge">SAU PHẢI (RR)</div>
+                                <input type="text" class="input-flat" id="inputRrSensor" placeholder="Sync..."
+                                    maxlength="17" spellcheck="false">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Pressure & Temperature Threshold Rows -->
+                    <div class="setting-item"
+                        style="margin-top: 14px; padding: 10px 0; border-top: 1px solid var(--border-subtle);">
+                        <div class="setting-text">
+                            <div class="setting-title">Cảnh báo áp suất thấp (Bar)</div>
+                            <div class="setting-desc">Báo đỏ khi áp suất lốp dưới ngưỡng</div>
+                        </div>
+                        <input type="number" class="input-flat" id="inputPressureAlert" step="0.1" min="1.5" max="3.5"
+                            value="2.2" style="max-width: 90px; text-align: center;">
+                    </div>
+
+                    <div class="setting-item" style="padding: 10px 0; border-top: 1px solid var(--border-subtle);">
+                        <div class="setting-text">
+                            <div class="setting-title">Cảnh báo nhiệt độ cao (°C)</div>
+                            <div class="setting-desc">Báo đỏ khi nhiệt độ lốp vượt ngưỡng</div>
+                        </div>
+                        <input type="number" class="input-flat" id="inputTempAlert" step="1" min="40" max="100"
+                            value="70" style="max-width: 90px; text-align: center;">
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="actions-row">
+                        <button class="btn btn-secondary" onclick="fetchConfigFromPi(true)">Tải lại</button>
+                        <button class="btn btn-primary" onclick="saveAndSyncTpmsToPi()">Lưu & Đồng Bộ</button>
+                    </div>
+                </div>
+
+                <!-- AUTO TEST SECTION (BLE OVER-THE-AIR) -->
+                <div class="card auto-test-card" style="margin-top: 16px;">
+                    <div class="card-header">
+                        <span class="card-label">TEST CẢM BIẾN</span>
+                        <span class="badge" id="autoTestStatusBadge">SẴN SÀNG</span>
+                    </div>
+
+                    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 12px; line-height: 1.4;">
+                        Dữ liệu kiểm tra được phát qua sóng <strong>Bluetooth LE (BLE)</strong> từ điện thoại tới xe
+                        (không qua mô phỏng Wi-Fi). Cấu hình ID cảm biến được cập nhật tức thì vào xe.
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Bluetooth MAC của điện thoại</label>
+                        <input type="text" class="input-flat" id="inputTestPhoneMac" placeholder="VD: AA:BB:CC:11:22:33"
+                            maxlength="17" spellcheck="false" onchange="savePhoneMac()">
+                    </div>
+
+                    <div class="setting-item" style="margin-top: 10px; padding: 6px 0;">
+                        <div class="setting-text">
+                            <div class="setting-title">Áp suất phát sóng (bar)</div>
+                        </div>
+                        <input type="number" class="input-flat" id="inputTestPressure" step="0.1" min="1.0" max="4.0"
+                            value="2.4" style="max-width: 90px; text-align: center;">
+                    </div>
+
+                    <div class="setting-item" style="padding: 6px 0;">
+                        <div class="setting-text">
+                            <div class="setting-title">Nhiệt độ phát sóng (°C)</div>
+                        </div>
+                        <input type="number" class="input-flat" id="inputTestTemp" step="1" min="20" max="100"
+                            value="75" style="max-width: 90px; text-align: center;">
+                    </div>
+
+                    <!-- Test Progress Container -->
+                    <div class="auto-test-progress" id="autoTestProgress"
+                        style="display: none; margin: 14px 0; padding: 12px; background: rgba(0,0,0,0.25); border-radius: 8px; border: 1px solid var(--border, #334155);">
+                        <div style="font-size: 13px; font-weight: 700; color: #38bdf8; margin-bottom: 6px;"
+                            id="autoTestStepTitle">Đang chuẩn bị...</div>
+                        <div style="font-size: 12px; color: #cbd5e1;" id="autoTestStepDesc">Đang sao lưu cấu hình 4 van
+                            gốc...</div>
+                        <div class="progress-bar-wrap"
+                            style="height: 6px; background: #334155; border-radius: 3px; margin-top: 8px; overflow: hidden;">
+                            <div id="autoTestProgressBar"
+                                style="height: 100%; width: 0%; background: #38bdf8; transition: width 0.3s;"></div>
+                        </div>
+                    </div>
+
+                    <div class="actions-row" style="margin-top: 14px;">
+                        <button class="btn btn-primary" id="btnStartAutoTest" onclick="startAutoTpmsTest()">Bắt Đầu Auto
+                            Test</button>
+                        <button class="btn btn-secondary" id="btnStopAutoTest" onclick="stopAutoTpmsTest()"
+                            style="display: none; background: #ef4444; color: #fff;">Dừng Test</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: TRIP HISTORY LOGS -->
+            <section class="tab-pane" id="tabTrips">
+                <div class="card trips-overview-card">
+                    <div class="card-header">
+                        <span class="card-label">TỔNG HỢP HÀNH TRÌNH</span>
+                        <button class="btn-text-danger" onclick="clearTripHistory()">Xóa Lịch Sử</button>
+                    </div>
+                    <div class="trips-summary-grid">
+                        <div class="summary-box">
+                            <span class="sum-num" id="totalTripsCount">0</span>
+                            <span class="sum-desc">Chuyến Đi</span>
+                        </div>
+                        <div class="summary-box">
+                            <span class="sum-num" id="totalDistanceCount">0.0</span>
+                            <span class="sum-desc">Tổng Km</span>
+                        </div>
+                        <div class="summary-box">
+                            <span class="sum-num" id="maxSpeedEver">0</span>
+                            <span class="sum-desc">Max Km/h</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trip List -->
+                <div class="trip-list-wrap">
+                    <div class="section-title">Danh Sách Chuyến Đi Đã Lưu</div>
+                    <div class="trip-list" id="tripListContainer">
+                        <!-- Populated by JS -->
+                        <div class="empty-state" id="emptyTripsState">
+                            Chưa có chuyến đi nào được ghi nhận.<br>
+                            Hãy nhấn "Bắt đầu chuyến đi" ở màn hình chính khi xe lăn bánh!
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Floating Pill Navbar (3 Tabs) -->
+        <nav class="pill-navbar">
+            <button class="pill-nav-item active" data-tab="tabDashboard" onclick="switchTab('tabDashboard')">
+                <svg class="pill-icon" viewBox="0 0 24 24">
+                    <path fill="currentColor"
+                        d="M13 2.05v2.02c3.95.49 7 3.85 7 7.93 0 3.21-1.9 6-4.72 7.28L14 17c2.38-1.19 4-3.66 4-6.5 0-3.53-2.61-6.43-6-6.95M11 2.05C7.05 2.54 4 5.9 4 9.98c0 2.84 1.62 5.31 4 6.5l-1.28 2.26C3.9 17.46 2 14.67 2 11.46c0-4.08 3.05-7.44 7-7.93v2.02M12 6a4 4 0 0 0-4 4c0 1.61.96 3 2.34 3.65l1.66-2.9v-.75a1 1 0 0 1 2 0v.75l1.66 2.9C17.04 13 18 11.61 18 10a4 4 0 0 0-4-4Z" />
+                </svg>
+                <span class="pill-text">Đồng Hồ</span>
+            </button>
+            <button class="pill-nav-item" data-tab="tabTpms" onclick="switchTab('tabTpms')">
+                <svg class="pill-icon" viewBox="0 0 24 24">
+                    <path fill="currentColor"
+                        d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8Zm1-13h-2v6h6v-2h-4Z" />
+                </svg>
+                <span class="pill-text">TPMS</span>
+            </button>
+            <button class="pill-nav-item" data-tab="tabTrips" onclick="switchTab('tabTrips')">
+                <svg class="pill-icon" viewBox="0 0 24 24">
+                    <path fill="currentColor"
+                        d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2Zm-7 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3Zm6 12H6v-1.4c0-2 4-3.1 6-3.1s6 1.1 6 3.1V18Z" />
+                </svg>
+                <span class="pill-text">Hành Trình</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Alert / Toast Modal -->
+    <div class="toast" id="appToast"></div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

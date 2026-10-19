@@ -16,6 +16,16 @@ install -m 644 files/icarmeter-hotspot.service "${ROOTFS_DIR}/etc/systemd/system
 install -m 644 files/icarmeter-api.service "${ROOTFS_DIR}/etc/systemd/system/icarmeter-api.service"
 install -d -m 700 "${ROOTFS_DIR}/etc/NetworkManager/system-connections"
 install -m 600 files/icarmeter-hotspot.nmconnection "${ROOTFS_DIR}/etc/NetworkManager/system-connections/icarmeter-hotspot.nmconnection"
+install -d -m 755 "${ROOTFS_DIR}/etc/NetworkManager/dispatcher.d"
+install -m 755 files/99-icarmeter-hotspot "${ROOTFS_DIR}/etc/NetworkManager/dispatcher.d/99-icarmeter-hotspot"
+install -d -m 755 "${ROOTFS_DIR}/etc/NetworkManager/dnsmasq-shared.d"
+install -m 644 files/icarmeter-dnsmasq.conf "${ROOTFS_DIR}/etc/NetworkManager/dnsmasq-shared.d/icarmeter.conf"
+
+# Install Mobile Companion Web Application into /opt/icarmeter/www
+install -d -m 755 "${APP_DIR}/www"
+if [ -d files/www ]; then
+    cp -rf files/www/* "${APP_DIR}/www/"
+fi
 
 if [ -f files/car_dashboard ]; then
     echo "Found pre-compiled car_dashboard binary. Installing into rootfs..."

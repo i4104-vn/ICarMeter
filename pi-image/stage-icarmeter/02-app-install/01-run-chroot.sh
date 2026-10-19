@@ -56,6 +56,31 @@ raspi-config nonint do_wifi_country VN 2>/dev/null || true
 systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
 systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
 
+# Prevent the system-level dnsmasq.service from conflicting with
+# NetworkManager's own dnsmasq instance (method=shared spawns its own).
+systemctl disable dnsmasq.service 2>/dev/null || true
+systemctl mask dnsmasq.service 2>/dev/null || true
+
+# Configure NetworkManager: disable background wifi scanning (it can
+# momentarily take wlan0 out of AP mode) and lock wlan0 to AP-only.
+mkdir -p /etc/NetworkManager/conf.d
+cat << 'EOF' > /etc/NetworkManager/conf.d/10-icarmeter-hotspot.conf
+[device]
+# Prevent NM from auto-scanning for station-mode wifi networks on wlan0.
+# wlan0 is dedicated to the ICarMeter AP hotspot.
+wifi.scan-rand-mac-address=no
+
+[connection-wifi-wlan0-no-autoconnect]
+# Block all station-mode wifi auto-connections. Only the ICarMeter-Hotspot
+# AP profile (installed in system-connections/) is allowed.
+match-device=interface-name:wlan0
+connection.autoconnect=false
+
+[main]
+# Use internal DHCP client (not dhclient) for reliability
+dhcp=internal
+EOF
+
 # Boot flow: Plymouth -> tty1 autologin -> /etc/profile.d dashboard launcher.
 # Keep getty enabled; it also restarts the dashboard session after a crash.
 systemctl unmask getty@tty1.service 2>/dev/null || true

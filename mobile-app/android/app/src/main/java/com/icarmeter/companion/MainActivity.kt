@@ -123,16 +123,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @Volatile
+    private var activeWifiNetwork: Network? = null
+
+    private fun findWifiNetwork(): Network? {
+        activeWifiNetwork?.let { return it }
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            for (net in cm.allNetworks) {
+                val caps = cm.getNetworkCapabilities(net) ?: continue
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                    activeWifiNetwork = net
+                    cm.bindProcessToNetwork(net)
+                    return net
+                }
+            }
+        }
+        return null
+    }
+
     private fun bindToCarWifiNetwork() {
         try {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+            
+            // Crucial: remove NET_CAPABILITY_INTERNET so the callback is called for local car AP
+            // without upstream internet connection.
             val request = NetworkRequest.Builder()
                 .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .build()
 
-            cm.requestNetwork(request, object : ConnectivityManager.NetworkCallback() {
+            val callback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     super.onAvailable(network)
+                    activeWifiNetwork = network
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         cm.bindProcessToNetwork(network)
                     } else {
@@ -140,15 +164,29 @@ class MainActivity : AppCompatActivity() {
                         ConnectivityManager.setProcessDefaultNetwork(network)
                     }
                     android.util.Log.i("ICarMeter", "Bound app process to Wi-Fi: $network")
+
+                    // Notify companion frontend to reconnect immediately
+                    runOnUiThread {
+                        webView.evaluateJavascript("if (window.connMgr) window.connMgr.forceReconnect();", null)
+                    }
                 }
 
                 override fun onLost(network: Network) {
                     super.onLost(network)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        cm.bindProcessToNetwork(null)
+                    if (activeWifiNetwork == network) {
+                        activeWifiNetwork = null
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            cm.bindProcessToNetwork(null)
+                        }
                     }
                 }
-            })
+            }
+
+            cm.requestNetwork(request, callback)
+            cm.registerNetworkCallback(request, callback)
+
+            // Probe right now in case Wi-Fi is already connected
+            findWifiNetwork()
         } catch (e: Exception) {
             android.util.Log.w("ICarMeter", "bindToCarWifiNetwork error: ${e.message}")
         }
@@ -277,7 +315,12 @@ class MainActivity : AppCompatActivity() {
         fun httpGet(urlStr: String): String {
             return try {
                 val url = java.net.URL(urlStr)
-                val conn = url.openConnection() as java.net.HttpURLConnection
+                val wifiNet = findWifiNetwork()
+                val conn = if (wifiNet != null) {
+                    wifiNet.openConnection(url) as java.net.HttpURLConnection
+                } else {
+                    url.openConnection() as java.net.HttpURLConnection
+                }
                 conn.connectTimeout = 3000
                 conn.readTimeout = 3000
                 conn.requestMethod = "GET"
@@ -302,7 +345,12 @@ class MainActivity : AppCompatActivity() {
         fun httpPost(urlStr: String, jsonBody: String): String {
             return try {
                 val url = java.net.URL(urlStr)
-                val conn = url.openConnection() as java.net.HttpURLConnection
+                val wifiNet = findWifiNetwork()
+                val conn = if (wifiNet != null) {
+                    wifiNet.openConnection(url) as java.net.HttpURLConnection
+                } else {
+                    url.openConnection() as java.net.HttpURLConnection
+                }
                 conn.connectTimeout = 3500
                 conn.readTimeout = 3500
                 conn.requestMethod = "POST"

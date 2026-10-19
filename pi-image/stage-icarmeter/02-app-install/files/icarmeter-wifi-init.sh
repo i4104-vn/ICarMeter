@@ -1,51 +1,125 @@
 #!/bin/bash
 # ==============================================================================
-# Unblock Wi-Fi rfkill and ensure NetworkManager Hotspot connection is active
+# ICarMeter Wi-Fi Hotspot — Always-On Init & Watchdog
+# Runs as the main process of icarmeter-hotspot.service (Type=simple).
+#
+# This script guarantees the AP hotspot stays alive so the mobile companion
+# app can connect at any time.  Three layers of protection:
+#   Layer 1 — systemd Restart=always (service level)
+#   Layer 2 — This foreground watchdog loop (script level, every 8s)
+#   Layer 3 — NM dispatcher auto-reactivate (event-driven, instant)
 # ==============================================================================
 set -u
 
-echo "[WiFi-Init] Unblocking Wi-Fi..."
-rfkill unblock wifi 2>/dev/null || true
-rfkill unblock wlan 2>/dev/null || true
+CONN_NAME="ICarMeter-Hotspot"
+MARKER="/dev/shm/icarmeter_hotspot_active"
+API_PORT=8080
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+log() { echo "[WiFi-Hotspot] $*"; }
+
+ensure_wifi_unblocked() {
+    rfkill unblock wifi  2>/dev/null || true
+    rfkill unblock wlan  2>/dev/null || true
+    nmcli radio wifi on  2>/dev/null || true
+}
+
+ensure_power_save_off() {
+    iw dev wlan0 set power_save off 2>/dev/null || true
+    iwconfig wlan0 power off        2>/dev/null || true
+}
+
+ensure_iptables_open() {
+    # Allow port 8080 (API)
+    iptables -C INPUT -i wlan0 -p tcp --dport "$API_PORT" -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT -i wlan0 -p tcp --dport "$API_PORT" -j ACCEPT 2>/dev/null || true
+    # Allow port 80 (Standard HTTP & captive portal)
+    iptables -C INPUT -i wlan0 -p tcp --dport 80 -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT -i wlan0 -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
+    # Allow DNS (UDP/TCP 53)
+    iptables -C INPUT -i wlan0 -p udp --dport 53 -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT -i wlan0 -p udp --dport 53 -j ACCEPT 2>/dev/null || true
+    # Allow DHCP (UDP 67)
+    iptables -C INPUT -i wlan0 -p udp --dport 67 -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT -i wlan0 -p udp --dport 67 -j ACCEPT 2>/dev/null || true
+    # Backup NAT redirect: Forward incoming port 80 to 8080 if port 80 is not natively bound
+    iptables -t nat -C PREROUTING -i wlan0 -p tcp --dport 80 -j REDIRECT --to-ports "$API_PORT" 2>/dev/null \
+        || iptables -t nat -I PREROUTING -i wlan0 -p tcp --dport 80 -j REDIRECT --to-ports "$API_PORT" 2>/dev/null || true
+}
+
+activate_hotspot() {
+    local attempt max_retries=5
+    for attempt in $(seq 1 $max_retries); do
+        if nmcli connection show --active 2>/dev/null | grep -q "$CONN_NAME"; then
+            return 0
+        fi
+        log "Activating $CONN_NAME (attempt $attempt/$max_retries)..."
+        nmcli connection up "$CONN_NAME" 2>/dev/null && return 0
+        sleep 2
+    done
+    log "WARNING: Failed to activate $CONN_NAME after $max_retries attempts."
+    return 1
+}
+
+# Verify the hotspot interface actually has the correct IP bound
+verify_ip_assigned() {
+    if ! ip addr show wlan0 2>/dev/null | grep -q "192.168.4.1"; then
+        log "WARNING: wlan0 missing 192.168.4.1 — forcing hotspot restart..."
+        nmcli connection down "$CONN_NAME" 2>/dev/null || true
+        sleep 1
+        nmcli connection up "$CONN_NAME"   2>/dev/null || true
+    fi
+}
+
+# ─── Clean shutdown ──────────────────────────────────────────────────────────
+trap 'rm -f "$MARKER" 2>/dev/null; log "Service stopping."; exit 0' TERM INT
+
+# ─── Phase 1: Initial Setup ──────────────────────────────────────────────────
+log "Starting Wi-Fi Hotspot always-on service..."
+
+ensure_wifi_unblocked
 
 # Wait for NetworkManager to become available (up to 30s)
 for _ in $(seq 1 30); do
-    if nmcli general status >/dev/null 2>&1; then
-        break
-    fi
+    nmcli general status >/dev/null 2>&1 && break
     sleep 1
 done
 
-# Ensure radio wifi is turned on in NetworkManager
-nmcli radio wifi on 2>/dev/null || true
+ensure_power_save_off
 
-# Disable power-saving on Wi-Fi adapter so it never goes to sleep
-iw dev wlan0 set power_save off 2>/dev/null || true
-iwconfig wlan0 power off 2>/dev/null || true
+# Deactivate any competing wifi connections on wlan0 (station-mode profiles)
+for conn in $(nmcli -t -f NAME,TYPE,DEVICE connection show --active 2>/dev/null \
+              | grep ':802-11-wireless:wlan0' | cut -d: -f1); do
+    if [ "$conn" != "$CONN_NAME" ]; then
+        log "Deactivating competing connection: $conn"
+        nmcli connection down "$conn" 2>/dev/null || true
+    fi
+done
 
-# Bring up the hotspot profile if it is not already active
-if nmcli connection show --active 2>/dev/null | grep -q "ICarMeter-Hotspot"; then
-    echo "[WiFi-Init] ICarMeter-Hotspot is already active."
-else
-    echo "[WiFi-Init] Activating ICarMeter-Hotspot connection..."
-    nmcli connection up "ICarMeter-Hotspot" 2>/dev/null || true
-fi
+activate_hotspot
+ensure_iptables_open
+verify_ip_assigned
 
-# Touch marker for Dashboard footer status probe
-touch /dev/shm/icarmeter_hotspot_active 2>/dev/null || true
+touch "$MARKER" 2>/dev/null || true
+log "Hotspot is UP. Entering always-alive watchdog loop..."
 
-# Run background persistent watchdog loop to keep Hotspot ALWAYS ON
-(
-    while true; do
-        sleep 10
-        rfkill unblock wifi 2>/dev/null || true
-        nmcli radio wifi on 2>/dev/null || true
-        iw dev wlan0 set power_save off 2>/dev/null || true
-        if ! nmcli connection show --active 2>/dev/null | grep -q "ICarMeter-Hotspot"; then
-            echo "[WiFi-Watchdog] Re-activating Hotspot..."
-            nmcli connection up "ICarMeter-Hotspot" 2>/dev/null || true
-        fi
-        touch /dev/shm/icarmeter_hotspot_active 2>/dev/null || true
-    done
-) &
-echo "[WiFi-Init] Hotspot keeper started successfully."
+# ─── Phase 2: Always-Alive Watchdog Loop ─────────────────────────────────────
+# Runs every 8 seconds in foreground. systemd manages this process lifecycle.
+while true; do
+    sleep 8
+
+    # Re-apply all protections every cycle
+    ensure_wifi_unblocked
+    ensure_power_save_off
+
+    # Check if hotspot is still active
+    if ! nmcli connection show --active 2>/dev/null | grep -q "$CONN_NAME"; then
+        log "Hotspot DOWN detected — re-activating..."
+        activate_hotspot
+        ensure_iptables_open
+        verify_ip_assigned
+    fi
+
+    # Refresh marker timestamp for dashboard status probe
+    touch "$MARKER" 2>/dev/null || true
+done

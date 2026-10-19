@@ -4,10 +4,20 @@ After=NetworkManager.service
 Wants=NetworkManager.service
 
 [Service]
-Type=forking
+Type=simple
 ExecStart=/opt/icarmeter/icarmeter-wifi-init.sh
+
+# --- Always-alive guarantees ---
+# Always restart no matter how the process exits (signal, crash, clean exit)
 Restart=always
-RestartSec=5
+RestartSec=3
+
+# Never stop restarting — unlimited attempts, no burst throttle
+StartLimitIntervalSec=0
+
+# If systemd still fails to start, do a full reboot as last resort
+FailureAction=none
+StartLimitAction=none
 
 [Install]
 WantedBy=multi-user.target

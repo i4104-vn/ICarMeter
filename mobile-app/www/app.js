@@ -3,11 +3,18 @@
  * Single Source of Truth: All configs are stored on Raspberry Pi.
  * Mobile communicates over Wi-Fi Hotspot (192.168.4.1:8080) to read, sync,
  * and test TPMS / GPS configurations in real time.
+ *
+ * Connection reliability: aggressive auto-reconnect with exponential backoff,
+ * request queuing during disconnection, and visual connection state feedback.
  */
+
+const defaultHost = (typeof window !== 'undefined' && window.location && window.location.host && !window.location.protocol.startsWith('file'))
+    ? window.location.host
+    : '192.168.4.1:8080';
 
 // App State
 const state = {
-    piHost: localStorage.getItem('icarmeter_pi_host') || '192.168.4.1:8080',
+    piHost: localStorage.getItem('icarmeter_pi_host') || defaultHost,
     phoneMac: localStorage.getItem('icarmeter_phone_mac') || '',
     wifiConnected: false,
 
@@ -48,8 +55,154 @@ const state = {
     trips: []
 };
 
+// ==============================================================================
+// WebSocket Connection Engine — Real-time Bi-directional Stream
+// ==============================================================================
+const wsConn = {
+    socket: null,
+    reconnectTimer: null,
+    pingInterval: null,
+    backoffMs: 1000,
+    MIN_BACKOFF: 1000,
+    MAX_BACKOFF: 6000,
+    isConnected: false,
+    _manualClose: false,
+
+    start() {
+        this.connect();
+    },
+
+    connect() {
+        if (this.socket && (this.socket.readyState === WebSocket.CONNECTING || this.socket.readyState === WebSocket.OPEN)) {
+            return;
+        }
+
+        if (this.socket) {
+            try { this.socket.close(); } catch (_) {}
+            this.socket = null;
+        }
+
+        this._manualClose = false;
+        const host = state.piHost || defaultHost;
+        const wsUrl = `ws://${host}/ws`;
+        console.log(`[WS] Connecting to ${wsUrl}...`);
+
+        try {
+            this.socket = new WebSocket(wsUrl);
+        } catch (err) {
+            console.warn("[WS] Failed to instantiate WebSocket:", err);
+            this.onDisconnected();
+            this.scheduleReconnect();
+            return;
+        }
+
+        this.socket.onopen = () => {
+            console.log("[WS] Connected successfully!");
+            this.isConnected = true;
+            this.backoffMs = this.MIN_BACKOFF;
+            updateWifiStatusUI(true);
+
+            // Start heartbeat ping
+            if (this.pingInterval) clearInterval(this.pingInterval);
+            this.pingInterval = setInterval(() => {
+                if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                    this.send({ type: 'ping' });
+                }
+            }, 4000);
+
+            // Request config on open
+            this.send({ type: 'get_config' });
+        };
+
+        this.socket.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                this.handleMessage(msg);
+            } catch (e) {
+                console.warn("[WS] Failed to parse message:", event.data);
+            }
+        };
+
+        this.socket.onerror = () => {
+            // onclose will handle reconnection
+        };
+
+        this.socket.onclose = () => {
+            console.log("[WS] Disconnected");
+            this.onDisconnected();
+            if (!this._manualClose) {
+                this.scheduleReconnect();
+            }
+        };
+    },
+
+    onDisconnected() {
+        this.isConnected = false;
+        updateWifiStatusUI(false);
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+        }
+    },
+
+    scheduleReconnect() {
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = setTimeout(() => {
+            this.connect();
+        }, this.backoffMs);
+        this.backoffMs = Math.min(this.backoffMs * 1.5, this.MAX_BACKOFF);
+    },
+
+    forceReconnect() {
+        console.log("[WS] Force reconnecting...");
+        this.backoffMs = this.MIN_BACKOFF;
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        if (this.socket) {
+            try {
+                this._manualClose = true;
+                this.socket.close();
+            } catch (_) {}
+            this.socket = null;
+        }
+        this.connect();
+    },
+
+    send(obj) {
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.send(JSON.stringify(obj));
+            return true;
+        }
+        return false;
+    },
+
+    handleMessage(msg) {
+        const type = msg.type;
+
+        if (type === 'welcome') {
+            updateWifiStatusUI(true);
+            if (msg.config) {
+                applyConfigToStateAndUI(msg.config);
+            }
+        } else if (type === 'config') {
+            if (msg.data) {
+                applyConfigToStateAndUI(msg.data);
+            }
+            if (msg.message === 'Saved') {
+                showToast("Đã lưu & đồng bộ cấu hình vào Pi!");
+            }
+        } else if (type === 'status' || type === 'heartbeat') {
+            updateWifiStatusUI(true);
+        } else if (type === 'pong') {
+            updateWifiStatusUI(true);
+        }
+    }
+};
+
+const connMgr = wsConn;
+window.connMgr = wsConn;
+
 /**
- * Universal API Fetch
+ * Universal API Fetch with robust timeout and retry
  * Uses native Android HTTP bridge when running in Android Companion APK
  * (bypasses Android WebView cleartext blocks, CORS restrictions, and cellular 4G/5G routing conflicts).
  * Falls back to standard fetch in browsers.
@@ -57,7 +210,9 @@ const state = {
 async function apiFetch(url, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
     const bodyStr = options.body ? (typeof options.body === 'string' ? options.body : JSON.stringify(options.body)) : '';
+    const timeoutMs = options._timeout || 3500;
 
+    // Try native Android bridge first (bypasses Android cleartext / captive portal issues)
     if (window.AndroidBleTpms && typeof window.AndroidBleTpms.httpGet === 'function') {
         try {
             const resJsonStr = method === 'POST'
@@ -72,15 +227,59 @@ async function apiFetch(url, options = {}) {
                     json: async () => JSON.parse(res.body || '{}'),
                     text: async () => res.body || ''
                 };
+            } else if (res.status === 0) {
+                // Bridge returned a network error — fall through to fetch
+                throw new Error(res.error || 'Bridge network error');
             } else {
                 throw new Error(res.error || `HTTP ${res.status}`);
             }
         } catch (bridgeErr) {
-            console.warn("[BridgeFetch] Native bridge error, attempting window.fetch fallback:", bridgeErr);
+            // If bridge explicitly reports network error, still try fetch as fallback
+            if (bridgeErr.message && bridgeErr.message.includes('Bridge network error')) {
+                // fall through to browser fetch
+            } else {
+                throw bridgeErr;
+            }
         }
     }
 
-    return fetch(url, options);
+    // Browser fetch with AbortController timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const fetchOpts = { ...options, signal: controller.signal };
+        delete fetchOpts._timeout;
+        const res = await fetch(url, fetchOpts);
+        clearTimeout(timeoutId);
+        return res;
+    } catch (err) {
+        clearTimeout(timeoutId);
+        throw err;
+    }
+}
+
+/**
+ * Resilient API call with automatic retry for transient failures.
+ * Used for important operations (config sync, telemetry push).
+ */
+async function apiFetchWithRetry(url, options = {}, maxRetries = 2) {
+    let lastErr;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const res = await apiFetch(url, options);
+            if (res.ok) return res;
+            // Non-OK status — don't retry client errors (4xx)
+            if (res.status >= 400 && res.status < 500) return res;
+            lastErr = new Error(`HTTP ${res.status}`);
+        } catch (err) {
+            lastErr = err;
+        }
+        // Wait before retry: 500ms, 1000ms
+        if (attempt < maxRetries) {
+            await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        }
+    }
+    throw lastErr;
 }
 
 // ==============================================================================
@@ -92,13 +291,8 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTripHistory();
     startGpsTracker();
 
-    // Auto-connect to Pi immediately on launch
-    checkAndAutoConnect(false);
-
-    // Continuous background check (every 2.5 seconds)
-    setInterval(() => {
-        checkAndAutoConnect(false);
-    }, 2500);
+    // Start the resilient connection manager
+    connMgr.start();
 });
 
 function loadLocalFallbackSettings() {
@@ -143,6 +337,16 @@ function initWifiCompanionUI() {
         macInput.value = state.phoneMac;
     }
     updateWifiStatusUI(false);
+
+    // Make status badge tappable to force reconnect
+    const badge = document.getElementById('wifiStatusBadge');
+    if (badge) {
+        badge.style.cursor = 'pointer';
+        badge.addEventListener('click', () => {
+            showToast("Đang kết nối lại...");
+            connMgr.forceReconnect();
+        });
+    }
 }
 
 function savePiHost() {
@@ -150,7 +354,7 @@ function savePiHost() {
     if (hostInput) {
         state.piHost = hostInput.value.trim() || '192.168.4.1:8080';
         localStorage.setItem('icarmeter_pi_host', state.piHost);
-        checkAndAutoConnect(true);
+        connMgr.forceReconnect();
     }
 }
 
@@ -186,9 +390,10 @@ function switchTab(tabId) {
 }
 
 // ==============================================================================
-// Automatic Wi-Fi Connection & Status Badge
+// Wi-Fi Connection Status Badge
 // ==============================================================================
 function updateWifiStatusUI(connected) {
+    const prev = state.wifiConnected;
     state.wifiConnected = connected;
     const badge = document.getElementById('wifiStatusBadge');
     const text = document.getElementById('wifiStatusText');
@@ -198,94 +403,89 @@ function updateWifiStatusUI(connected) {
     if (connected) {
         badge.classList.add('connected');
         text.textContent = "Đã kết nối";
+        // Flash green briefly on reconnect
+        if (!prev) {
+            badge.style.transition = 'background-color 0.3s';
+            badge.style.backgroundColor = 'rgba(16, 185, 129, 0.2)';
+            setTimeout(() => { badge.style.backgroundColor = ''; }, 800);
+        }
     } else {
         badge.classList.remove('connected');
         text.textContent = "Chưa kết nối";
     }
 }
 
+// Legacy compat — still callable from HTML onclick
 async function checkAndAutoConnect(isManual = false) {
-    if (autoTestState.running) return;
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2500);
-        const res = await apiFetch(`http://${state.piHost}/api/status`, { signal: controller.signal });
-        clearTimeout(timeoutId);
+    if (isManual) {
+        connMgr.forceReconnect();
+    }
+}
 
-        if (res.ok) {
-            const wasConnected = state.wifiConnected;
-            updateWifiStatusUI(true);
-            if (!wasConnected || !state.isSyncedWithPi || isManual) {
-                await fetchConfigFromPi(isManual);
-            }
-        } else {
-            updateWifiStatusUI(false);
-            if (isManual) {
-                showToast("Chưa kết nối được tới Wi-Fi xe");
-            }
-        }
-    } catch (_) {
-        updateWifiStatusUI(false);
-        if (isManual) {
-            showToast("Chưa kết nối được tới Wi-Fi xe (192.168.4.1:8080)");
-        }
+// Helper to update state and UI when configuration is received
+function applyConfigToStateAndUI(data, isManual = false) {
+    if (!data) return;
+    if (data.tpms) {
+        state.piConfig.tpms.fl = data.tpms.fl || "";
+        state.piConfig.tpms.fr = data.tpms.fr || "";
+        state.piConfig.tpms.rl = data.tpms.rl || "";
+        state.piConfig.tpms.rr = data.tpms.rr || "";
+        state.piConfig.tpms.alert = data.tpms.alert || data.tpms.low_pressure_alert || 2.2;
+        state.piConfig.tpms.high_temp_alert = data.tpms.high_temp_alert || data.tpms.temp_alert || 70.0;
+
+        const flInput = document.getElementById('inputFlSensor');
+        const frInput = document.getElementById('inputFrSensor');
+        const rlInput = document.getElementById('inputRlSensor');
+        const rrInput = document.getElementById('inputRrSensor');
+        const alertInput = document.getElementById('inputPressureAlert');
+        const tempAlertInput = document.getElementById('inputTempAlert');
+
+        if (flInput) flInput.value = state.piConfig.tpms.fl;
+        if (frInput) frInput.value = state.piConfig.tpms.fr;
+        if (rlInput) rlInput.value = state.piConfig.tpms.rl;
+        if (rrInput) rrInput.value = state.piConfig.tpms.rr;
+        if (alertInput) alertInput.value = state.piConfig.tpms.alert;
+        if (tempAlertInput) tempAlertInput.value = state.piConfig.tpms.high_temp_alert;
+    }
+
+    if (data.gps) {
+        state.piConfig.gps.enabled = !!data.gps.enabled;
+        const toggle = document.getElementById('toggleHardwareGps');
+        if (toggle) toggle.checked = state.piConfig.gps.enabled;
+        updateGpsModeUI();
+    }
+
+    state.isSyncedWithPi = true;
+    updateWifiStatusUI(true);
+
+    const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const meta = document.getElementById('tpmsSyncTimestamp');
+    if (meta) meta.textContent = `Đã đồng bộ (${nowStr})`;
+
+    if (isManual) {
+        showToast("Đã tải cấu hình từ xe thành công!");
     }
 }
 
 // ==============================================================================
-// Wi-Fi Config Operations (Single Source of Truth)
+// Config Operations (WebSocket-first with HTTP Fallback)
 // ==============================================================================
 async function fetchConfigFromPi(isManual = false) {
+    if (wsConn.isConnected) {
+        wsConn.send({ type: "get_config" });
+        if (isManual) showToast("Đang tải cấu hình qua WebSocket...");
+        return true;
+    }
+
+    // Fallback to HTTP API
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
-        const res = await apiFetch(`http://${state.piHost}/api/config`, { signal: controller.signal });
-        clearTimeout(timeoutId);
+        const res = await apiFetchWithRetry(`http://${state.piHost}/api/config`, {
+            _timeout: 4000
+        }, isManual ? 3 : 1);
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-
-        // Apply config directly to App UI
-        if (data.tpms) {
-            state.piConfig.tpms.fl = data.tpms.fl || "";
-            state.piConfig.tpms.fr = data.tpms.fr || "";
-            state.piConfig.tpms.rl = data.tpms.rl || "";
-            state.piConfig.tpms.rr = data.tpms.rr || "";
-            state.piConfig.tpms.alert = data.tpms.alert || data.tpms.low_pressure_alert || 2.2;
-            state.piConfig.tpms.high_temp_alert = data.tpms.high_temp_alert || data.tpms.temp_alert || 70.0;
-
-            const flInput = document.getElementById('inputFlSensor');
-            const frInput = document.getElementById('inputFrSensor');
-            const rlInput = document.getElementById('inputRlSensor');
-            const rrInput = document.getElementById('inputRrSensor');
-            const alertInput = document.getElementById('inputPressureAlert');
-            const tempAlertInput = document.getElementById('inputTempAlert');
-
-            if (flInput) flInput.value = state.piConfig.tpms.fl;
-            if (frInput) frInput.value = state.piConfig.tpms.fr;
-            if (rlInput) rlInput.value = state.piConfig.tpms.rl;
-            if (rrInput) rrInput.value = state.piConfig.tpms.rr;
-            if (alertInput) alertInput.value = state.piConfig.tpms.alert;
-            if (tempAlertInput) tempAlertInput.value = state.piConfig.tpms.high_temp_alert;
-        }
-
-        if (data.gps) {
-            state.piConfig.gps.enabled = !!data.gps.enabled;
-            const toggle = document.getElementById('toggleHardwareGps');
-            if (toggle) toggle.checked = state.piConfig.gps.enabled;
-            updateGpsModeUI();
-        }
-
-        state.isSyncedWithPi = true;
-        updateWifiStatusUI(true);
-
-        const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-        const meta = document.getElementById('tpmsSyncTimestamp');
-        if (meta) meta.textContent = `Đã đồng bộ (${nowStr})`;
-
-        if (isManual) {
-            showToast("Đã tải cấu hình từ xe thành công!");
-        }
+        applyConfigToStateAndUI(data, isManual);
         return true;
     } catch (err) {
         updateWifiStatusUI(false);
@@ -316,39 +516,50 @@ async function saveAndSyncTpmsToPi(overrideConfig = null) {
         gps_enabled: gpsHwEnabled
     };
 
+    // Update local state and UI immediately
+    state.piConfig.tpms.fl = fl;
+    state.piConfig.tpms.fr = fr;
+    state.piConfig.tpms.rl = rl;
+    state.piConfig.tpms.rr = rr;
+    state.piConfig.tpms.alert = alertPressure;
+    state.piConfig.tpms.high_temp_alert = alertTemp;
+    state.piConfig.gps.enabled = gpsHwEnabled;
+    state.isSyncedWithPi = true;
+
+    const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const meta = document.getElementById('tpmsSyncTimestamp');
+    if (meta && !overrideConfig) meta.textContent = `Đã lưu (${nowStr})`;
+
+    // WebSocket-first transmission
+    if (wsConn.isConnected) {
+        wsConn.send({
+            type: "set_config",
+            payload: payload
+        });
+        if (!overrideConfig) {
+            showToast("Đã gửi & đồng bộ cấu hình qua WebSocket!");
+        }
+        return true;
+    }
+
+    // Fallback: HTTP POST
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
-        const res = await apiFetch(`http://${state.piHost}/api/config`, {
+        const res = await apiFetchWithRetry(`http://${state.piHost}/api/config`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
+            _timeout: 4000
+        }, 2);
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-        state.piConfig.tpms.fl = fl;
-        state.piConfig.tpms.fr = fr;
-        state.piConfig.tpms.rl = rl;
-        state.piConfig.tpms.rr = rr;
-        state.piConfig.tpms.alert = alertPressure;
-        state.piConfig.tpms.high_temp_alert = alertTemp;
-        state.piConfig.gps.enabled = gpsHwEnabled;
-        state.isSyncedWithPi = true;
         updateWifiStatusUI(true);
 
         if (!overrideConfig) {
-            const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-            const meta = document.getElementById('tpmsSyncTimestamp');
-            if (meta) meta.textContent = `Đã lưu (${nowStr})`;
-
             showToast("Đã lưu cấu hình thành công!");
         }
         return true;
     } catch (err) {
-        showToast(`Lỗi khi ghi cấu hình qua Wi-Fi: ${err.message}`);
+        showToast(`Lỗi khi ghi cấu hình: ${err.message}`);
         return false;
     }
 }
@@ -585,6 +796,9 @@ function onGpsError(err) {
     console.warn("GPS error:", err.message);
 }
 
+/** Telemetry send failure counter — backs off after repeated failures */
+let _gpsSendFailures = 0;
+
 function maybeTransmitGpsToPi(coords, speedKmh) {
     const now = Date.now();
     const intervalMs = 1000 / state.sendRateHz;
@@ -592,13 +806,12 @@ function maybeTransmitGpsToPi(coords, speedKmh) {
     if (now - state.lastSendTime < intervalMs) {
         return; // Throttle to target Hz to preserve phone battery
     }
+
     state.lastSendTime = now;
     state.sendCount++;
     const rateEl = document.getElementById('telSendRate');
     if (rateEl) rateEl.textContent = `${state.sendRateHz} Hz`;
 
-    // Forward telemetry (speed, coords) over Wi-Fi Hotspot HTTP
-    const host = state.piHost || '192.168.4.1:8080';
     const payload = {
         spd: speedKmh,
         lat: parseFloat(coords.latitude.toFixed(6)),
@@ -607,12 +820,38 @@ function maybeTransmitGpsToPi(coords, speedKmh) {
         hdg: coords.heading ? Math.round(coords.heading) : 0
     };
 
+    // WebSocket-first telemetry transmission (zero HTTP overhead, instant push)
+    if (wsConn.isConnected) {
+        wsConn.send({
+            type: "telemetry",
+            spd: payload.spd,
+            lat: payload.lat,
+            lon: payload.lon,
+            alt: payload.alt,
+            hdg: payload.hdg
+        });
+        _gpsSendFailures = 0;
+        return;
+    }
+
+    // If Pi is not reachable, back off HTTP telemetry sends to avoid hammering
+    if (_gpsSendFailures > 5) {
+        if (now - state.lastSendTime < 3000) return;
+    }
+
+    // Fallback: Forward telemetry over Wi-Fi Hotspot HTTP
+    const host = state.piHost || defaultHost;
     apiFetch(`http://${host}/api/gps`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        keepalive: true
-    }).catch(() => {});
+        keepalive: true,
+        _timeout: 2000
+    }).then(() => {
+        _gpsSendFailures = 0;
+    }).catch(() => {
+        _gpsSendFailures++;
+    });
 }
 
 // GPS Option Toggle: Hardware GPS vs Phone Wi-Fi GPS
