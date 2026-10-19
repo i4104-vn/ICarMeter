@@ -1,7 +1,6 @@
 // Main Application Controller managing state and render cycle on Raspberry Pi OS
 
 use crate::configs::AppConfig;
-use crate::configs::display::{PHYSICAL_HEIGHT_MM, PHYSICAL_WIDTH_MM, SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::controllers::demo::DemoSpeed;
 use crate::models::VehicleState;
 use crate::render::DashboardRenderer;
