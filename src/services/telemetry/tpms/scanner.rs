@@ -109,42 +109,22 @@ pub fn run_ble_scanner_loop(
                     let temp = decode_tpms_temperature(payload).unwrap_or(0.0);
                     let mut matched = false;
 
-                    let (fl_target, fr_target, rl_target, rr_target) = match config.read() {
-                        Ok(c) => (c.fl_sensor.clone(), c.fr_sensor.clone(), c.rl_sensor.clone(), c.rr_sensor.clone()),
+                    let sensor_targets = match config.read() {
+                        Ok(c) => [
+                            c.fl_sensor.clone(),
+                            c.fr_sensor.clone(),
+                            c.rl_sensor.clone(),
+                            c.rr_sensor.clone(),
+                        ],
                         Err(_) => continue,
                     };
 
-                    if matches_sensor_id(&fl_target, &mac_str, payload) {
-                        if let Ok(mut p) = pressures.lock() {
-                            p.fl = pressure;
-                            if temp != 0.0 {
-                                p.fl_temp = temp;
-                            }
-                        }
-                        matched = true;
-                    } else if matches_sensor_id(&fr_target, &mac_str, payload) {
-                        if let Ok(mut p) = pressures.lock() {
-                            p.fr = pressure;
-                            if temp != 0.0 {
-                                p.fr_temp = temp;
-                            }
-                        }
-                        matched = true;
-                    } else if matches_sensor_id(&rl_target, &mac_str, payload) {
-                        if let Ok(mut p) = pressures.lock() {
-                            p.rl = pressure;
-                            if temp != 0.0 {
-                                p.rl_temp = temp;
-                            }
-                        }
-                        matched = true;
-                    } else if matches_sensor_id(&rr_target, &mac_str, payload) {
-                        if let Ok(mut p) = pressures.lock() {
-                            p.rr = pressure;
-                            if temp != 0.0 {
-                                p.rr_temp = temp;
-                            }
-                        }
+                    if let Some((sensor_index, _)) = sensor_targets
+                        .iter()
+                        .enumerate()
+                        .find(|(_, target)| matches_sensor_id(target, &mac_str, payload))
+                    {
+                        update_pressure(&pressures, sensor_index, pressure, temp);
                         matched = true;
                     }
 
@@ -162,5 +142,44 @@ pub fn run_ble_scanner_loop(
         }
 
         thread::sleep(Duration::from_secs(2));
+    }
+}
+
+fn update_pressure(
+    pressures: &Arc<Mutex<SharedTirePressures>>,
+    sensor_index: usize,
+    pressure: f32,
+    temperature: f32,
+) {
+    let Ok(mut pressures) = pressures.lock() else {
+        return;
+    };
+
+    match sensor_index {
+        0 => {
+            pressures.fl = pressure;
+            if temperature != 0.0 {
+                pressures.fl_temp = temperature;
+            }
+        }
+        1 => {
+            pressures.fr = pressure;
+            if temperature != 0.0 {
+                pressures.fr_temp = temperature;
+            }
+        }
+        2 => {
+            pressures.rl = pressure;
+            if temperature != 0.0 {
+                pressures.rl_temp = temperature;
+            }
+        }
+        3 => {
+            pressures.rr = pressure;
+            if temperature != 0.0 {
+                pressures.rr_temp = temperature;
+            }
+        }
+        _ => {}
     }
 }

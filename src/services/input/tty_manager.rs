@@ -117,12 +117,14 @@ impl TtyManager {
             if n > 0 {
                 let mut key = None;
                 for &b in &buf[..n as usize] {
-                    if b == b'q' || b == b'Q' {
-                        GLOBAL_RUNNING.store(false, Ordering::SeqCst);
-                    } else if key.is_none() && b != 0x1B {
-                        // Ignore escape bytes from terminal sequences, but keep
-                        // ordinary application shortcut keys.
-                        key = Some(b);
+                    match b {
+                        b'q' | b'Q' => GLOBAL_RUNNING.store(false, Ordering::SeqCst),
+                        _ if key.is_none() && b != 0x1B => {
+                            // Ignore escape bytes from terminal sequences, but keep
+                            // ordinary application shortcut keys.
+                            key = Some(b);
+                        }
+                        _ => {}
                     }
                 }
                 return key;

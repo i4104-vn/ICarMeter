@@ -39,6 +39,10 @@ impl GpsReceiver {
                 .is_some_and(|timestamp| timestamp.elapsed() < GPS_FIX_TIMEOUT)
     }
 
+    pub fn matches_config(&self, device: &str, baud: u32) -> bool {
+        self.device_path == device && self.baud_rate == baud
+    }
+
     fn try_open(&mut self) {
         if self.file.is_some() {
             return;

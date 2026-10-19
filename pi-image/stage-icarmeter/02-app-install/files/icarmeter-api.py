@@ -115,7 +115,6 @@ def ws_heartbeat_worker():
 PORT = 8080
 HTTP_PORT = 80
 CONFIG_PATH = "/opt/icarmeter/config.toml"
-FALLBACK_CONFIG_PATHS = ["/home/pi/config.toml", "./config.toml"]
 APP_CONN_MARKER = "/dev/shm/icarmeter_app_connected"
 WS_EVENT_MARKER = "/dev/shm/icarmeter_ws_event"
 
@@ -181,11 +180,6 @@ def touch_app_connected(name="Wi-Fi Mobile App"):
         pass
 
 def get_actual_config_path():
-    if os.path.exists(CONFIG_PATH):
-        return CONFIG_PATH
-    for path in FALLBACK_CONFIG_PATHS:
-        if os.path.exists(path):
-            return path
     return CONFIG_PATH
 
 def get_actual_www_root():
@@ -222,7 +216,7 @@ def read_config():
         },
     }
 
-    path = get_actual_config_path()
+    path = CONFIG_PATH
     if not os.path.exists(path):
         return data
 
@@ -286,15 +280,20 @@ def read_config():
     return data
 
 
-def write_config(payload):
-    """Updates config.toml with payload and preserves file layout"""
-    path = get_actual_config_path()
+def write_config_to_path(path, payload):
     lines = []
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-    else:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception:
+            lines = []
+
+    if not lines:
         lines = [
+            "# ==============================================================================\n",
+            "# Car Digital Dashboard - Hardware Configuration for Raspberry Pi OS\n",
+            "# ==============================================================================\n\n",
             "[gps]\n",
             'device = "/dev/serial0"\n',
             "baud_rate = 9600\n",
@@ -316,63 +315,101 @@ def write_config(payload):
     new_lines = []
     in_section = None
     has_high_temp_line = any("high_temp_alert" in l for l in lines)
+    updated_keys = set()
 
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
+            if in_section == "tpms":
+                if "high_temp_alert" not in updated_keys and ("high_temp_alert" in payload or "temp_alert" in payload):
+                    temp_val = float(payload.get("high_temp_alert", payload.get("temp_alert", 70.0)))
+                    new_lines.append(f'high_temp_alert = {temp_val:.1f}\n')
+                    updated_keys.add("high_temp_alert")
             in_section = stripped[1:-1].strip()
             new_lines.append(line)
             continue
 
         if in_section == "tpms" and "=" in line:
             k = line.split("=")[0].strip()
-            if k == "fl_sensor" and "fl" in payload:
+            updated_keys.add(k)
+            if k == "fl_sensor" and "fl" in payload and payload["fl"]:
                 line = f'fl_sensor = "{payload["fl"]}"\n'
-            elif k == "fr_sensor" and "fr" in payload:
+            elif k == "fr_sensor" and "fr" in payload and payload["fr"]:
                 line = f'fr_sensor = "{payload["fr"]}"\n'
-            elif k == "rl_sensor" and "rl" in payload:
+            elif k == "rl_sensor" and "rl" in payload and payload["rl"]:
                 line = f'rl_sensor = "{payload["rl"]}"\n'
-            elif k == "rr_sensor" and "rr" in payload:
+            elif k == "rr_sensor" and "rr" in payload and payload["rr"]:
                 line = f'rr_sensor = "{payload["rr"]}"\n'
             elif k == "low_pressure_alert":
-                if "alert" in payload:
-                    line = f'low_pressure_alert = {float(payload["alert"]):.1f}\n'
+                if "alert" in payload or "low_pressure_alert" in payload:
+                    val = float(payload.get("alert", payload.get("low_pressure_alert", 2.2)))
+                    line = f'low_pressure_alert = {val:.1f}\n'
                 if not has_high_temp_line and ("high_temp_alert" in payload or "temp_alert" in payload):
                     temp_val = float(payload.get("high_temp_alert", payload.get("temp_alert", 70.0)))
                     line += f'high_temp_alert = {temp_val:.1f}\n'
+                    updated_keys.add("high_temp_alert")
             elif k == "high_temp_alert" and ("high_temp_alert" in payload or "temp_alert" in payload):
                 temp_val = float(payload.get("high_temp_alert", payload.get("temp_alert", 70.0)))
                 line = f'high_temp_alert = {temp_val:.1f}\n'
             elif k == "enabled" and "tpms_enabled" in payload:
                 val = "true" if payload["tpms_enabled"] else "false"
                 line = f'enabled = {val}\n'
-            elif k == "adapter" and "adapter" in payload:
+            elif k == "adapter" and "adapter" in payload and payload["adapter"]:
                 line = f'adapter = "{payload["adapter"]}"\n'
         elif in_section == "gps" and "=" in line:
             k = line.split("=")[0].strip()
+            updated_keys.add(k)
             if k == "enabled" and ("gps_enabled" in payload or "enabled" in payload):
                 val_bool = payload.get("gps_enabled", payload.get("enabled"))
                 val = "true" if val_bool else "false"
                 line = f'enabled = {val}\n'
-            elif k == "device" and "gps_device" in payload:
+            elif k == "device" and "gps_device" in payload and payload["gps_device"]:
                 line = f'device = "{payload["gps_device"]}"\n'
             elif k == "baud_rate" and "baud_rate" in payload:
                 line = f'baud_rate = {int(payload["baud_rate"])}\n'
         elif in_section == "display" and "=" in line:
             k = line.split("=")[0].strip()
+            updated_keys.add(k)
             if k == "target_fps" and "target_fps" in payload:
                 line = f'target_fps = {int(payload["target_fps"])}\n'
-            elif k == "framebuffer_device" and "framebuffer_device" in payload:
+            elif k == "framebuffer_device" and "framebuffer_device" in payload and payload["framebuffer_device"]:
                 line = f'framebuffer_device = "{payload["framebuffer_device"]}"\n'
 
         new_lines.append(line)
 
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.writelines(new_lines)
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+        try:
+            os.chmod(path, 0o666)
+        except OSError:
+            pass
+        return True
+    except Exception as e:
+        print(f"[API] Error writing config to {path}: {e}", file=sys.stderr)
+        return False
+
+
+def write_config(payload):
+    """Updates /opt/icarmeter/config.toml with payload, fsyncs and forces flush to non-volatile flash"""
+    success = write_config_to_path(CONFIG_PATH, payload)
+
+    # Force kernel dirty filesystem pages to write back to physical flash storage (SD card / eMMC)
+    try:
+        os.sync()
+    except (AttributeError, OSError):
+        pass
 
     touch_app_connected("Wi-Fi Mobile App")
-    print(f"[API] Updated config in {path}")
+    print(f"[API] Synchronized, fsynced and flushed config to disk: {CONFIG_PATH}")
+    if not success:
+        raise IOError(f"Could not write configuration to {CONFIG_PATH}")
 
 
 class ApiHandler(http.server.BaseHTTPRequestHandler):

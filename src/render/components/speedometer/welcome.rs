@@ -21,15 +21,19 @@ impl SpeedometerWelcome {
             return;
         }
 
-        if time < WELCOME_SLEEP_END {
-            // 1. Emo sleeping peacefully (sleepy.svg, index 26)
-            let mood = EmoExpression::Atlas(26);
-            EmoSpriteRenderer::draw(pixmap, cx, cy, time, alpha, mood);
-        } else if time < WELCOME_WAKE_END {
-            // 2. Emo waking up, yawning and opening eyes (ngap.svg, index 18)
-            let mood = EmoExpression::Atlas(18);
-            let wake_time = time - WELCOME_SLEEP_END;
-            EmoSpriteRenderer::draw(pixmap, cx, cy, wake_time, alpha, mood);
+        match time {
+            time if time < WELCOME_SLEEP_END => {
+                // 1. Emo sleeping peacefully (sleepy.svg, index 26)
+                let mood = EmoExpression::Atlas(26);
+                EmoSpriteRenderer::draw(pixmap, cx, cy, time, alpha, mood);
+            }
+            time if time < WELCOME_WAKE_END => {
+                // 2. Emo waking up, yawning and opening eyes (ngap.svg, index 18)
+                let mood = EmoExpression::Atlas(18);
+                let wake_time = time - WELCOME_SLEEP_END;
+                EmoSpriteRenderer::draw(pixmap, cx, cy, wake_time, alpha, mood);
+            }
+            _ => {}
         }
     }
 }

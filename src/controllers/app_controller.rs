@@ -61,10 +61,10 @@ impl AppController {
                 }
             }
 
-            if let Some(key) = backend.poll_key() {
-                if key.to_ascii_lowercase() == b'a' {
-                    demo_speed.toggle(&mut state);
-                }
+            if let Some(key) = backend.poll_key()
+                && key.eq_ignore_ascii_case(&b'a')
+            {
+                demo_speed.toggle(&mut state);
             }
             if !backend.is_open() {
                 break;

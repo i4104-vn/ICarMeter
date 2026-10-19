@@ -53,11 +53,16 @@ impl EmoRenderer {
             .unwrap_or(EmoExpression::Normal);
         let resumed_after_movement = idle_seconds > 0.0 && self.last_idle_seconds <= 0.0;
 
-        if self.current_expression != Some(active) {
-            self.current_expression = Some(active);
-            self.current_expression_started_at = time;
-        } else if resumed_after_movement {
-            self.current_expression_started_at = time;
+        match (
+            self.current_expression == Some(active),
+            resumed_after_movement,
+        ) {
+            (false, _) => {
+                self.current_expression = Some(active);
+                self.current_expression_started_at = time;
+            }
+            (true, true) => self.current_expression_started_at = time,
+            (true, false) => {}
         }
         self.last_idle_seconds = idle_seconds;
 

@@ -1,12 +1,16 @@
 //! Bluetooth adapter and companion-app connection probes.
 
+mod event_name;
+
 use crate::models::VehicleState;
+use event_name::clean_event_name;
 use std::path::Path;
 
 const APP_CONNECTION_MARKER: &str = "/dev/shm/icarmeter_app_connected";
 const WS_EVENT_MARKER: &str = "/dev/shm/icarmeter_ws_event";
 const HOTSPOT_MARKER: &str = "/dev/shm/icarmeter_hotspot_active";
 const APP_CONNECTION_TIMEOUT_SECS: u64 = 15;
+const WS_EVENT_TIMEOUT_SECS: u64 = 3;
 
 pub(super) fn update_connection_state(state: &mut VehicleState) {
     state.bt_active = bluetooth_adapter_is_active();
@@ -17,8 +21,8 @@ pub(super) fn update_connection_state(state: &mut VehicleState) {
 
     // App connection status: active when app marker is fresh or ws event is alive
     state.app_connected = read_app_connection().is_some()
-        || state.ws_event_log.as_deref().map_or(false, |s| {
-            !s.contains("Disconnected") && !s.contains("Offline") && !s.contains("Idle")
+        || state.ws_event_log.as_deref().is_some_and(|event| {
+            !event.contains("Disconnected") && !event.contains("Offline") && !event.contains("Idle")
         });
 
     // Bluetooth is hardware/BLE only — isolated from WebSocket
@@ -26,57 +30,40 @@ pub(super) fn update_connection_state(state: &mut VehicleState) {
 }
 
 fn wifi_hotspot_is_active() -> bool {
-    Path::new(HOTSPOT_MARKER).exists()
-        || Path::new("/sys/class/net/wlan0").exists()
-        || cfg!(target_os = "windows")
+    Path::new(HOTSPOT_MARKER).exists() || Path::new("/sys/class/net/wlan0").exists()
 }
 
 fn bluetooth_adapter_is_active() -> bool {
-    Path::new("/sys/class/bluetooth/hci0").exists() || cfg!(target_os = "windows")
+    Path::new("/sys/class/bluetooth/hci0").exists()
 }
 
 fn read_ws_event() -> Option<String> {
     let metadata = std::fs::metadata(WS_EVENT_MARKER).ok()?;
     let modified = metadata.modified().ok()?;
-    // If no events received for > 30 seconds, mark as standby
-    if modified.elapsed().map_or(true, |elapsed| elapsed.as_secs() >= 30) {
-        return Some("Standby".to_string());
+    let elapsed = match modified.elapsed() {
+        Ok(d) => d.as_secs_f32(),
+        Err(e) => {
+            let future_diff = e.duration().as_secs_f32();
+            if future_diff < 2.0 { 0.0 } else { 100.0 }
+        }
+    };
+    // If no event received for the timeout, the event has ended.
+    if elapsed >= WS_EVENT_TIMEOUT_SECS as f32 {
+        return None;
     }
 
     let content = std::fs::read_to_string(WS_EVENT_MARKER).ok()?;
     let line = content.lines().next()?.trim();
-    if !line.is_empty() {
-        Some(clean_event_name(line))
-    } else {
-        None
-    }
-}
-
-fn clean_event_name(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if trimmed.eq_ignore_ascii_case("connected") || trimmed.contains("Connected") {
-        "Connected".to_string()
-    } else if trimmed.eq_ignore_ascii_case("telemetry")
-        || trimmed.contains("Telemetry")
-        || trimmed.contains("gps")
+    if line.is_empty() || line.eq_ignore_ascii_case("standby") || line.eq_ignore_ascii_case("idle")
     {
-        "Telemetry".to_string()
-    } else if trimmed.contains("Saved") || trimmed.contains("set_config") {
-        "Config Saved".to_string()
-    } else if trimmed.contains("Sync") || trimmed.contains("get_config") {
-        "Config Synced".to_string()
-    } else if trimmed.contains("Disconnect") {
-        "Disconnected".to_string()
-    } else if trimmed.contains("Standby") || trimmed.contains("Idle") {
-        "Standby".to_string()
+        return None;
+    }
+
+    let cleaned = clean_event_name(line);
+    if cleaned == "Standby" {
+        None
     } else {
-        let words: Vec<&str> = trimmed.split_whitespace().take(2).collect();
-        let joined = words.join(" ");
-        if joined.len() > 14 {
-            joined[..14].to_string()
-        } else {
-            joined
-        }
+        Some(cleaned)
     }
 }
 

@@ -5,7 +5,7 @@
 
 APP_DIR="${ROOTFS_DIR}/opt/icarmeter"
 install -d -m 755 "${APP_DIR}"
-install -m 644 files/config.toml "${APP_DIR}/config.toml"
+install -m 666 files/config.toml "${APP_DIR}/config.toml"
 install -m 755 files/icarmeter-bt-init.sh "${APP_DIR}/icarmeter-bt-init.sh"
 install -m 755 files/icarmeter-wifi-init.sh "${APP_DIR}/icarmeter-wifi-init.sh"
 install -m 755 files/icarmeter-api.py "${APP_DIR}/icarmeter-api.py"

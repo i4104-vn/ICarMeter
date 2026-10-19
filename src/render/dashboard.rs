@@ -57,7 +57,8 @@ impl DashboardRenderer {
         self.stats_panel.draw(&mut self.pixmap, &self.fonts, state);
 
         // 5. Render Bottom Footer with slide-up event ticker in left corner
-        self.footer_panel.draw(&mut self.pixmap, &self.fonts, state, dt);
+        self.footer_panel
+            .draw(&mut self.pixmap, &self.fonts, state, dt);
 
         // Fade the complete dashboard in after initialization instead of
         // exposing a fully rendered frame abruptly.

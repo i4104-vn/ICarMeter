@@ -38,6 +38,7 @@ echo 'PRETTY_HOSTNAME="ICarMeter"' > /etc/machine-info
 chmod 755 /opt/icarmeter/icarmeter-bt-init.sh 2>/dev/null || true
 chmod 755 /opt/icarmeter/icarmeter-wifi-init.sh 2>/dev/null || true
 chmod 755 /opt/icarmeter/icarmeter-api.py 2>/dev/null || true
+chmod 666 /opt/icarmeter/config.toml 2>/dev/null || true
 chmod 600 /etc/NetworkManager/system-connections/icarmeter-hotspot.nmconnection 2>/dev/null || true
 
 # Ensure Wi-Fi is enabled in NetworkManager state

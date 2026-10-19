@@ -34,12 +34,10 @@ impl ParticleRenderer {
             }
 
             // Boundary edge fade so particles smoothly emerge
-            let edge_fade = if px < 436.0 {
-                ((px - 416.0) / 20.0).clamp(0.0, 1.0)
-            } else if px > 844.0 {
-                ((864.0 - px) / 20.0).clamp(0.0, 1.0)
-            } else {
-                1.0
+            let edge_fade = match px {
+                px if px < 436.0 => ((px - 416.0) / 20.0).clamp(0.0, 1.0),
+                px if px > 844.0 => ((864.0 - px) / 20.0).clamp(0.0, 1.0),
+                _ => 1.0,
             };
 
             // Keep the center digit area clean. The ellipse follows the

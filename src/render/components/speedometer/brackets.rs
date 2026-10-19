@@ -181,7 +181,7 @@ fn stroke_path(
         line_join: LineJoin::Round,
         ..Default::default()
     };
-    pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+    pixmap.stroke_path(path, &paint, &stroke, Transform::identity(), None);
 }
 
 fn draw_dot(pixmap: &mut Pixmap, x: f32, y: f32, radius: f32, color: Color, blend_mode: BlendMode) {

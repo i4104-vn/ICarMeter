@@ -9,9 +9,10 @@ use tiny_skia::{Color, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Stroke, Tr
 
 #[derive(Debug, Clone)]
 pub struct FooterRenderer {
-    current_event: String,
+    current_event: Option<String>,
     prev_event: Option<String>,
     slide_anim: f32,
+    fade_opacity: f32,
 }
 
 impl Default for FooterRenderer {
@@ -23,85 +24,112 @@ impl Default for FooterRenderer {
 impl FooterRenderer {
     pub fn new() -> Self {
         Self {
-            current_event: "Standby".to_string(),
+            current_event: None,
             prev_event: None,
             slide_anim: 1.0,
+            fade_opacity: 0.0,
         }
     }
 
-    pub fn draw(&mut self, pixmap: &mut Pixmap, fonts: &FontRenderer, state: &VehicleState, dt: f32) {
+    pub fn draw(
+        &mut self,
+        pixmap: &mut Pixmap,
+        fonts: &FontRenderer,
+        state: &VehicleState,
+        dt: f32,
+    ) {
         let white_color = Color::from_rgba8(255, 255, 255, 255);
         let dim_color = Color::from_rgba8(110, 110, 120, 255);
         let baseline_y = 458.0;
 
-        // ─── 1. WebSocket Event Log with Slide-Up Animation (Bottom-Left) ────
-        // Strictly 1-line event ticker: only shows the concise event name, slides up on new event
-        let new_event = state.ws_event_log.as_deref().unwrap_or("Standby");
-        if new_event != self.current_event {
-            self.prev_event = Some(self.current_event.clone());
-            self.current_event = new_event.to_string();
-            self.slide_anim = 0.0; // Trigger slide-up animation
+        // ─── 1. WebSocket Event Log with Slide-Up & Auto-Hide (Bottom-Left) ────
+        // Strictly 1-line event ticker: only displayed when an active event occurs,
+        // and automatically hides (fades out) 3 seconds after the event concludes.
+        if let Some(ref new_ev) = state.ws_event_log {
+            if self.current_event.as_deref() != Some(new_ev.as_str()) {
+                self.prev_event = self.current_event.clone();
+                self.current_event = Some(new_ev.clone());
+                self.slide_anim = 0.0; // Trigger slide-up animation
+            }
+            // Rapid smooth fade-in
+            self.fade_opacity = (self.fade_opacity + dt * 6.0).min(1.0);
+        } else {
+            // No active event: smoothly fade out to completely hide
+            self.fade_opacity = (self.fade_opacity - dt * 3.0).max(0.0);
+            if self.fade_opacity <= 0.0 {
+                self.current_event = None;
+                self.prev_event = None;
+            }
         }
 
         if self.slide_anim < 1.0 {
             self.slide_anim = (self.slide_anim + dt * 4.0).min(1.0);
         }
 
-        // Hard vertical clip range: strictly 1 line height (15px slot)
-        let clip_min_y = (baseline_y - 12.0) as i32;
-        let clip_max_y = (baseline_y + 3.0) as i32;
+        if self.fade_opacity > 0.0
+            && let Some(ref cur) = self.current_event
+        {
+            // Hard vertical clip range: strictly 1 line height (15px slot)
+            let clip_min_y = (baseline_y - 12.0) as i32;
+            let clip_max_y = (baseline_y + 3.0) as i32;
 
-        let t = 1.0 - (1.0 - self.slide_anim).powi(3); // ease-out cubic
-        let slide_dist = 15.0;
-        let event_x = 28.0;
+            let t = 1.0 - (1.0 - self.slide_anim).powi(3); // ease-out cubic
+            let slide_dist = 15.0;
+            let event_x = 28.0;
 
-        if self.slide_anim < 1.0 {
-            // 1. Previous event slides UP and exits the top of the single-line slot
-            if let Some(ref prev) = self.prev_event {
-                let prev_y = baseline_y - t * slide_dist;
-                let prev_alpha = ((1.0 - t) * 150.0) as u8;
-                if prev_alpha > 0 {
+            if self.slide_anim < 1.0 {
+                // 1. Previous event slides UP and exits the top of the single-line slot
+                if let Some(ref prev) = self.prev_event {
+                    let prev_y = baseline_y - t * slide_dist;
+                    let prev_alpha = ((1.0 - t) * 150.0 * self.fade_opacity) as u8;
+                    if prev_alpha > 0 {
+                        fonts.draw_text_clipped_y(
+                            pixmap,
+                            &fonts.regular,
+                            prev,
+                            event_x,
+                            prev_y,
+                            11.5,
+                            Color::from_rgba8(115, 120, 132, prev_alpha),
+                            clip_min_y,
+                            clip_max_y,
+                        );
+                    }
+                }
+
+                // 2. Incoming event slides UP from below and enters the single-line slot
+                let cur_y = baseline_y + (1.0 - t) * slide_dist;
+                let cur_alpha = (t * 180.0 * self.fade_opacity) as u8;
+                if cur_alpha > 0 {
                     fonts.draw_text_clipped_y(
                         pixmap,
                         &fonts.regular,
-                        prev,
+                        cur,
                         event_x,
-                        prev_y,
+                        cur_y,
                         11.5,
-                        Color::from_rgba8(115, 120, 132, prev_alpha),
+                        Color::from_rgba8(120, 125, 138, cur_alpha),
+                        clip_min_y,
+                        clip_max_y,
+                    );
+                }
+            } else {
+                // At rest: strictly 1 single line, static and crystal clear dim text
+                let alpha = (180.0 * self.fade_opacity) as u8;
+                if alpha > 0 {
+                    fonts.draw_text_clipped_y(
+                        pixmap,
+                        &fonts.regular,
+                        cur,
+                        event_x,
+                        baseline_y,
+                        11.5,
+                        Color::from_rgba8(120, 125, 138, alpha),
                         clip_min_y,
                         clip_max_y,
                     );
                 }
             }
-
-            // 2. Incoming event slides UP from below and enters the single-line slot
-            let cur_y = baseline_y + (1.0 - t) * slide_dist;
-            let cur_alpha = (t * 180.0) as u8;
-            fonts.draw_text_clipped_y(
-                pixmap,
-                &fonts.regular,
-                &self.current_event,
-                event_x,
-                cur_y,
-                11.5,
-                Color::from_rgba8(120, 125, 138, cur_alpha),
-                clip_min_y,
-                clip_max_y,
-            );
-        } else {
-            // At rest: strictly 1 single line, static and crystal clear dim text
-            fonts.draw_text_clipped_y(
-                pixmap,
-                &fonts.regular,
-                &self.current_event,
-                event_x,
-                baseline_y,
-                11.5,
-                Color::from_rgba8(120, 125, 138, 180),
-                clip_min_y,
-                clip_max_y,
-            );
         }
 
         // ─── 2. Center Status Icons: Wi-Fi, Bluetooth, GPS ───────────────────
@@ -113,12 +141,10 @@ impl FooterRenderer {
         };
 
         // 2. Bluetooth item (pure Bluetooth / BLE sensors, isolated from WebSocket)
-        let (bt_color, bt_label) = if let Some(ref name) = state.bt_device_name {
-            (white_color, name.as_str())
-        } else if state.bt_active {
-            (white_color, "Bluetooth")
-        } else {
-            (dim_color, "Bluetooth")
+        let (bt_color, bt_label) = match (state.bt_device_name.as_deref(), state.bt_active) {
+            (Some(name), _) => (white_color, name),
+            (None, true) => (white_color, "Bluetooth"),
+            (None, false) => (dim_color, "Bluetooth"),
         };
 
         // 3. GPS item
@@ -182,25 +208,6 @@ impl FooterRenderer {
         }
     }
 
-    /// Minimalist filled circle dot
-    #[allow(dead_code)]
-    fn draw_dot(pixmap: &mut Pixmap, cx: f32, cy: f32, r: f32, color: Color) {
-        let mut pb = PathBuilder::new();
-        pb.push_circle(cx, cy, r);
-        if let Some(path) = pb.finish() {
-            let mut paint = Paint::default();
-            paint.set_color(color);
-            paint.anti_alias = true;
-            pixmap.fill_path(
-                &path,
-                &paint,
-                tiny_skia::FillRule::Winding,
-                Transform::identity(),
-                None,
-            );
-        }
-    }
-
     /// Minimalist Bluetooth Rune Icon
     fn draw_bluetooth_icon(pixmap: &mut Pixmap, cx: f32, cy: f32, color: Color) {
         let mut pb = PathBuilder::new();
@@ -221,44 +228,6 @@ impl FooterRenderer {
             paint.anti_alias = true;
             let stroke = Stroke {
                 width: 1.4,
-                line_cap: LineCap::Round,
-                line_join: LineJoin::Round,
-                ..Default::default()
-            };
-            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
-        }
-    }
-
-    /// Minimalist Smartphone App Icon
-    #[allow(dead_code)]
-    fn draw_app_icon(pixmap: &mut Pixmap, cx: f32, cy: f32, color: Color) {
-        let w = 8.4;
-        let h = 13.0;
-        let r = 1.8;
-        let x = cx - (w * 0.5);
-        let y = cy - (h * 0.5);
-
-        let mut pb = PathBuilder::new();
-        pb.move_to(x + r, y);
-        pb.line_to(x + w - r, y);
-        pb.quad_to(x + w, y, x + w, y + r);
-        pb.line_to(x + w, y + h - r);
-        pb.quad_to(x + w, y + h, x + w - r, y + h);
-        pb.line_to(x + r, y + h);
-        pb.quad_to(x, y + h, x, y + h - r);
-        pb.line_to(x, y + r);
-        pb.quad_to(x, y, x + r, y);
-
-        // Home indicator notch at bottom
-        pb.move_to(cx - 1.6, cy + 4.2);
-        pb.line_to(cx + 1.6, cy + 4.2);
-
-        if let Some(path) = pb.finish() {
-            let mut paint = Paint::default();
-            paint.set_color(color);
-            paint.anti_alias = true;
-            let stroke = Stroke {
-                width: 1.3,
                 line_cap: LineCap::Round,
                 line_join: LineJoin::Round,
                 ..Default::default()

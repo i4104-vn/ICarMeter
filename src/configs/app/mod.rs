@@ -1,7 +1,6 @@
 //! Application configuration model and public configuration API.
 
 mod loader;
-mod persistence;
 
 #[derive(Debug, Clone)]
 pub struct GpsConfig {
@@ -61,7 +60,6 @@ impl Default for AppConfig {
     }
 }
 
-#[allow(dead_code)]
 impl AppConfig {
     pub fn load() -> Self {
         loader::load()
@@ -69,21 +67,5 @@ impl AppConfig {
 
     pub fn last_modified() -> Option<std::time::SystemTime> {
         loader::get_config_mtime()
-    }
-
-    pub fn to_toml_string(&self) -> String {
-        persistence::to_toml(self)
-    }
-
-    pub fn save(&self, path: &str) -> std::io::Result<()> {
-        persistence::save(self, path)
-    }
-
-    pub fn to_json_string(&self) -> String {
-        persistence::to_json(self)
-    }
-
-    pub fn update_from_json(&mut self, json: &str) -> Result<(), String> {
-        persistence::update_from_json(self, json)
     }
 }

@@ -2,9 +2,6 @@
 
 mod visual_params;
 
-#[allow(unused_imports)]
-pub use visual_params::CenterVisualParams;
-
 // Shared timeline for the center welcome animation.
 pub const WELCOME_SLEEP_END: f32 = 4.0;
 pub const WELCOME_WAKE_END: f32 = 8.0;
@@ -39,7 +36,7 @@ impl CenterTransitionManager {
     pub fn update(&mut self, speed: f32, dt: f32) {
         // Do not jump through the welcome sequence after a slow framebuffer
         // write or a temporary scheduler pause.
-        let dt = dt.max(0.0).min(0.05);
+        let dt = dt.clamp(0.0, 0.05);
         self.elapsed_time += dt;
         if speed <= 0.05 {
             self.idle_zero_timer += dt;
@@ -50,12 +47,10 @@ impl CenterTransitionManager {
         match self.state {
             CenterModeState::Welcome(time) => {
                 let next_time = time + dt;
-                self.state = if speed > 0.5 {
-                    CenterModeState::FlyingBracketsOut(0.0)
-                } else if next_time >= WELCOME_END {
-                    CenterModeState::EmoActive
-                } else {
-                    CenterModeState::Welcome(next_time)
+                self.state = match (speed > 0.5, next_time >= WELCOME_END) {
+                    (true, _) => CenterModeState::FlyingBracketsOut(0.0),
+                    (false, true) => CenterModeState::EmoActive,
+                    _ => CenterModeState::Welcome(next_time),
                 };
             }
             CenterModeState::SpeedActive => {

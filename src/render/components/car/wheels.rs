@@ -33,7 +33,9 @@ impl Wheels {
         let normal_wheel_border = Color::from_rgba8(75, 75, 80, 255);
 
         for &(wx, wy, pressure, temp) in &wheel_items {
-            let is_alert = tires.is_low(pressure) || tires.is_high_temp(temp) || tires.is_disconnected(pressure);
+            let is_alert = tires.is_low(pressure)
+                || tires.is_high_temp(temp)
+                || tires.is_disconnected(pressure);
             let wp = create_rounded_rect(wx, wy, WHEEL_WIDTH, WHEEL_HEIGHT, WHEEL_RADIUS);
 
             if is_alert {

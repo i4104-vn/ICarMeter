@@ -129,7 +129,7 @@ impl SpeedometerPanel {
     }
 
     fn smooth_speed(&mut self, target: f32, dt: f32) -> f32 {
-        let dt = dt.max(0.0).min(0.05);
+        let dt = dt.clamp(0.0, 0.05);
         let response = 1.0 - (-dt * 14.0).exp();
         self.visual_speed += (target.max(0.0) - self.visual_speed) * response;
         if target <= 0.01 && self.visual_speed < 0.05 {

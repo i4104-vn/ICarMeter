@@ -188,8 +188,11 @@ const wsConn = {
                 applyConfigToStateAndUI(msg.data);
             }
             if (msg.message === 'Saved') {
-                showToast("Đã lưu & đồng bộ cấu hình");
+                showToast("Đã lưu & đồng bộ cấu hình thành công!");
             }
+        } else if (type === 'error') {
+            showToast("Lỗi từ xe: " + (msg.message || "Không thể lưu cấu hình"));
+            console.error("[WS] Server error:", msg);
         } else if (type === 'status' || type === 'heartbeat') {
             updateWifiStatusUI(true);
         } else if (type === 'pong') {
@@ -321,6 +324,51 @@ function loadLocalFallbackSettings() {
             state.phoneMac = savedMac;
             const macInput = document.getElementById('inputTestPhoneMac');
             if (macInput) macInput.value = savedMac;
+        }
+
+        const savedFl = localStorage.getItem('icarmeter_tpms_fl');
+        const savedFr = localStorage.getItem('icarmeter_tpms_fr');
+        const savedRl = localStorage.getItem('icarmeter_tpms_rl');
+        const savedRr = localStorage.getItem('icarmeter_tpms_rr');
+        const savedAlert = localStorage.getItem('icarmeter_tpms_alert');
+        const savedTempAlert = localStorage.getItem('icarmeter_tpms_temp_alert');
+        const savedGpsEnabled = localStorage.getItem('icarmeter_gps_enabled');
+
+        if (savedFl && !document.getElementById('inputFlSensor')?.value) {
+            state.piConfig.tpms.fl = savedFl;
+            const el = document.getElementById('inputFlSensor');
+            if (el) el.value = savedFl;
+        }
+        if (savedFr && !document.getElementById('inputFrSensor')?.value) {
+            state.piConfig.tpms.fr = savedFr;
+            const el = document.getElementById('inputFrSensor');
+            if (el) el.value = savedFr;
+        }
+        if (savedRl && !document.getElementById('inputRlSensor')?.value) {
+            state.piConfig.tpms.rl = savedRl;
+            const el = document.getElementById('inputRlSensor');
+            if (el) el.value = savedRl;
+        }
+        if (savedRr && !document.getElementById('inputRrSensor')?.value) {
+            state.piConfig.tpms.rr = savedRr;
+            const el = document.getElementById('inputRrSensor');
+            if (el) el.value = savedRr;
+        }
+        if (savedAlert) {
+            state.piConfig.tpms.alert = parseFloat(savedAlert) || 2.2;
+            const el = document.getElementById('inputPressureAlert');
+            if (el) el.value = state.piConfig.tpms.alert;
+        }
+        if (savedTempAlert) {
+            state.piConfig.tpms.high_temp_alert = parseFloat(savedTempAlert) || 70.0;
+            const el = document.getElementById('inputTempAlert');
+            if (el) el.value = state.piConfig.tpms.high_temp_alert;
+        }
+        if (savedGpsEnabled !== null) {
+            state.piConfig.gps.enabled = (savedGpsEnabled === 'true');
+            const toggle = document.getElementById('toggleHardwareGps');
+            if (toggle) toggle.checked = state.piConfig.gps.enabled;
+            updateGpsModeUI();
         }
     } catch (e) {
         console.warn("Storage load error:", e);
@@ -458,6 +506,20 @@ function applyConfigToStateAndUI(data, isManual = false) {
     state.isSyncedWithPi = true;
     updateWifiStatusUI(true);
 
+    try {
+        if (data.tpms) {
+            if (data.tpms.fl) localStorage.setItem('icarmeter_tpms_fl', data.tpms.fl);
+            if (data.tpms.fr) localStorage.setItem('icarmeter_tpms_fr', data.tpms.fr);
+            if (data.tpms.rl) localStorage.setItem('icarmeter_tpms_rl', data.tpms.rl);
+            if (data.tpms.rr) localStorage.setItem('icarmeter_tpms_rr', data.tpms.rr);
+            if (state.piConfig.tpms.alert) localStorage.setItem('icarmeter_tpms_alert', state.piConfig.tpms.alert.toString());
+            if (state.piConfig.tpms.high_temp_alert) localStorage.setItem('icarmeter_tpms_temp_alert', state.piConfig.tpms.high_temp_alert.toString());
+        }
+        if (data.gps) {
+            localStorage.setItem('icarmeter_gps_enabled', state.piConfig.gps.enabled ? 'true' : 'false');
+        }
+    } catch (_) { }
+
     const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const meta = document.getElementById('tpmsSyncTimestamp');
     if (meta) meta.textContent = `Đã đồng bộ (${nowStr})`;
@@ -505,6 +567,11 @@ async function saveAndSyncTpmsToPi(overrideConfig = null) {
     const alertTemp = overrideConfig ? (overrideConfig.high_temp_alert ?? overrideConfig.temp_alert ?? 70.0) : (parseFloat(document.getElementById('inputTempAlert')?.value) || 70.0);
     const gpsHwEnabled = document.getElementById('toggleHardwareGps')?.checked ?? true;
 
+    if (!overrideConfig && !fl && !fr && !rl && !rr) {
+        showToast("Vui lòng nhập ít nhất 1 mã cảm biến van lốp");
+        return false;
+    }
+
     const payload = {
         action: "update_config",
         fl: fl,
@@ -525,6 +592,16 @@ async function saveAndSyncTpmsToPi(overrideConfig = null) {
     state.piConfig.tpms.high_temp_alert = alertTemp;
     state.piConfig.gps.enabled = gpsHwEnabled;
     state.isSyncedWithPi = true;
+
+    try {
+        if (fl) localStorage.setItem('icarmeter_tpms_fl', fl);
+        if (fr) localStorage.setItem('icarmeter_tpms_fr', fr);
+        if (rl) localStorage.setItem('icarmeter_tpms_rl', rl);
+        if (rr) localStorage.setItem('icarmeter_tpms_rr', rr);
+        localStorage.setItem('icarmeter_tpms_alert', alertPressure.toString());
+        localStorage.setItem('icarmeter_tpms_temp_alert', alertTemp.toString());
+        localStorage.setItem('icarmeter_gps_enabled', gpsHwEnabled ? 'true' : 'false');
+    } catch (_) { }
 
     const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     const meta = document.getElementById('tpmsSyncTimestamp');

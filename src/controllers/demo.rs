@@ -46,14 +46,15 @@ impl DemoSpeed {
 }
 
 fn speed_at(time: f32) -> f32 {
-    if time < DEMO_ACCELERATION_SECONDS {
-        let progress = time / DEMO_ACCELERATION_SECONDS;
-        smoothstep(progress) * 100.0
-    } else if time < DEMO_ACCELERATION_SECONDS + DEMO_DECELERATION_SECONDS {
-        let progress = (time - DEMO_ACCELERATION_SECONDS) / DEMO_DECELERATION_SECONDS;
-        (1.0 - smoothstep(progress)) * 100.0
-    } else {
-        0.0
+    match time {
+        time if time < DEMO_ACCELERATION_SECONDS => {
+            smoothstep(time / DEMO_ACCELERATION_SECONDS) * 100.0
+        }
+        time if time < DEMO_ACCELERATION_SECONDS + DEMO_DECELERATION_SECONDS => {
+            let progress = (time - DEMO_ACCELERATION_SECONDS) / DEMO_DECELERATION_SECONDS;
+            (1.0 - smoothstep(progress)) * 100.0
+        }
+        _ => 0.0,
     }
 }
 
