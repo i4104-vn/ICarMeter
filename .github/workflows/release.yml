@@ -180,24 +180,25 @@ jobs:
           find . -type f \( -name "*.sh" -o -name "EXPORT_IMAGE" \) -exec chmod +x {} + || true
           ./build-docker.sh
 
-      - name: Package Image & Related Files into Single Zip
+      - name: Package Image into Flashable Zip
         run: |
           mkdir -p image_dist
           cd pi-image/deploy
 
-          # Generate sha256 checksum for the raw img before packaging
-          for f in *.img; do
-            [ -f "$f" ] || continue
-            sha256sum "$f" > "${f}.sha256"
-          done
+          IMG_FILE=$(ls *.img 2>/dev/null | head -n 1)
+          if [ -z "$IMG_FILE" ]; then
+            echo "ERROR: No .img file found in deploy/!" >&2
+            exit 1
+          fi
 
-          echo "=== Deploy contents before zipping ==="
-          ls -lah
-
-          # Package all image related files into one single zip archive
+          echo "Found image: ${IMG_FILE}"
           ZIP_NAME="ICarMeter-RaspberryPiOS-arm64.zip"
-          zip -6 -j "../../image_dist/${ZIP_NAME}" *.{img,info,sha256,bmap} release_notes.txt 2>/dev/null || \
-          zip -6 -j "../../image_dist/${ZIP_NAME}" *.{img,info,sha256}
+
+          # Package ONLY the .img file into the zip archive so Raspberry Pi Imager / BalenaEtcher can flash directly
+          zip -6 -j "../../image_dist/${ZIP_NAME}" "${IMG_FILE}"
+
+          # Copy info file to artifact for build details
+          cp -v *.info ../../image_dist/image_build.info 2>/dev/null || true
 
           echo "=== Output Zipped Artifact ==="
           ls -lah ../../image_dist/
@@ -206,7 +207,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: icarmeter-image-zip
-          path: image_dist/ICarMeter-RaspberryPiOS-arm64.zip
+          path: image_dist/
           retention-days: 7
 
   # ==============================================================================
@@ -280,6 +281,6 @@ jobs:
             ## ICarMeter Release ${{ steps.rel_meta.outputs.tag }}
 
             ### Tệp tải về / Downloads:
-            - **ICarMeter.apk**: Ứng dụng Android điều khiển và giám sát thông số xe
-            - **ICarMeter-RaspberryPiOS-arm64.zip**: Trọn gói hệ điều hành Raspberry Pi OS (chứa file `.img`, `.info`, `.sha256`)
-            - **SHA256SUMS.txt**: Mã băm SHA256 để kiểm tra tính toàn vẹn của tệp tải về
+            - **ICarMeter-RaspberryPiOS-arm64.zip**: Hệ điều hành Raspberry Pi OS cho ICarMeter (chứa duy nhất file `.img` được nén nhẹ ~700MB, chọn trực tiếp bằng **Raspberry Pi Imager** hoặc **BalenaEtcher** để flash vào thẻ nhớ mà không cần giải nén).
+            - **ICarMeter.apk**: Ứng dụng Android điều khiển và giám sát thông số xe.
+            - **SHA256SUMS.txt**: Mã băm SHA256 để kiểm tra tính toàn vẹn của tệp tải về.
