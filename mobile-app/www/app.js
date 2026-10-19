@@ -559,27 +559,28 @@ function maybeTransmitGpsToPi(coords, speedKmh) {
     }
     state.lastSendTime = now;
     state.sendCount++;
-    document.getElementById('telSendRate').textContent = `${state.sendRateHz} Hz`;
+    const rateEl = document.getElementById('telSendRate');
+    if (rateEl) rateEl.textContent = `${state.sendRateHz} Hz`;
 
-    if (!state.charGpsFeed || !state.gattServer || !state.gattServer.connected) {
-        return;
-    }
-
-    // Compact telemetry JSON payload
-    const payload = JSON.stringify({
+    // Forward telemetry (speed, coords) over Wi-Fi Hotspot HTTP
+    const host = state.piHost || '192.168.4.1:8080';
+    const payload = {
         spd: speedKmh,
         lat: parseFloat(coords.latitude.toFixed(6)),
         lon: parseFloat(coords.longitude.toFixed(6)),
         alt: coords.altitude ? Math.round(coords.altitude) : 0,
         hdg: coords.heading ? Math.round(coords.heading) : 0
-    });
+    };
 
-    const encoder = new TextEncoder();
-    state.charGpsFeed.writeValueWithoutResponse(encoder.encode(payload))
-        .catch(err => console.debug("BLE GPS write err:", err));
+    fetch(`http://${host}/api/gps`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true
+    }).catch(() => {});
 }
 
-// GPS Option Toggle: Hardware GPS vs Phone BLE GPS
+// GPS Option Toggle: Hardware GPS vs Phone Wi-Fi GPS
 function onGpsModeToggle(checkbox) {
     state.piConfig.gps.enabled = checkbox.checked;
     updateGpsModeUI();
@@ -591,16 +592,18 @@ function updateGpsModeUI() {
     const title = document.getElementById('gpsToggleTitle');
     const desc = document.getElementById('gpsToggleDesc');
 
+    if (!badge) return;
+
     if (state.piConfig.gps.enabled) {
         badge.textContent = "MODULE GPS";
         badge.classList.add('hardware-gps');
-        title.textContent = "Module GPS";
-        desc.textContent = "Đang BẬT: Lấy tốc độ qua Module GPS.";
+        if (title) title.textContent = "Module GPS phần cứng";
+        if (desc) desc.textContent = "Đang BẬT: Lấy tốc độ qua Module GPS.";
     } else {
         badge.textContent = "ĐIỆN THOẠI";
         badge.classList.remove('hardware-gps');
-        title.textContent = "Module GPS";
-        desc.textContent = "Đang TẮT: Lấy tốc độ qua Bluetooth từ điện thoại.";
+        if (title) title.textContent = "Module GPS phần cứng";
+        if (desc) desc.textContent = "Đang TẮT: Truyền tốc độ từ điện thoại qua Wi-Fi.";
     }
 }
 

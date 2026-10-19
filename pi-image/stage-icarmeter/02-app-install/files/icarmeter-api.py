@@ -261,6 +261,21 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json(400, {"status": "error", "message": str(e)})
             return
 
+        if path in ("/api/gps", "/api/telemetry"):
+            try:
+                payload = json.loads(post_body.decode("utf-8"))
+                spd = float(payload.get("spd", 0.0))
+                lat = float(payload.get("lat", 0.0))
+                lon = float(payload.get("lon", 0.0))
+                alt = float(payload.get("alt", 0.0))
+                with open("/dev/shm/icarmeter_phone_telemetry", "w", encoding="utf-8") as f:
+                    f.write(f"spd={spd}\nlat={lat}\nlon={lon}\nalt={alt}\n")
+                touch_app_connected("Wi-Fi Mobile App")
+                self.send_json(200, {"status": "ok"})
+            except Exception as e:
+                self.send_json(400, {"status": "error", "message": str(e)})
+            return
+
         self.send_error(404, "Not Found")
 
     def send_json(self, code, obj):

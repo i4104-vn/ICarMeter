@@ -11,16 +11,9 @@ on:
         options:
           - zip
           - xz
-      create_release:
-        description: "Publish as GitHub Release"
-        required: false
-        default: false
-        type: boolean
   push:
     branches:
       - main
-    tags:
-      - "v*"
     paths:
       - "src/**"
       - "assets/**"
@@ -155,19 +148,3 @@ jobs:
             pi-image/deploy/*.info
             pi-image/deploy/SHA256SUMS.txt
           retention-days: 14
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true)
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            pi-image/stage-icarmeter/02-app-install/files/car_dashboard
-            pi-image/deploy/*.zip
-            pi-image/deploy/*.img.xz
-            pi-image/deploy/*.img
-            pi-image/deploy/*.info
-            pi-image/deploy/SHA256SUMS.txt
-          name: "ICarMeter OS Image"
-          draft: false
-          prerelease: false
-          generate_release_notes: true

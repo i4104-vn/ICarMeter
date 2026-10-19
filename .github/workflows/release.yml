@@ -1,0 +1,290 @@
+name: Build & Release ICarMeter (OS Image & Android APK)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release Tag (e.g. v1.0.0)"
+        required: false
+        default: ""
+        type: string
+      release_name:
+        description: "Release Title (e.g. ICarMeter v1.0.0)"
+        required: false
+        default: ""
+        type: string
+      compression:
+        description: "Pi OS Image compression format"
+        required: true
+        default: "zip"
+        type: choice
+        options:
+          - zip
+          - xz
+      draft:
+        description: "Create Draft Release"
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: "Mark as Pre-release"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  # ==============================================================================
+  # Job 1: Build Android Companion APK
+  # ==============================================================================
+  build-apk:
+    name: Build Android Companion APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "zulu"
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.5"
+
+      - name: Sync latest web assets into Android project
+        run: |
+          mkdir -p mobile-app/android/app/src/main/assets
+          cp -rf mobile-app/www/* mobile-app/android/app/src/main/assets/
+
+      - name: Build APK with Gradle
+        working-directory: mobile-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --stacktrace || ./gradlew assembleDebug --stacktrace
+
+      - name: Package Single Universal APK
+        run: |
+          mkdir -p apk_dist
+          if [ -f "mobile-app/android/app/build/outputs/apk/release/app-release.apk" ]; then
+            cp "mobile-app/android/app/build/outputs/apk/release/app-release.apk" apk_dist/ICarMeter.apk
+          elif [ -f "mobile-app/android/app/build/outputs/apk/debug/app-debug.apk" ]; then
+            cp "mobile-app/android/app/build/outputs/apk/debug/app-debug.apk" apk_dist/ICarMeter.apk
+          else
+            echo "ERROR: Output APK not found!" >&2
+            exit 1
+          fi
+          ls -lah apk_dist/ICarMeter.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: icarmeter-apk
+          path: apk_dist/ICarMeter.apk
+          retention-days: 7
+
+  # ==============================================================================
+  # Job 2: Build Rust Binary for Raspberry Pi (aarch64)
+  # ==============================================================================
+  build-binary:
+    name: Build Cargo Binary (aarch64)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install cross-compilation linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build ICarMeter for aarch64
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          cargo build --release --target aarch64-unknown-linux-gnu
+
+      - name: Verify compiled binary
+        run: |
+          ls -lah target/aarch64-unknown-linux-gnu/release/car_dashboard
+          file target/aarch64-unknown-linux-gnu/release/car_dashboard
+
+      - name: Stage binary artifact
+        run: |
+          mkdir -p dist_bin
+          cp target/aarch64-unknown-linux-gnu/release/car_dashboard dist_bin/
+          cp config.toml dist_bin/
+          ls -lah dist_bin/
+
+      - name: Upload compiled binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: car_dashboard-bin
+          path: dist_bin/
+          retention-days: 7
+
+  # ==============================================================================
+  # Job 3: Build Custom Raspberry Pi OS Image (pi-gen)
+  # ==============================================================================
+  build-image:
+    name: Build Pi OS Image (arm64)
+    needs: [build-binary]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free disk space on runner
+        run: |
+          echo "Initial disk space:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -a -f || true
+          echo "Cleaned disk space:"
+          df -h
+
+      - name: Download compiled binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: car_dashboard-bin
+          path: bin_artifact/
+
+      - name: Inject binary into stage-icarmeter files
+        run: |
+          mkdir -p pi-image/stage-icarmeter/02-app-install/files
+          find bin_artifact -type f -name "car_dashboard" -exec cp -v {} pi-image/stage-icarmeter/02-app-install/files/car_dashboard \;
+          find bin_artifact -type f -name "config.toml" -exec cp -v {} pi-image/stage-icarmeter/02-app-install/files/config.toml \;
+          chmod +x pi-image/stage-icarmeter/02-app-install/files/car_dashboard
+          ls -lah pi-image/stage-icarmeter/02-app-install/files/
+
+      - name: Setup QEMU and binfmt
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install all
+
+      - name: Configure pi-gen compression
+        run: |
+          COMPRESSION="${{ github.event.inputs.compression || 'zip' }}"
+          sed -i "s/^DEPLOY_COMPRESSION=.*/DEPLOY_COMPRESSION=\"${COMPRESSION}\"/" pi-image/config
+
+      - name: Build Pi OS Image with pi-gen Docker
+        run: |
+          cd pi-image
+          chmod -R +x .
+          find . -type f \( -name "*.sh" -o -name "EXPORT_IMAGE" \) -exec chmod +x {} + || true
+          ./build-docker.sh
+
+      - name: Stage Image Artifacts
+        run: |
+          mkdir -p image_dist
+          cd pi-image/deploy
+          cp -v *.{zip,img.xz,img,info} ../../image_dist/ 2>/dev/null || true
+          ls -lah ../../image_dist/
+
+      - name: Upload Image Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: icarmeter-image
+          path: image_dist/
+          retention-days: 7
+
+  # ==============================================================================
+  # Job 4: Publish GitHub Release (Both Image & APK)
+  # ==============================================================================
+  publish-release:
+    name: Publish GitHub Release (OS Image & APK)
+    needs: [build-apk, build-binary, build-image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create release assets directory
+        run: mkdir -p release_assets
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: icarmeter-apk
+          path: release_assets/
+
+      - name: Download OS Image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: icarmeter-image
+          path: release_assets/
+
+      - name: Download Binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: car_dashboard-bin
+          path: release_assets/
+
+      - name: Flatten assets and compute unified SHA256 checksums
+        working-directory: release_assets
+        run: |
+          find . -mindepth 2 -type f -exec mv -v {} . \; || true
+          rm -f SHA256SUMS.txt
+          sha256sum ICarMeter.apk car_dashboard *.{zip,img.xz,img} 2>/dev/null | tee SHA256SUMS.txt || true
+          echo "=== Release Assets Ready ==="
+          ls -lah
+
+      - name: Resolve Release Tag & Name
+        id: rel_meta
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v1.0.0-build.${{ github.run_number }}"
+          fi
+
+          if [ -n "${{ github.event.inputs.release_name }}" ]; then
+            TITLE="${{ github.event.inputs.release_name }}"
+          else
+            TITLE="ICarMeter ${TAG}"
+          fi
+
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "title=${TITLE}" >> $GITHUB_OUTPUT
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.rel_meta.outputs.tag }}
+          name: ${{ steps.rel_meta.outputs.title }}
+          draft: ${{ github.event.inputs.draft == true }}
+          prerelease: ${{ github.event.inputs.prerelease == true }}
+          files: |
+            release_assets/ICarMeter.apk
+            release_assets/*.zip
+            release_assets/*.img.xz
+            release_assets/*.img
+            release_assets/*.info
+            release_assets/car_dashboard
+            release_assets/SHA256SUMS.txt
+          generate_release_notes: true
+          body: |
+            ## ICarMeter Release ${{ steps.rel_meta.outputs.tag }}
