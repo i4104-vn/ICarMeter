@@ -1,0 +1,1 @@
+mobile-app/build_apk.sh

@@ -1,1 +1,4 @@
 /target
+/mobile-app/dist/
+/apk_dist/
+*.apk

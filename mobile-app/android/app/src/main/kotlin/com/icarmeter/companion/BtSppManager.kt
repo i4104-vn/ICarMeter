@@ -48,10 +48,21 @@ class BtSppManager(
         try {
             val bonded = adapter.bondedDevices ?: return list
             for (device in bonded) {
+                var dName: String? = null
+                try {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && !device.alias.isNullOrBlank()) {
+                        dName = device.alias
+                    }
+                    if (dName.isNullOrBlank()) {
+                        dName = device.name
+                    }
+                } catch (_: Exception) {}
+
+                val finalName = if (!dName.isNullOrBlank()) dName else device.address
                 list.add(
                     mapOf(
                         "mac" to device.address,
-                        "name" to (device.name ?: device.address)
+                        "name" to finalName
                     )
                 )
             }

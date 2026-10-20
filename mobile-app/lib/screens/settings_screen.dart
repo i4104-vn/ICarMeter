@@ -219,7 +219,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Dịch vụ GPS & BLE nền', style: TextStyle(fontSize: 13, color: AppColors.text)),
+                          Text('Dịch vụ GPS', style: TextStyle(fontSize: 13, color: AppColors.text)),
                           SizedBox(height: 2),
                           Text('Duy trì định vị GPS liên tục khi ứng dụng chạy ẩn', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
                         ],
@@ -292,12 +292,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'Phiên bản: 1.0.0 (Flutter) • Hỗ trợ kiến trúc x32 & x64',
+                  'Phiên bản: 1.0.0',
                   style: TextStyle(fontSize: 11, color: AppColors.textMuted),
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'Giao thức: Bluetooth SPP / RFCOMM & Sysgration BLE TPMS',
+                  'Bluetooth SPP',
                   style: TextStyle(fontSize: 10, color: AppColors.textMuted),
                 ),
               ],

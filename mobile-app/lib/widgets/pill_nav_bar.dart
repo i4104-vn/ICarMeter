@@ -16,9 +16,6 @@ class PillNavBar extends StatelessWidget {
     PillNavBarItem(icon: Icons.speed, label: 'Đồng hồ'),
     PillNavBarItem(icon: Icons.tire_repair, label: 'Lốp xe'),
     PillNavBarItem(icon: Icons.route, label: 'Chuyến đi'),
-    PillNavBarItem(icon: Icons.bluetooth, label: 'Bluetooth'),
-    PillNavBarItem(icon: Icons.terminal, label: 'Nhật ký'),
-    PillNavBarItem(icon: Icons.settings, label: 'Cài đặt'),
   ];
 
   const PillNavBar({

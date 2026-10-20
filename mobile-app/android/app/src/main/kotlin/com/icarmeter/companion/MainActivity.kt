@@ -67,7 +67,8 @@ class MainActivity : FlutterActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action ?: return
             when (action) {
-                BluetoothDevice.ACTION_FOUND -> {
+                BluetoothDevice.ACTION_FOUND,
+                BluetoothDevice.ACTION_NAME_CHANGED -> {
                     val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
                     } else {
@@ -75,12 +76,23 @@ class MainActivity : FlutterActivity() {
                         intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                     } ?: return
 
+                    val extraName = intent.getStringExtra(BluetoothDevice.EXTRA_NAME)
+                    var devName = extraName
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !device.alias.isNullOrBlank()) {
+                            devName = device.alias
+                        } else if (devName.isNullOrBlank()) {
+                            devName = device.name
+                        }
+                    } catch (_: Exception) {}
+
+                    val finalName = if (!devName.isNullOrBlank()) devName else (extraName ?: device.address)
                     val rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE).toInt()
                     emitBtEvent(
                         mapOf(
                             "type" to "device_found",
                             "mac" to device.address,
-                            "name" to (device.name ?: device.address),
+                            "name" to finalName,
                             "rssi" to rssi
                         )
                     )
@@ -106,11 +118,18 @@ class MainActivity : FlutterActivity() {
                     val pin = if (pinInt != -1) String.format("%06d", pinInt) else ""
 
                     if (device != null) {
+                        var dName = device.name
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !device.alias.isNullOrBlank()) {
+                                dName = device.alias
+                            }
+                        } catch (_: Exception) {}
+
                         emitBtEvent(
                             mapOf(
                                 "type" to "pin_code",
                                 "mac" to device.address,
-                                "name" to (device.name ?: device.address),
+                                "name" to (dName ?: device.address),
                                 "pin" to pin
                             )
                         )
@@ -132,11 +151,18 @@ class MainActivity : FlutterActivity() {
                     }
 
                     if (device != null) {
+                        var dName = device.name
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !device.alias.isNullOrBlank()) {
+                                dName = device.alias
+                            }
+                        } catch (_: Exception) {}
+
                         emitBtEvent(
                             mapOf(
                                 "type" to "bond_state",
                                 "mac" to device.address,
-                                "name" to (device.name ?: device.address),
+                                "name" to (dName ?: device.address),
                                 "state" to stateStr
                             )
                         )
@@ -155,15 +181,27 @@ class MainActivity : FlutterActivity() {
             emitBtEvent(event)
         }
 
-        // Register BroadcastReceiver for Bluetooth Scanning & Pairing
-        val filter = IntentFilter().apply {
-            addAction(BluetoothDevice.ACTION_FOUND)
-            addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED)
-            addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
-            addAction(BluetoothDevice.ACTION_PAIRING_REQUEST)
-            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
-        }
-        registerReceiver(btReceiver, filter)
+        // Register BroadcastReceiver for Bluetooth Scanning & Pairing safely
+        try {
+            val filter = IntentFilter().apply {
+                addAction(BluetoothDevice.ACTION_FOUND)
+                addAction(BluetoothDevice.ACTION_NAME_CHANGED)
+                addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED)
+                addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+                addAction(BluetoothDevice.ACTION_PAIRING_REQUEST)
+                addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.registerReceiver(
+                    this,
+                    btReceiver,
+                    filter,
+                    ContextCompat.RECEIVER_EXPORTED
+                )
+            } else {
+                registerReceiver(btReceiver, filter)
+            }
+        } catch (_: Exception) {}
 
         // Event Channels
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, BT_EVENT_CHANNEL)
@@ -353,6 +391,19 @@ class MainActivity : FlutterActivity() {
 
             "startForegroundService" -> {
                 try {
+                    val hasLocation = ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+
+                    if (!hasLocation) {
+                        result.success(false)
+                        return
+                    }
+
                     val intent = Intent(this, GpsBleService::class.java)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         startForegroundService(intent)

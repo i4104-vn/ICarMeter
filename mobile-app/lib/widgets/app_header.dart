@@ -6,12 +6,14 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   final AppState appState;
   final VoidCallback? onOpenBluetooth;
   final VoidCallback? onOpenWifi;
+  final VoidCallback? onOpenSettings;
 
   const AppHeader({
     super.key,
     required this.appState,
     this.onOpenBluetooth,
     this.onOpenWifi,
+    this.onOpenSettings,
   });
 
   @override
@@ -35,58 +37,68 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  gradient: AppColors.primaryGradient,
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primary.withOpacity(0.35),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+          Expanded(
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    gradient: AppColors.primaryGradient,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primary.withOpacity(0.35),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.directions_car, color: Colors.black, size: 22),
                 ),
-                child: const Icon(Icons.directions_car, color: Colors.black, size: 22),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'ICarMeter',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                      color: AppColors.text,
-                    ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'ICarMeter',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                          color: AppColors.text,
+                        ),
+                      ),
+                      Text(
+                        appState.isBtConnected
+                            ? (appState.connectedName.isNotEmpty
+                                ? appState.connectedName
+                                : 'Đã kết nối Bluetooth')
+                            : (appState.isBtConnecting
+                                ? 'Đang kết nối...'
+                                : 'Chưa kết nối'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: appState.isBtConnected
+                              ? AppColors.success
+                              : (appState.isBtConnecting ? AppColors.primary : AppColors.textMuted),
+                        ),
+                      ),
+                    ],
                   ),
-                  Text(
-                    appState.isBtConnected
-                        ? (appState.connectedName.isNotEmpty
-                            ? appState.connectedName
-                            : 'Đã kết nối Bluetooth')
-                        : (appState.isBtConnecting
-                            ? 'Đang kết nối...'
-                            : 'Chưa kết nối'),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: appState.isBtConnected
-                          ? AppColors.success
-                          : (appState.isBtConnecting ? AppColors.primary : AppColors.textMuted),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 8),
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               // Wi-Fi Status Badge
               InkWell(
@@ -181,6 +193,26 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // Settings Icon Button
+              InkWell(
+                onTap: onOpenSettings,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: const Icon(
+                    Icons.settings_outlined,
+                    size: 15,
+                    color: AppColors.textSecondary,
                   ),
                 ),
               ),

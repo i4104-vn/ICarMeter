@@ -828,6 +828,40 @@ def handle_bt_command(msg_dict, reply_fn):
         })
         return
 
+    if msg_type == "get_bt_status":
+        status_data = get_bluetooth_status()
+        reply_fn({"type": "bt_status", "data": status_data})
+        return
+
+    if msg_type == "bt_start_discovery":
+        start_bluetooth_discovery()
+        reply_fn({"type": "bt_discovery_started"})
+        return
+
+    if msg_type == "bt_stop_discovery":
+        stop_bluetooth_discovery()
+        reply_fn({"type": "bt_discovery_stopped"})
+        return
+
+    if msg_type == "bt_pair":
+        target_mac = msg_dict.get("mac", "").strip().upper()
+        def do_pair_bt_async():
+            success, msg_text = pair_bluetooth_device(target_mac)
+            bt_broadcast({
+                "type": "bt_pair_result",
+                "mac": target_mac,
+                "success": success,
+                "message": msg_text
+            })
+        threading.Thread(target=do_pair_bt_async, daemon=True).start()
+        return
+
+    if msg_type == "bt_unpair":
+        target_mac = msg_dict.get("mac", "").strip().upper()
+        success = unpair_bluetooth_device(target_mac)
+        reply_fn({"type": "bt_unpair_result", "mac": target_mac, "success": success})
+        return
+
 
 def rfcomm_client_handler(client_sock, client_info):
     client_sock.settimeout(60.0)

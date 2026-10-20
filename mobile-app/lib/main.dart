@@ -5,14 +5,13 @@ import 'services/storage_service.dart';
 import 'services/app_state.dart';
 import 'widgets/app_header.dart';
 import 'widgets/pill_nav_bar.dart';
+import 'widgets/bt_pairing_modal.dart';
+import 'widgets/settings_modal.dart';
 import 'widgets/pairing_pin_dialog.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/tpms_screen.dart';
 import 'screens/trips_screen.dart';
-import 'screens/bt_pairing_screen.dart';
-import 'screens/bt_logs_screen.dart';
 import 'screens/wifi_setup_screen.dart';
-import 'screens/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -72,6 +71,14 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     });
   }
 
+  void _openBluetoothModal() {
+    showBluetoothModal(context, widget.appState);
+  }
+
+  void _openSettingsModal() {
+    showSettingsModal(context, widget.appState);
+  }
+
   void _openWifiSetupModal() {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -87,7 +94,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
             appState: widget.appState,
             onNavigateToBt: () {
               Navigator.of(ctx).pop();
-              _onSelectTab(3); // Tab 3 is Bluetooth
+              _openBluetoothModal();
             },
           ),
         ),
@@ -100,29 +107,22 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     final state = widget.appState;
 
     final screens = [
-      DashboardScreen(
-        appState: state,
-        onNavigateToBt: () => _onSelectTab(3),
-        onNavigateToWifi: _openWifiSetupModal,
-        onNavigateToTpms: () => _onSelectTab(1),
-      ),
+      DashboardScreen(appState: state),
       TpmsScreen(appState: state),
       TripsScreen(appState: state),
-      BtPairingScreen(appState: state),
-      BtLogsScreen(appState: state),
-      SettingsScreen(appState: state),
     ];
 
     return Scaffold(
       appBar: AppHeader(
         appState: state,
-        onOpenBluetooth: () => _onSelectTab(3),
+        onOpenBluetooth: _openBluetoothModal,
         onOpenWifi: _openWifiSetupModal,
+        onOpenSettings: _openSettingsModal,
       ),
       body: Stack(
         children: [
           IndexedStack(
-            index: _currentIndex,
+            index: _currentIndex.clamp(0, screens.length - 1),
             children: screens,
           ),
 
