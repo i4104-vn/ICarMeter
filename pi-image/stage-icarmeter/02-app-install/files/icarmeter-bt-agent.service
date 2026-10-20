@@ -1,0 +1,13 @@
+[Unit]
+Description=ICarMeter Bluetooth Auto-Accept Pairing Agent
+Requires=bluetooth.service
+After=bluetooth.service icarmeter-bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/icarmeter/icarmeter-bt-agent.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

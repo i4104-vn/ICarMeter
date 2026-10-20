@@ -29,9 +29,12 @@ if [ -x /usr/bin/btmgmt ]; then
 fi
 /usr/bin/bluetoothctl power on || true
 
-# Turn off discoverable and pairable: Pi does NOT act as a Bluetooth peripheral for phones.
-# Bluetooth is solely dedicated to receiving TPMS sensor broadcasts.
+# Controller is pairable for mobile companion app (RFCOMM/SPP)
+# Initial discoverable is off until app requests discovery
 /usr/bin/bluetoothctl discoverable off 2>/dev/null || true
-/usr/bin/bluetoothctl pairable off 2>/dev/null || true
+/usr/bin/bluetoothctl pairable on 2>/dev/null || true
 
-echo "[Bluetooth-Init] Controller powered and configured for TPMS LE scanning."
+# Register Serial Port Profile (SPP) in BlueZ SDP
+sdptool add SP 2>/dev/null || true
+
+echo "[Bluetooth-Init] Controller powered and configured for TPMS LE scanning and RFCOMM SPP."

@@ -552,10 +552,18 @@ def handle_incoming_command(msg_dict, reply_fn, is_bt=False):
     Common handler for commands received from either WebSocket or BT RFCOMM.
     reply_fn is a callable: reply_fn(dict_to_reply)
     """
-    origin = "Bluetooth Companion" if is_bt else "WebSocket Companion"
+    origin = "Bluetooth" if is_bt else "Wi-Fi"
     touch_app_connected(origin)
 
     msg_type = msg_dict.get("type", "")
+
+    # Strictly enforce: WiFi is ONLY for Bluetooth setup. All data operations MUST go via Bluetooth.
+    if not is_bt and msg_type in ("get_config", "set_config", "telemetry", "gps"):
+        reply_fn({
+            "type": "error",
+            "message": "Thao tac du lieu chi duoc phep qua Bluetooth"
+        })
+        return
 
     if msg_type == "ping":
         reply_fn({"type": "pong", "timestamp": int(time.time())})
@@ -822,25 +830,6 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             self.handle_websocket()
             return
 
-        # ─── API Routes (Fallback & Diagnostic) ──────────────────────────────
-        if path == "/api/config":
-            touch_app_connected("Wi-Fi Mobile App")
-            data = read_config()
-            self.send_json(200, data)
-            return
-
-        if path == "/api/status":
-            touch_app_connected("Wi-Fi Mobile App")
-            with ws_clients_lock:
-                num_clients = len(connected_ws_clients)
-            self.send_json(200, {
-                "status": "online",
-                "app_connected": True,
-                "ws_clients": num_clients,
-                "timestamp": int(time.time()),
-            })
-            return
-
         # ─── Captive Portal Detection Endpoints ──────────────────────────────
         # Android generate_204 probe
         if path in ("/generate_204", "/gen_204"):
@@ -901,8 +890,7 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             "type": "welcome",
             "status": "online",
             "app_connected": True,
-            "timestamp": int(time.time()),
-            "config": read_config()
+            "timestamp": int(time.time())
         }
         try:
             sock.sendall(encode_ws_frame(json.dumps(welcome).encode("utf-8"), 0x1))
@@ -963,45 +951,7 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
         )
 
     def do_POST(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-
-        content_length = int(self.headers.get("Content-Length", 0))
-        post_body = self.rfile.read(content_length)
-
-        if path == "/api/config":
-            try:
-                payload = json.loads(post_body.decode("utf-8"))
-                write_config(payload)
-                log_ws_event("Config Saved")
-                # Broadcast updated config to all WebSocket clients
-                ws_broadcast({
-                    "type": "config",
-                    "data": read_config(),
-                    "message": "Saved",
-                    "status": "ok"
-                })
-                self.send_json(200, {"status": "ok", "message": "Saved"})
-            except Exception as e:
-                self.send_json(400, {"status": "error", "message": str(e)})
-            return
-
-        if path in ("/api/gps", "/api/telemetry"):
-            try:
-                payload = json.loads(post_body.decode("utf-8"))
-                spd = float(payload.get("spd", 0.0))
-                lat = float(payload.get("lat", 0.0))
-                lon = float(payload.get("lon", 0.0))
-                alt = float(payload.get("alt", 0.0))
-                with open("/dev/shm/icarmeter_phone_telemetry", "w", encoding="utf-8") as f:
-                    f.write(f"spd={spd}\nlat={lat}\nlon={lon}\nalt={alt}\n")
-                touch_app_connected("Wi-Fi Mobile App")
-                log_ws_event("Telemetry")
-                self.send_json(200, {"status": "ok"})
-            except Exception as e:
-                self.send_json(400, {"status": "error", "message": str(e)})
-            return
-
+        # All HTTP POST endpoints removed - data operations are strictly over Bluetooth
         self.send_error(404, "Not Found")
 
     def send_json(self, code, obj):
