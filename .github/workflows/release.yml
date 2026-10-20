@@ -297,7 +297,7 @@ jobs:
             ## ICarMeter Release ${{ steps.rel_meta.outputs.tag }}
 
             ### Tệp tải về / Downloads:
-            - **ICarMeter-arm64-v8a.apk**: Ứng dụng Android tối ưu cho thiết bị 64-bit (ARM64 / v8a) - Điện thoại hiện đại & màn hình Android ô tô
+            - **ICarMeter-arm64-v8a.apk**: Ứng dụng Android tối ưu cho thiết bị 64-bit (ARM64 / v8a)
             - **ICarMeter-armeabi-v7a.apk**: Ứng dụng Android cho thiết bị 32-bit (ARM32 / v7a)
             - **ICarMeter.apk**: Bản phát hành mặc định (arm64-v8a)
             - **ICarMeter-RaspberryPiOS-arm64.zip**: Hệ điều hành Raspberry Pi OS cho ICarMeter
