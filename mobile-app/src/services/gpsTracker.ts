@@ -1,7 +1,7 @@
 import { NativeICarMeter, NativeLocationEvent } from '../native/ICarMeterNative';
 import { GpsTelemetry, TelemetryState } from '../types/telemetry';
 import { PiApiService } from '../api/piApi';
-import { WsClient } from '../api/wsClient';
+import { TransportClient } from '../api/transport';
 import { TripManager } from './tripManager';
 
 export type TelemetryListener = (telemetry: TelemetryState) => void;
@@ -17,22 +17,19 @@ export class GpsTracker {
   };
 
   private isStarted = false;
-  private wsClient: WsClient;
+  private transport: TransportClient;
   private tripManager: TripManager;
-  private getHost: () => string;
   private isHardwareGpsEnabled: () => boolean;
   private listeners: Set<TelemetryListener> = new Set();
   private locationSub: any = null;
 
   constructor(
-    wsClient: WsClient,
+    transport: TransportClient,
     tripManager: TripManager,
-    getHost: () => string,
     isHardwareGpsEnabled: () => boolean
   ) {
-    this.wsClient = wsClient;
+    this.transport = transport;
     this.tripManager = tripManager;
-    this.getHost = getHost;
     this.isHardwareGpsEnabled = isHardwareGpsEnabled;
   }
 
@@ -106,7 +103,7 @@ export class GpsTracker {
       hdg: loc.heading ? Math.round(loc.heading) : 0,
     };
 
-    PiApiService.sendTelemetry(this.wsClient, this.getHost(), payload);
+    PiApiService.sendTelemetry(this.transport, payload);
   }
 
   subscribe(listener: TelemetryListener): () => void {

@@ -130,6 +130,61 @@ class ICarMeterNativeService {
     return { status: 0, error: 'Bridge unavailable' };
   }
 
+  async getPhonePairedDevices(): Promise<Array<{ mac: string; name: string }>> {
+    if (!ICarMeterBridge || !ICarMeterBridge.getPhonePairedDevices) return [];
+    try {
+      return await ICarMeterBridge.getPhonePairedDevices();
+    } catch {
+      return [];
+    }
+  }
+
+  async connectBtSpp(mac: string, uuid?: string): Promise<boolean> {
+    if (!ICarMeterBridge || !ICarMeterBridge.connectBtSpp) return false;
+    try {
+      return await ICarMeterBridge.connectBtSpp(mac, uuid || null);
+    } catch (e: any) {
+      throw new Error(e?.message || 'Bluetooth connection failed');
+    }
+  }
+
+  async disconnectBtSpp(): Promise<boolean> {
+    if (!ICarMeterBridge || !ICarMeterBridge.disconnectBtSpp) return false;
+    try {
+      return await ICarMeterBridge.disconnectBtSpp();
+    } catch {
+      return false;
+    }
+  }
+
+  async btSend(jsonMessage: string): Promise<boolean> {
+    if (!ICarMeterBridge || !ICarMeterBridge.btSend) return false;
+    try {
+      return await ICarMeterBridge.btSend(jsonMessage);
+    } catch {
+      return false;
+    }
+  }
+
+  async isBtSppConnected(): Promise<boolean> {
+    if (!ICarMeterBridge || !ICarMeterBridge.isBtSppConnected) return false;
+    try {
+      return await ICarMeterBridge.isBtSppConnected();
+    } catch {
+      return false;
+    }
+  }
+
+  onBtMessage(listener: (event: { message: string }) => void) {
+    if (!this.eventEmitter) return { remove: () => {} };
+    return this.eventEmitter.addListener('onBtMessage', listener);
+  }
+
+  onBtConnectionChange(listener: (event: { connected: boolean; mac?: string; name?: string }) => void) {
+    if (!this.eventEmitter) return { remove: () => {} };
+    return this.eventEmitter.addListener('onBtConnectionChange', listener);
+  }
+
   onLocationUpdate(listener: (event: NativeLocationEvent) => void) {
     if (!this.eventEmitter) return { remove: () => {} };
     const subscription = this.eventEmitter.addListener('onLocationUpdate', listener);

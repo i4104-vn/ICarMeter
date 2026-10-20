@@ -5,6 +5,7 @@ import { TripRecord } from '../types/trip';
 const KEYS = {
   PI_HOST: 'icarmeter_pi_host',
   PHONE_MAC: 'icarmeter_phone_mac',
+  PI_BT_MAC: 'icarmeter_pi_bt_mac',
   GPS_RATE: 'icarmeter_gps_rate',
   BG_SERVICE: 'icarmeter_bg_service',
   TRIPS: 'icarmeter_trips',
@@ -14,6 +15,7 @@ const KEYS = {
 const DEFAULT_SETTINGS: AppLocalSettings = {
   piHost: '192.168.4.1:8080',
   phoneMac: '',
+  piBtMac: '',
   sendRateHz: 5,
   backgroundServiceEnabled: true,
 };
@@ -35,9 +37,10 @@ const DEFAULT_CONFIG: PiFullConfig = {
 export const StorageService = {
   async loadSettings(): Promise<AppLocalSettings> {
     try {
-      const [host, mac, rate, bg] = await Promise.all([
+      const [host, mac, btMac, rate, bg] = await Promise.all([
         AsyncStorage.getItem(KEYS.PI_HOST),
         AsyncStorage.getItem(KEYS.PHONE_MAC),
+        AsyncStorage.getItem(KEYS.PI_BT_MAC),
         AsyncStorage.getItem(KEYS.GPS_RATE),
         AsyncStorage.getItem(KEYS.BG_SERVICE),
       ]);
@@ -45,11 +48,20 @@ export const StorageService = {
       return {
         piHost: host || DEFAULT_SETTINGS.piHost,
         phoneMac: mac || DEFAULT_SETTINGS.phoneMac,
+        piBtMac: btMac || '',
         sendRateHz: rate ? parseInt(rate, 10) || 5 : 5,
         backgroundServiceEnabled: bg !== null ? bg === 'true' : true,
       };
     } catch {
       return DEFAULT_SETTINGS;
+    }
+  },
+
+  async savePiBtMac(mac: string): Promise<void> {
+    try {
+      await AsyncStorage.setItem(KEYS.PI_BT_MAC, mac);
+    } catch (e) {
+      console.warn('Failed to save piBtMac', e);
     }
   },
 

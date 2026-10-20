@@ -85,9 +85,6 @@ export class WsClient {
           this.send({ type: 'ping' });
         }
       }, 4000);
-
-      // Request current configuration on connection
-      this.send({ type: 'get_config' });
     };
 
     this.socket.onmessage = (event) => {

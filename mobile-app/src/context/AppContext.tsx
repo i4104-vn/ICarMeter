@@ -3,7 +3,8 @@ import { AppLocalSettings, PiFullConfig, TpmsConfig } from '../types/config';
 import { TelemetryState } from '../types/telemetry';
 import { ActiveTripState, TripRecord } from '../types/trip';
 import { AutoTestProgress } from '../services/bleTpmsAdvertiser';
-import { WsClient } from '../api/wsClient';
+import { WifiWsTransport } from '../api/wifiWsTransport';
+import { BtSppTransport } from '../api/btSppTransport';
 import { PiApiService } from '../api/piApi';
 import { StorageService } from '../services/storage';
 import { TripManager } from '../services/tripManager';
@@ -12,6 +13,7 @@ import { BleTpmsAutoTester } from '../services/bleTpmsAdvertiser';
 import { NativeICarMeter } from '../native/ICarMeterNative';
 
 interface AppContextValue {
+  isBtConnected: boolean;
   isWifiConnected: boolean;
   settings: AppLocalSettings;
   config: PiFullConfig;
@@ -21,15 +23,20 @@ interface AppContextValue {
   trips: TripRecord[];
   autoTest: AutoTestProgress;
   toastMessage: string | null;
+  wifiTransport: WifiWsTransport;
+  btTransport: BtSppTransport;
 
   setPiHost: (host: string) => Promise<void>;
   setPhoneMac: (mac: string) => Promise<void>;
+  setPiBtMac: (mac: string) => Promise<void>;
   setSendRateHz: (hz: number) => Promise<void>;
   setBackgroundServiceEnabled: (enabled: boolean) => Promise<void>;
   updateTpmsField: (field: keyof TpmsConfig, value: any) => void;
   updateGpsHardwareToggle: (enabled: boolean) => Promise<void>;
   saveAndSyncConfig: (overrideConfig?: TpmsConfig) => Promise<boolean>;
   reloadConfigFromPi: () => Promise<boolean>;
+  connectBt: (mac: string) => Promise<boolean>;
+  disconnectBt: () => Promise<boolean>;
   startTrip: () => void;
   stopTrip: () => Promise<void>;
   clearTripHistory: () => Promise<void>;
@@ -45,6 +52,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [settings, setSettings] = useState<AppLocalSettings>({
     piHost: '192.168.4.1:8080',
     phoneMac: '',
+    piBtMac: '',
     sendRateHz: 5,
     backgroundServiceEnabled: true,
   });
@@ -63,6 +71,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     },
   });
 
+  const [isBtConnected, setIsBtConnected] = useState(false);
   const [isWifiConnected, setIsWifiConnected] = useState(false);
   const [syncTimestamp, setSyncTimestamp] = useState('Chờ kết nối...');
   const [trips, setTrips] = useState<TripRecord[]>([]);
@@ -80,7 +89,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeTrip, setActiveTrip] = useState<ActiveTripState>({
     isRecording: false,
     startTime: null,
-    distanceKm: 0.0,
+    distanceKm: 0,
     maxSpeedKmh: 0,
     avgSpeedKmh: 0,
     durationStr: '00:00',
@@ -95,8 +104,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     statusBadge: 'SẴN SÀNG',
   });
 
-  // Singleton service instances
-  const wsClientRef = useRef<WsClient>(new WsClient(settings.piHost));
+  // Singleton transport and service instances
+  const wifiTransportRef = useRef<WifiWsTransport>(new WifiWsTransport(settings.piHost));
+  const btTransportRef = useRef<BtSppTransport>(new BtSppTransport(settings.piBtMac || ''));
   const tripManagerRef = useRef<TripManager>(new TripManager());
   const autoTesterRef = useRef<BleTpmsAutoTester>(new BleTpmsAutoTester());
 
@@ -107,9 +117,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const gpsTrackerRef = useRef<GpsTracker>(
     new GpsTracker(
-      wsClientRef.current,
+      btTransportRef.current,
       tripManagerRef.current,
-      () => settingsRef.current.piHost,
       () => configRef.current.gps.enabled
     )
   );
@@ -128,10 +137,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Initial Load & Service Setup
   useEffect(() => {
     async function init() {
-      // 1. Bind Android network sockets to car Wi-Fi
-      await NativeICarMeter.bindToCarWifi();
-
-      // 2. Load stored settings & cached config & trips
+      // 1. Load stored settings & cached config & trips
       const [storedSettings, cachedConfig, storedTrips, autoMac] = await Promise.all([
         StorageService.loadSettings(),
         StorageService.loadCachedConfig(),
@@ -149,93 +155,113 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setConfig(cachedConfig);
       setTrips(storedTrips);
 
-      wsClientRef.current.setHost(storedSettings.piHost);
+      wifiTransportRef.current.setHost(storedSettings.piHost);
+      btTransportRef.current.setPiMac(storedSettings.piBtMac || '');
       gpsTrackerRef.current.setSendRate(storedSettings.sendRateHz);
 
       if (storedSettings.backgroundServiceEnabled) {
         NativeICarMeter.startForegroundService();
       }
 
-      // 3. Start Tracker & TripManager subscriptions
+      // 2. Start Tracker & TripManager subscriptions
       tripManagerRef.current.subscribe((ts) => setActiveTrip(ts));
       gpsTrackerRef.current.subscribe((tel) => setTelemetry(tel));
       autoTesterRef.current.subscribe((prog) => setAutoTest(prog));
 
       gpsTrackerRef.current.start();
 
-      // 4. WebSocket setup
-      wsClientRef.current.onConnectionChange((connected) => {
-        setIsWifiConnected(connected);
+      // 3. Setup Bluetooth RFCOMM transport listeners
+      btTransportRef.current.onConnectionChange((connected) => {
+        setIsBtConnected(connected);
+        if (connected) {
+          const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+          setSyncTimestamp(`Đã kết nối Bluetooth (${nowStr})`);
+        } else {
+          setSyncTimestamp('Chờ kết nối Bluetooth...');
+        }
       });
 
-      wsClientRef.current.onMessage((msg) => {
+      btTransportRef.current.onMessage((msg) => {
         if (msg.type === 'welcome' && msg.config) {
           applyServerConfig(msg.config);
         } else if (msg.type === 'config' && msg.data) {
           applyServerConfig(msg.data);
           if (msg.message === 'Saved') {
-            showToast('Đã lưu & đồng bộ cấu hình thành công!');
+            showToast('Đã lưu cấu hình');
           }
         } else if (msg.type === 'error') {
-          showToast(`Lỗi từ xe: ${msg.message || 'Không thể lưu cấu hình'}`);
+          showToast(`Lỗi: ${msg.message || 'Không thể lưu cấu hình'}`);
         }
       });
 
-      wsClientRef.current.start();
+      // 4. Setup WiFi WebSocket listeners (used only during pairing setup)
+      wifiTransportRef.current.onConnectionChange((connected) => {
+        setIsWifiConnected(connected);
+      });
+
+      // If Pi Bluetooth MAC already saved, start BT connection
+      if (storedSettings.piBtMac) {
+        btTransportRef.current.start();
+      }
     }
 
     init();
 
     return () => {
-      wsClientRef.current.stop();
       gpsTrackerRef.current.stop();
+      btTransportRef.current.stop();
+      wifiTransportRef.current.stop();
     };
   }, []);
 
   const applyServerConfig = (serverConfig: PiFullConfig) => {
-    setConfig((prev) => ({
+    if (!serverConfig) return;
+    const merged: PiFullConfig = {
       tpms: {
-        fl: serverConfig.tpms?.fl ?? prev.tpms.fl,
-        fr: serverConfig.tpms?.fr ?? prev.tpms.fr,
-        rl: serverConfig.tpms?.rl ?? prev.tpms.rl,
-        rr: serverConfig.tpms?.rr ?? prev.tpms.rr,
-        alert: serverConfig.tpms?.alert ?? prev.tpms.alert,
-        high_temp_alert: serverConfig.tpms?.high_temp_alert ?? prev.tpms.high_temp_alert,
+        fl: serverConfig.tpms?.fl || '',
+        fr: serverConfig.tpms?.fr || '',
+        rl: serverConfig.tpms?.rl || '',
+        rr: serverConfig.tpms?.rr || '',
+        alert: typeof serverConfig.tpms?.alert === 'number' ? serverConfig.tpms.alert : 2.2,
+        high_temp_alert: typeof serverConfig.tpms?.high_temp_alert === 'number' ? serverConfig.tpms.high_temp_alert : 70.0,
       },
       gps: {
-        enabled: serverConfig.gps?.enabled ?? prev.gps.enabled,
+        enabled: typeof serverConfig.gps?.enabled === 'boolean' ? serverConfig.gps.enabled : true,
       },
-    }));
+    };
 
-    StorageService.saveCachedConfig(serverConfig);
+    setConfig(merged);
+    StorageService.saveCachedConfig(merged);
     const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-    setSyncTimestamp(`Đã đồng bộ (${nowStr})`);
+    setSyncTimestamp(`Đồng bộ (${nowStr})`);
   };
 
   const setPiHost = async (host: string) => {
-    const clean = host.trim() || '192.168.4.1:8080';
-    setSettings((s) => ({ ...s, piHost: clean }));
-    await StorageService.savePiHost(clean);
-    wsClientRef.current.setHost(clean);
-    showToast('Đã đổi IP xe');
+    await StorageService.savePiHost(host);
+    setSettings((prev) => ({ ...prev, piHost: host }));
+    wifiTransportRef.current.setHost(host);
   };
 
   const setPhoneMac = async (mac: string) => {
-    const clean = mac.trim().toUpperCase();
-    setSettings((s) => ({ ...s, phoneMac: clean }));
-    await StorageService.savePhoneMac(clean);
+    await StorageService.savePhoneMac(mac);
+    setSettings((prev) => ({ ...prev, phoneMac: mac }));
+  };
+
+  const setPiBtMac = async (mac: string) => {
+    await StorageService.savePiBtMac(mac);
+    setSettings((prev) => ({ ...prev, piBtMac: mac }));
+    btTransportRef.current.setPiMac(mac);
   };
 
   const setSendRateHz = async (hz: number) => {
-    setSettings((s) => ({ ...s, sendRateHz: hz }));
     await StorageService.saveGpsRate(hz);
+    setSettings((prev) => ({ ...prev, sendRateHz: hz }));
     gpsTrackerRef.current.setSendRate(hz);
-    showToast(`Đã đổi tần số: ${hz} Hz`);
   };
 
   const setBackgroundServiceEnabled = async (enabled: boolean) => {
-    setSettings((s) => ({ ...s, backgroundServiceEnabled: enabled }));
     await StorageService.saveBackgroundService(enabled);
+    setSettings((prev) => ({ ...prev, backgroundServiceEnabled: enabled }));
     if (enabled) {
       NativeICarMeter.startForegroundService();
       showToast('Bật chạy ngầm');
@@ -261,41 +287,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       gps: { enabled },
     };
     setConfig(nextConfig);
-    await PiApiService.saveConfig(wsClientRef.current, settings.piHost, nextConfig.tpms, enabled);
+    PiApiService.saveConfig(btTransportRef.current, nextConfig.tpms, enabled);
     StorageService.saveCachedConfig(nextConfig);
     showToast(enabled ? 'Dùng GPS xe' : 'Dùng GPS điện thoại');
   };
 
   const saveAndSyncConfig = async (overrideTpms?: TpmsConfig): Promise<boolean> => {
     const targetTpms = overrideTpms || config.tpms;
-    const ok = await PiApiService.saveConfig(
-      wsClientRef.current,
-      settings.piHost,
+    const ok = PiApiService.saveConfig(
+      btTransportRef.current,
       targetTpms,
       config.gps.enabled
     );
 
     if (ok) {
       const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-      setSyncTimestamp(`Đã lưu (${nowStr})`);
-      if (!overrideTpms) {
-        showToast('Đã lưu cấu hình');
-      }
+      setSyncTimestamp(`Đang gửi (${nowStr})`);
     } else {
-      showToast('Lỗi lưu cấu hình');
+      showToast('Bluetooth chưa kết nối');
     }
     return ok;
   };
 
   const reloadConfigFromPi = async (): Promise<boolean> => {
-    showToast('Đang tải...');
-    const result = await PiApiService.fetchConfig(wsClientRef.current, settings.piHost);
-    if (result) {
-      applyServerConfig(result);
-      showToast('Đã tải cấu hình');
+    const ok = PiApiService.fetchConfig(btTransportRef.current);
+    if (ok) {
+      showToast('Đang tải cấu hình...');
       return true;
     }
+    showToast('Bluetooth chưa kết nối');
     return false;
+  };
+
+  const connectBt = async (mac: string): Promise<boolean> => {
+    try {
+      await setPiBtMac(mac);
+      btTransportRef.current.setPiMac(mac);
+      btTransportRef.current.start();
+      return true;
+    } catch (e: any) {
+      showToast(`Lỗi kết nối: ${e?.message || 'Không thể kết nối'}`);
+      return false;
+    }
+  };
+
+  const disconnectBt = async (): Promise<boolean> => {
+    btTransportRef.current.stop();
+    return true;
   };
 
   const startTrip = () => {
@@ -331,8 +369,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       config.tpms,
       async (stepConfig) => {
         return PiApiService.saveConfig(
-          wsClientRef.current,
-          settings.piHost,
+          btTransportRef.current,
           stepConfig,
           config.gps.enabled
         );
@@ -343,8 +380,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const stopAutoTest = async () => {
     await autoTesterRef.current.stopAutoTest(async (restored) => {
       return PiApiService.saveConfig(
-        wsClientRef.current,
-        settings.piHost,
+        btTransportRef.current,
         restored,
         config.gps.enabled
       );
@@ -353,13 +389,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const forceReconnectWifi = () => {
-    showToast('Đang kết nối lại...');
+    showToast('Đang kết nối lại WiFi...');
     NativeICarMeter.bindToCarWifi();
-    wsClientRef.current.forceReconnect();
+    wifiTransportRef.current.start();
   };
 
   const value: AppContextValue = useMemo(
     () => ({
+      isBtConnected,
       isWifiConnected,
       settings,
       config,
@@ -369,14 +406,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       trips,
       autoTest,
       toastMessage,
+      wifiTransport: wifiTransportRef.current,
+      btTransport: btTransportRef.current,
       setPiHost,
       setPhoneMac,
+      setPiBtMac,
       setSendRateHz,
       setBackgroundServiceEnabled,
       updateTpmsField,
       updateGpsHardwareToggle,
       saveAndSyncConfig,
       reloadConfigFromPi,
+      connectBt,
+      disconnectBt,
       startTrip,
       stopTrip,
       clearTripHistory,
@@ -386,6 +428,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showToast,
     }),
     [
+      isBtConnected,
       isWifiConnected,
       settings,
       config,

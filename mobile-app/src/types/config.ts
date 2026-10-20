@@ -19,6 +19,7 @@ export interface PiFullConfig {
 export interface AppLocalSettings {
   piHost: string;
   phoneMac: string;
+  piBtMac?: string;
   sendRateHz: number;
   backgroundServiceEnabled: boolean;
 }
