@@ -32,10 +32,10 @@ permissions:
 
 jobs:
   # ==============================================================================
-  # Job 1: Build Android Companion APK (Expo Prebuild)
+  # Job 1: Build Android Companion APK (Flutter - Universal x32 & x64)
   # ==============================================================================
   build-apk:
-    name: Build Android Companion APK (Expo)
+    name: Build Android Companion APK (Flutter)
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -47,42 +47,30 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          node-version: 20
-          cache: "npm"
-          cache-dependency-path: mobile-app/package-lock.json
+          channel: "stable"
+          cache: true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Install Mobile App Dependencies
+      - name: Get Flutter Dependencies
         working-directory: mobile-app
-        run: npm ci || npm install --legacy-peer-deps
+        run: flutter pub get
 
-      - name: Export Expo Bundle & Assets
+      - name: Build Android Release APK (Universal x32 & x64)
         working-directory: mobile-app
-        run: |
-          mkdir -p android/app/src/main/assets
-          npx expo export --platform android
-
-      - name: Build Android Release APK with Gradle
-        working-directory: mobile-app/android
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace
+        run: flutter build apk --release
 
       - name: Package Release APK
         run: |
           mkdir -p apk_dist
-          RELEASE_APK=$(find mobile-app/android/app/build/outputs/apk -name "*release*.apk" 2>/dev/null | head -n 1)
-          if [ -z "$RELEASE_APK" ] || [ ! -f "$RELEASE_APK" ]; then
-            RELEASE_APK=$(find mobile-app/android/app/build/outputs/apk -name "*.apk" 2>/dev/null | head -n 1)
-          fi
+          RELEASE_APK=$(find mobile-app/build/app/outputs/flutter-apk -name "*release*.apk" 2>/dev/null | head -n 1)
           if [ -n "$RELEASE_APK" ] && [ -f "$RELEASE_APK" ]; then
             cp "$RELEASE_APK" apk_dist/ICarMeter.apk
-            echo "Successfully packaged APK: $RELEASE_APK -> apk_dist/ICarMeter.apk"
+            echo "Successfully packaged Flutter Release APK: $RELEASE_APK -> apk_dist/ICarMeter.apk"
             ls -lah apk_dist/ICarMeter.apk
           else
             echo "ERROR: Output APK not found!" >&2
@@ -294,6 +282,6 @@ jobs:
             ## ICarMeter Release ${{ steps.rel_meta.outputs.tag }}
 
             ### Tệp tải về / Downloads:
-            - **ICarMeter-RaspberryPiOS-arm64.zip**: Hệ điều hành Raspberry Pi OS cho ICarMeter (chứa duy nhất file `.img` được nén nhẹ ~700MB, chọn trực tiếp bằng **Raspberry Pi Imager** hoặc **BalenaEtcher** để flash vào thẻ nhớ mà không cần giải nén).
+            - **ICarMeter-RaspberryPiOS-arm64.zip**: Hệ điều hành Raspberry Pi OS cho ICarMeter
             - **ICarMeter.apk**: Ứng dụng Android điều khiển và giám sát thông số xe.
             - **SHA256SUMS.txt**: Mã băm SHA256 để kiểm tra tính toàn vẹn của tệp tải về.
