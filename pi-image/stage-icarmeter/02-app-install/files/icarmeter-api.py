@@ -120,27 +120,18 @@ def bt_broadcast(msg_dict):
     except Exception as e:
         print(f"[BT] Broadcast error: {e}", file=sys.stderr)
 
-def broadcast_to_all_clients(msg_dict):
-    """Broadcasts to both WebSocket and Bluetooth RFCOMM clients."""
-    ws_broadcast(msg_dict)
-    bt_broadcast(msg_dict)
-
-def ws_heartbeat_worker():
-    """Background worker: keeps app connection marker fresh when clients are active."""
+def bt_heartbeat_worker():
+    """Background worker: keeps app connection marker fresh when Bluetooth clients are active."""
     while True:
         time.sleep(4)
-        with ws_clients_lock:
-            num_ws = len(connected_ws_clients)
         with bt_clients_lock:
             num_bt = len(connected_bt_clients)
-        total = num_ws + num_bt
-        if total > 0:
-            origin = "Bluetooth Companion" if num_bt > 0 else "WebSocket Companion"
-            touch_app_connected(origin)
-            broadcast_to_all_clients({
+        if num_bt > 0:
+            touch_app_connected("Bluetooth")
+            bt_broadcast({
                 "type": "heartbeat",
                 "status": "online",
-                "clients": total,
+                "clients": num_bt,
                 "timestamp": int(time.time())
             })
 
@@ -204,7 +195,7 @@ def _bt_discovery_worker():
                         with _bt_discovery_lock:
                             if mac not in _bt_discovered_devices:
                                 _bt_discovered_devices.add(mac)
-                                broadcast_to_all_clients({
+                                ws_broadcast({
                                     "type": "bt_device_found",
                                     "mac": mac,
                                     "name": name,
@@ -541,29 +532,19 @@ def write_config(payload):
     except (AttributeError, OSError):
         pass
 
-    touch_app_connected("Wi-Fi Mobile App")
+    touch_app_connected("Bluetooth Companion")
     print(f"[API] Synchronized, fsynced and flushed config to disk: {CONFIG_PATH}")
     if not success:
         raise IOError(f"Could not write configuration to {CONFIG_PATH}")
 
 
-def handle_incoming_command(msg_dict, reply_fn, is_bt=False):
+def handle_bt_command(msg_dict, reply_fn):
     """
-    Common handler for commands received from either WebSocket or BT RFCOMM.
-    reply_fn is a callable: reply_fn(dict_to_reply)
+    Dedicated command handler for all data & config operations.
+    Exclusively permitted over Bluetooth RFCOMM/SPP.
     """
-    origin = "Bluetooth" if is_bt else "Wi-Fi"
-    touch_app_connected(origin)
-
+    touch_app_connected("Bluetooth Companion")
     msg_type = msg_dict.get("type", "")
-
-    # Strictly enforce: WiFi is ONLY for Bluetooth setup. All data operations MUST go via Bluetooth.
-    if not is_bt and msg_type in ("get_config", "set_config", "telemetry", "gps"):
-        reply_fn({
-            "type": "error",
-            "message": "Thao tac du lieu chi duoc phep qua Bluetooth"
-        })
-        return
 
     if msg_type == "ping":
         reply_fn({"type": "pong", "timestamp": int(time.time())})
@@ -579,8 +560,8 @@ def handle_incoming_command(msg_dict, reply_fn, is_bt=False):
         try:
             write_config(payload)
             log_ws_event("Config Saved")
-            # Broadcast updated config to ALL connected clients so every open UI syncs
-            broadcast_to_all_clients({
+            # Broadcast updated config strictly to connected Bluetooth clients
+            bt_broadcast({
                 "type": "config",
                 "data": read_config(),
                 "message": "Saved",
@@ -604,53 +585,17 @@ def handle_incoming_command(msg_dict, reply_fn, is_bt=False):
         return
 
     if msg_type == "get_status":
-        with ws_clients_lock:
-            num_ws = len(connected_ws_clients)
         with bt_clients_lock:
             num_bt = len(connected_bt_clients)
         reply_fn({
             "type": "status",
             "data": {
                 "status": "online",
-                "app_connected": True,
-                "clients": num_ws + num_bt,
+                "app_connected": num_bt > 0,
+                "clients": num_bt,
                 "timestamp": int(time.time())
             }
         })
-        return
-
-    if msg_type == "get_bt_status":
-        status_data = get_bluetooth_status()
-        reply_fn({"type": "bt_status", "data": status_data})
-        return
-
-    if msg_type == "bt_start_discovery":
-        start_bluetooth_discovery()
-        reply_fn({"type": "bt_discovery_started"})
-        return
-
-    if msg_type == "bt_stop_discovery":
-        stop_bluetooth_discovery()
-        reply_fn({"type": "bt_discovery_stopped"})
-        return
-
-    if msg_type == "bt_pair":
-        target_mac = msg_dict.get("mac", "").strip().upper()
-        def do_pair_async():
-            success, msg_text = pair_bluetooth_device(target_mac)
-            broadcast_to_all_clients({
-                "type": "bt_pair_result",
-                "mac": target_mac,
-                "success": success,
-                "message": msg_text
-            })
-        threading.Thread(target=do_pair_async, daemon=True).start()
-        return
-
-    if msg_type == "bt_unpair":
-        target_mac = msg_dict.get("mac", "").strip().upper()
-        success = unpair_bluetooth_device(target_mac)
-        reply_fn({"type": "bt_unpair_result", "mac": target_mac, "success": success})
         return
 
 
@@ -695,10 +640,9 @@ def rfcomm_client_handler(client_sock, client_info):
                         continue
                     try:
                         cmd = json.loads(line)
-                        handle_incoming_command(
+                        handle_bt_command(
                             cmd,
-                            reply_fn=lambda r: client_sock.sendall((json.dumps(r) + "\n").encode("utf-8")),
-                            is_bt=True
+                            reply_fn=lambda r: client_sock.sendall((json.dumps(r) + "\n").encode("utf-8"))
                         )
                     except Exception as e:
                         print(f"[BT-RFCOMM] JSON error: {e}", file=sys.stderr)
@@ -877,19 +821,16 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
     def handle_websocket(self):
         sock = self.connection
         sock.settimeout(60.0)
-        touch_app_connected("WebSocket Companion")
-        log_ws_event("Connected")
         with ws_clients_lock:
             connected_ws_clients.add(sock)
 
         client_info = f"{self.client_address[0]}:{self.client_address[1]}"
-        print(f"[WS] Client connected from {client_info}")
+        print(f"[WS] Pairing setup client connected from {client_info}")
 
-        # Send welcome payload with full configuration and status
         welcome = {
             "type": "welcome",
             "status": "online",
-            "app_connected": True,
+            "app_connected": False,
             "timestamp": int(time.time())
         }
         try:
@@ -940,15 +881,75 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             print(f"[WS] Client disconnected from {client_info}")
 
     def process_ws_message(self, sock, text):
+        """
+        Processes Wi-Fi WebSocket messages.
+        Wi-Fi is strictly restricted to Bluetooth pairing/discovery setup.
+        Zero config or data operations are processed here.
+        """
         try:
             msg = json.loads(text)
         except Exception:
             return
-        handle_incoming_command(
-            msg,
-            reply_fn=lambda r: sock.sendall(encode_ws_frame(json.dumps(r).encode("utf-8"), 0x1)),
-            is_bt=False
-        )
+
+        msg_type = msg.get("type", "")
+
+        if msg_type == "ping":
+            reply = {"type": "pong", "timestamp": int(time.time())}
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type == "get_bt_status":
+            status_data = get_bluetooth_status()
+            reply = {"type": "bt_status", "data": status_data}
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type == "bt_start_discovery":
+            start_bluetooth_discovery()
+            reply = {"type": "bt_discovery_started"}
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type == "bt_stop_discovery":
+            stop_bluetooth_discovery()
+            reply = {"type": "bt_discovery_stopped"}
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type == "bt_pair":
+            target_mac = msg.get("mac", "").strip().upper()
+            def do_pair_async():
+                success, msg_text = pair_bluetooth_device(target_mac)
+                ws_broadcast({
+                    "type": "bt_pair_result",
+                    "mac": target_mac,
+                    "success": success,
+                    "message": msg_text
+                })
+            threading.Thread(target=do_pair_async, daemon=True).start()
+            return
+
+        if msg_type == "bt_unpair":
+            target_mac = msg.get("mac", "").strip().upper()
+            success = unpair_bluetooth_device(target_mac)
+            reply = {"type": "bt_unpair_result", "mac": target_mac, "success": success}
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type == "get_status":
+            with ws_clients_lock:
+                num_clients = len(connected_ws_clients)
+            reply = {
+                "type": "status",
+                "data": {
+                    "status": "online",
+                    "app_connected": False,
+                    "clients": num_clients,
+                    "timestamp": int(time.time())
+                }
+            }
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
 
     def do_POST(self):
         # All HTTP POST endpoints removed - data operations are strictly over Bluetooth
@@ -975,8 +976,8 @@ def start_http_listener(port):
 
 
 def main():
-    # Start WebSocket background heartbeat worker
-    t_hb = threading.Thread(target=ws_heartbeat_worker, daemon=True)
+    # Start Bluetooth background heartbeat worker
+    t_hb = threading.Thread(target=bt_heartbeat_worker, daemon=True)
     t_hb.start()
 
     # Start Bluetooth RFCOMM/SPP server worker

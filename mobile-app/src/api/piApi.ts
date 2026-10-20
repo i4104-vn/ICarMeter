@@ -4,24 +4,24 @@ import { GpsTelemetry } from '../types/telemetry';
 
 export class PiApiService {
   /**
-   * Requests full configuration from Pi over Bluetooth transport.
+   * Requests full configuration from Pi strictly over Bluetooth transport.
    */
   static fetchConfig(transport: TransportClient): boolean {
-    if (!transport.connected) {
+    if (!transport.connected || transport.type !== 'bt-spp') {
       return false;
     }
     return transport.send({ type: 'get_config' });
   }
 
   /**
-   * Saves updated configuration to Pi over Bluetooth transport.
+   * Saves updated configuration to Pi strictly over Bluetooth transport.
    */
   static saveConfig(
     transport: TransportClient,
     tpms: TpmsConfig,
     gpsEnabled: boolean
   ): boolean {
-    if (!transport.connected) {
+    if (!transport.connected || transport.type !== 'bt-spp') {
       return false;
     }
 
@@ -43,13 +43,13 @@ export class PiApiService {
   }
 
   /**
-   * Transmits GPS telemetry to Pi over Bluetooth transport.
+   * Transmits GPS telemetry to Pi strictly over Bluetooth transport.
    */
   static sendTelemetry(
     transport: TransportClient,
     telemetry: GpsTelemetry
   ): boolean {
-    if (!transport.connected) {
+    if (!transport.connected || transport.type !== 'bt-spp') {
       return false;
     }
 

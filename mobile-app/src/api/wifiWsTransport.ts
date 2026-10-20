@@ -27,6 +27,10 @@ export class WifiWsTransport implements TransportClient {
   }
 
   send(cmd: WsClientCommand): boolean {
+    if (cmd.type === 'get_config' || cmd.type === 'set_config' || cmd.type === 'telemetry') {
+      console.warn('[WiFi-WS] Data operations are strictly forbidden over WiFi');
+      return false;
+    }
     return this.wsClient.send(cmd);
   }
 
