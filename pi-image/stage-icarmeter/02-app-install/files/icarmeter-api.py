@@ -10,8 +10,10 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import socket
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -117,6 +119,109 @@ HTTP_PORT = 80
 CONFIG_PATH = "/opt/icarmeter/config.toml"
 APP_CONN_MARKER = "/dev/shm/icarmeter_app_connected"
 WS_EVENT_MARKER = "/dev/shm/icarmeter_ws_event"
+
+_rfcomm_listening = False
+_bt_discovery_active = False
+_bt_discovery_lock = threading.Lock()
+_bt_discovered_devices = set()
+
+def get_bluetooth_status():
+    """Query Bluetooth adapter status and paired devices list."""
+    adapter_avail = os.path.exists("/sys/class/bluetooth/hci0")
+    paired = []
+    try:
+        res = subprocess.run(
+            ["bluetoothctl", "paired-devices"],
+            capture_output=True, text=True, timeout=5
+        )
+        if res.returncode == 0:
+            for line in res.stdout.strip().splitlines():
+                m = re.match(r"^Device\s+([0-9A-Fa-f:]{17})\s*(.*)$", line.strip())
+                if m:
+                    mac = m.group(1).upper()
+                    name = m.group(2).strip() or mac
+                    paired.append({"mac": mac, "name": name})
+            adapter_avail = True
+    except Exception as e:
+        print(f"[BT] Error querying paired devices: {e}", file=sys.stderr)
+
+    return {
+        "adapter_available": adapter_avail,
+        "paired_devices": paired,
+        "rfcomm_listening": _rfcomm_listening
+    }
+
+def _bt_discovery_worker():
+    global _bt_discovery_active
+    try:
+        subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=3)
+        subprocess.run(["bluetoothctl", "scan", "on"], capture_output=True, timeout=3)
+    except Exception:
+        pass
+
+    while _bt_discovery_active:
+        try:
+            res = subprocess.run(
+                ["bluetoothctl", "devices"],
+                capture_output=True, text=True, timeout=4
+            )
+            if res.returncode == 0:
+                for line in res.stdout.strip().splitlines():
+                    m = re.match(r"^Device\s+([0-9A-Fa-f:]{17})\s*(.*)$", line.strip())
+                    if m:
+                        mac = m.group(1).upper()
+                        name = m.group(2).strip() or mac
+                        with _bt_discovery_lock:
+                            if mac not in _bt_discovered_devices:
+                                _bt_discovered_devices.add(mac)
+                                ws_broadcast({
+                                    "type": "bt_device_found",
+                                    "mac": mac,
+                                    "name": name,
+                                    "rssi": 0
+                                })
+        except Exception:
+            pass
+        time.sleep(2)
+
+def start_bluetooth_discovery():
+    global _bt_discovery_active, _bt_discovered_devices
+    with _bt_discovery_lock:
+        if _bt_discovery_active:
+            return
+        _bt_discovery_active = True
+        _bt_discovered_devices.clear()
+        t = threading.Thread(target=_bt_discovery_worker, daemon=True)
+        t.start()
+
+def stop_bluetooth_discovery():
+    global _bt_discovery_active
+    with _bt_discovery_lock:
+        _bt_discovery_active = False
+    try:
+        subprocess.run(["bluetoothctl", "scan", "off"], capture_output=True, timeout=3)
+        subprocess.run(["bluetoothctl", "discoverable", "off"], capture_output=True, timeout=3)
+    except Exception:
+        pass
+
+def pair_bluetooth_device(mac):
+    try:
+        subprocess.run(["bluetoothctl", "trust", mac], capture_output=True, timeout=5)
+        res = subprocess.run(["bluetoothctl", "pair", mac], capture_output=True, text=True, timeout=25)
+        if res.returncode == 0 or "successful" in res.stdout.lower():
+            return True, "Paired successfully"
+        return False, res.stderr.strip() or res.stdout.strip() or "Pairing failed"
+    except subprocess.TimeoutExpired:
+        return False, "Pairing timed out"
+    except Exception as e:
+        return False, str(e)
+
+def unpair_bluetooth_device(mac):
+    try:
+        res = subprocess.run(["bluetoothctl", "remove", mac], capture_output=True, timeout=5)
+        return res.returncode == 0
+    except Exception:
+        return False
 
 _last_ws_event = None
 _last_ws_event_time = 0.0
@@ -678,6 +783,44 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
                     "timestamp": int(time.time())
                 }
             }
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type == "get_bt_status":
+            status_data = get_bluetooth_status()
+            reply = {"type": "bt_status", "data": status_data}
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type == "bt_start_discovery":
+            start_bluetooth_discovery()
+            reply = {"type": "bt_discovery_started"}
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type == "bt_stop_discovery":
+            stop_bluetooth_discovery()
+            reply = {"type": "bt_discovery_stopped"}
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type == "bt_pair":
+            target_mac = msg.get("mac", "").strip().upper()
+            def do_pair_async():
+                success, msg_text = pair_bluetooth_device(target_mac)
+                ws_broadcast({
+                    "type": "bt_pair_result",
+                    "mac": target_mac,
+                    "success": success,
+                    "message": msg_text
+                })
+            threading.Thread(target=do_pair_async, daemon=True).start()
+            return
+
+        if msg_type == "bt_unpair":
+            target_mac = msg.get("mac", "").strip().upper()
+            success = unpair_bluetooth_device(target_mac)
+            reply = {"type": "bt_unpair_result", "mac": target_mac, "success": success}
             sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
             return
 
