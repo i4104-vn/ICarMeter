@@ -201,7 +201,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           Text('Tự động kết nối lại Bluetooth', style: TextStyle(fontSize: 13, color: AppColors.text)),
                           SizedBox(height: 2),
-                          Text('Luôn giữ kênh chờ', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                          Text('Luôn giữ kênh chờ và tự kết nối khi phát hiện thiết bị', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
                         ],
                       ),
                     ),
@@ -219,7 +219,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Dịch vụ GPS', style: TextStyle(fontSize: 13, color: AppColors.text)),
+                          Text('Dịch vụ GPS & BLE nền', style: TextStyle(fontSize: 13, color: AppColors.text)),
                           SizedBox(height: 2),
                           Text('Duy trì định vị GPS liên tục khi ứng dụng chạy ẩn', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
                         ],
@@ -235,7 +235,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Divider(color: AppColors.border, height: 16),
                 const SizedBox(height: 4),
                 const Text(
-                  'Địa chỉ MAC',
+                  'Địa chỉ MAC mặc định của thiết bị',
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 6),
@@ -243,7 +243,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   controller: _piMacCtrl,
                   style: const TextStyle(fontSize: 13, color: AppColors.text, fontFamily: 'monospace'),
                   decoration: InputDecoration(
-                    hintText: 'B8:27:EB:XX:XX:XX',
+                    hintText: 'AA:BB:CC:DD:EE:FF',
                     isDense: true,
                     filled: true,
                     fillColor: AppColors.background,

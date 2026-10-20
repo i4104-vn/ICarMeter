@@ -193,7 +193,7 @@ class _BtPairingScreenState extends State<BtPairingScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Địa chỉ MAC của Raspberry Pi',
+                  'Địa chỉ MAC của thiết bị trên xe',
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 8),
@@ -204,7 +204,7 @@ class _BtPairingScreenState extends State<BtPairingScreen> {
                         controller: _macCtrl,
                         style: const TextStyle(fontSize: 13, color: AppColors.text, fontFamily: 'monospace'),
                         decoration: InputDecoration(
-                          hintText: 'B8:27:EB:XX:XX:XX',
+                          hintText: 'AA:BB:CC:DD:EE:FF',
                           hintStyle: const TextStyle(color: AppColors.textMuted),
                           isDense: true,
                           filled: true,
@@ -321,7 +321,7 @@ class _BtPairingScreenState extends State<BtPairingScreen> {
               child: Text(
                 state.isDiscovering
                     ? 'Đang dò quét các thiết bị Bluetooth xung quanh...'
-                    : 'Nhấn "Quét ngay" để tìm Raspberry Pi.',
+                    : 'Nhấn "Quét ngay" để tìm thiết bị trên xe.',
                 style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
               ),
             )

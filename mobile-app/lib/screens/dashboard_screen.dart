@@ -114,7 +114,7 @@ class DashboardScreen extends StatelessWidget {
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'Nếu chưa ghép nối, hãy kết nối Wi-Fi của Pi để ghép nối Bluetooth trước.',
+                          'Nếu chưa ghép nối, hãy kết nối Wi-Fi của xe để ghép nối Bluetooth trước.',
                           style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
                         ),
                       ],

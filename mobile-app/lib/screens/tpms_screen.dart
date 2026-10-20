@@ -292,7 +292,7 @@ class _TpmsScreenState extends State<TpmsScreen> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Phát gói tin BLE định dạng Sysgration (0xACAC) từ điện thoại để kiểm tra bộ thu của Raspberry Pi.',
+                  'Phát gói tin BLE định dạng Sysgration (0xACAC) từ điện thoại để kiểm tra bộ thu trên xe.',
                   style: TextStyle(fontSize: 11, color: AppColors.textSecondary, height: 1.4),
                 ),
               ],

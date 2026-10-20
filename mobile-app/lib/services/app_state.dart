@@ -105,7 +105,7 @@ class AppState extends ChangeNotifier {
 
     await loadPairedDevices();
 
-    // Auto connect to saved Pi MAC if present
+    // Auto connect to saved device MAC if present
     if (storage.autoReconnect && storage.piMac.isNotEmpty) {
       connectToPi(storage.piMac);
     }
@@ -123,7 +123,7 @@ class AppState extends ChangeNotifier {
         _isBtConnecting = false;
         if (connected) {
           _connectedMac = event['mac'] as String? ?? '';
-          _connectedName = event['name'] as String? ?? 'Raspberry Pi';
+          _connectedName = event['name'] as String? ?? 'Thiết bị trên xe';
           _addLog('[BT-SPP] Đã kết nối với $_connectedName ($_connectedMac)');
           // Request configuration over Bluetooth SPP
           sendBtCommand({'type': 'get_config'});
@@ -215,11 +215,11 @@ class AppState extends ChangeNotifier {
     } else if (type == 'bt_logs' && msg['logs'] is List) {
       final logs = List<String>.from(msg['logs'] as List);
       for (final l in logs) {
-        _addLog('[PI-LOG] $l');
+        _addLog('[HUB-LOG] $l');
       }
       notifyListeners();
     } else if (type == 'bt_log_entry' && msg['line'] != null) {
-      _addLog('[PI-LOG] ${msg['line']}');
+      _addLog('[HUB-LOG] ${msg['line']}');
       notifyListeners();
     }
   }
@@ -245,11 +245,11 @@ class AppState extends ChangeNotifier {
       } else if (type == 'bt_logs' && map['logs'] is List) {
         final logs = List<String>.from(map['logs'] as List);
         for (final l in logs) {
-          _addLog('[PI-LOG] $l');
+          _addLog('[HUB-LOG] $l');
         }
         notifyListeners();
       } else if (type == 'bt_log_entry' && map['line'] != null) {
-        _addLog('[PI-LOG] ${map['line']}');
+        _addLog('[HUB-LOG] ${map['line']}');
         notifyListeners();
       } else {
         _addLog('[$source] $rawJson');
@@ -298,7 +298,7 @@ class AppState extends ChangeNotifier {
     _isDiscovering = true;
     notifyListeners();
     await NativeBridge.startBtDiscovery();
-    // Also tell Pi to discover if connected over Wi-Fi
+    // Also tell device to discover if connected over Wi-Fi
     wifiWs.send({'type': 'bt_start_discovery'});
   }
 

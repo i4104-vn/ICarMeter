@@ -38,7 +38,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(ok
-              ? 'Đã ưu tiên định tuyến gói tin qua Wi-Fi Raspberry Pi!'
+              ? 'Đã ưu tiên định tuyến gói tin qua Wi-Fi của xe!'
               : 'Không thể định tuyến qua Wi-Fi, hãy kiểm tra kết nối.'),
           backgroundColor: ok ? AppColors.success : AppColors.danger,
         ),
@@ -139,14 +139,14 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        isWifiConnected ? 'Đã kết nối Wi-Fi WebSocket' : 'Chưa kết nối Wi-Fi Pi',
+                        isWifiConnected ? 'Đã kết nối Wi-Fi' : 'Chưa kết nối Wi-Fi thiết bị',
                         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.text),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         isWifiConnected
                             ? 'Kênh Wi-Fi sẵn sàng hỗ trợ ghép nối Bluetooth.'
-                            : 'Hãy vào Cài đặt Wi-Fi điện thoại và chọn mạng của Pi.',
+                            : 'Hãy vào Cài đặt Wi-Fi điện thoại và chọn mạng của xe.',
                         style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
                       ),
                     ],
@@ -170,7 +170,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Địa chỉ WebSocket của Raspberry Pi',
+                  'Địa chỉ kết nối của thiết bị trên xe',
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 8),
@@ -247,13 +247,13 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
                 const SizedBox(height: 16),
                 _buildStep(
                   1,
-                  'Kết nối Wi-Fi phát từ Pi',
-                  'Mở cài đặt Wi-Fi trên điện thoại và chọn mạng "ICarMeter-Setup" (hoặc mạng do Pi phát).',
+                  'Kết nối Wi-Fi phát từ xe',
+                  'Mở cài đặt Wi-Fi trên điện thoại và chọn mạng "ICarMeter-Setup" (hoặc mạng do thiết bị phát).',
                 ),
                 _buildStep(
                   2,
                   'Kích hoạt ghép nối Bluetooth',
-                  'Sau khi Wi-Fi WebSocket kết nối thành công, nhấn "Ghép nối Bluetooth" để hệ thống tự động đưa Pi vào chế độ chờ kết nối.',
+                  'Sau khi Wi-Fi kết nối thành công, nhấn "Ghép nối Bluetooth" để hệ thống tự động đưa thiết bị vào chế độ chờ kết nối.',
                 ),
                 _buildStep(
                   3,

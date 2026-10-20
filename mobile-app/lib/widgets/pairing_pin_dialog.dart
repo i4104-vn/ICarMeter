@@ -73,7 +73,7 @@ class PairingPinDialog extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             const Text(
-              'Mã ghép nối được tạo từ Raspberry Pi. Hãy so khớp mã này trên thiết bị hoặc nhập vào điện thoại để hoàn tất ghép nối.',
+              'Mã ghép nối được tạo từ thiết bị trên xe. Hãy so khớp mã này trên thiết bị hoặc nhập vào điện thoại để hoàn tất ghép nối.',
               style: TextStyle(fontSize: 12, color: AppColors.textMuted, height: 1.4),
               textAlign: TextAlign.center,
             ),

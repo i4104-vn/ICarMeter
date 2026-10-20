@@ -37,7 +37,7 @@ class _BtLogsScreenState extends State<BtLogsScreen> {
   Color _getLogColor(String line) {
     if (line.contains('[BT-SPP]')) return AppColors.primary;
     if (line.contains('[BT-PAIR]')) return AppColors.warning;
-    if (line.contains('[PI-LOG]')) return AppColors.success;
+    if (line.contains('[HUB-LOG]') || line.contains('[DEV-LOG]')) return AppColors.success;
     if (line.contains('error') || line.contains('Error') || line.contains('failed')) {
       return AppColors.danger;
     }
@@ -52,7 +52,7 @@ class _BtLogsScreenState extends State<BtLogsScreen> {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Đã gửi yêu cầu lấy nhật ký từ Pi...'),
+        content: Text('Đã gửi yêu cầu lấy nhật ký từ thiết bị...'),
         backgroundColor: AppColors.primary,
         duration: Duration(seconds: 1),
       ),
@@ -110,7 +110,7 @@ class _BtLogsScreenState extends State<BtLogsScreen> {
                 IconButton(
                   onPressed: _requestLogs,
                   icon: const Icon(Icons.download, color: AppColors.primary, size: 20),
-                  tooltip: 'Tải nhật ký mới nhất từ Pi',
+                  tooltip: 'Tải nhật ký mới nhất từ thiết bị',
                 ),
                 IconButton(
                   onPressed: () => widget.appState.clearLogs(),
@@ -143,7 +143,7 @@ class _BtLogsScreenState extends State<BtLogsScreen> {
                 child: filteredLogs.isEmpty
                     ? const Center(
                         child: Text(
-                          'Chưa có dữ liệu nhật ký.\nNhấn biểu tượng tải xuống để lấy log từ Raspberry Pi.',
+                          'Chưa có dữ liệu nhật ký.\nNhấn biểu tượng tải xuống để lấy log từ thiết bị.',
                           style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                           textAlign: TextAlign.center,
                         ),
