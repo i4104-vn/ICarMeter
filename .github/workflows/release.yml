@@ -32,19 +32,19 @@ permissions:
 
 jobs:
   # ==============================================================================
-  # Job 1: Build Android Companion APK
+  # Job 1: Build Android Companion APK (Expo Prebuild)
   # ==============================================================================
   build-apk:
-    name: Build Android Companion APK
-    runs-on: ubuntu-24.04
+    name: Build Android Companion APK (Expo)
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Java JDK 17
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@v4
         with:
-          distribution: "zulu"
+          distribution: "temurin"
           java-version: "17"
 
       - name: Setup Node.js 20
@@ -54,36 +54,46 @@ jobs:
           cache: "npm"
           cache-dependency-path: mobile-app/package-lock.json
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: "8.5"
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Install Mobile App Dependencies
         working-directory: mobile-app
-        run: npm ci || npm install
+        run: npm ci || npm install --legacy-peer-deps
 
-      - name: Build APK with Gradle
+      - name: Export Expo Bundle & Assets
+        working-directory: mobile-app
+        run: |
+          mkdir -p android/app/src/main/assets
+          npx expo export --platform android
+
+      - name: Build Android Release APK with Gradle
         working-directory: mobile-app/android
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --stacktrace || ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleRelease --no-daemon --stacktrace
 
-      - name: Package Single Universal APK
+      - name: Package Release APK
         run: |
           mkdir -p apk_dist
-          if [ -f "mobile-app/android/app/build/outputs/apk/release/app-release.apk" ]; then
-            cp "mobile-app/android/app/build/outputs/apk/release/app-release.apk" apk_dist/ICarMeter.apk
-          elif [ -f "mobile-app/android/app/build/outputs/apk/debug/app-debug.apk" ]; then
-            cp "mobile-app/android/app/build/outputs/apk/debug/app-debug.apk" apk_dist/ICarMeter.apk
+          RELEASE_APK=$(find mobile-app/android/app/build/outputs/apk -name "*release*.apk" 2>/dev/null | head -n 1)
+          if [ -z "$RELEASE_APK" ] || [ ! -f "$RELEASE_APK" ]; then
+            RELEASE_APK=$(find mobile-app/android/app/build/outputs/apk -name "*.apk" 2>/dev/null | head -n 1)
+          fi
+          if [ -n "$RELEASE_APK" ] && [ -f "$RELEASE_APK" ]; then
+            cp "$RELEASE_APK" apk_dist/ICarMeter.apk
+            echo "Successfully packaged APK: $RELEASE_APK -> apk_dist/ICarMeter.apk"
+            ls -lah apk_dist/ICarMeter.apk
           else
             echo "ERROR: Output APK not found!" >&2
             exit 1
           fi
-          ls -lah apk_dist/ICarMeter.apk
 
       - name: Upload APK Artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: icarmeter-apk
           path: apk_dist/ICarMeter.apk
@@ -97,7 +107,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -131,7 +141,7 @@ jobs:
           ls -lah dist_bin/
 
       - name: Upload compiled binary artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: car_dashboard-bin
           path: dist_bin/
@@ -147,7 +157,7 @@ jobs:
     timeout-minutes: 180
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Free disk space on runner
         run: |
@@ -162,7 +172,7 @@ jobs:
           df -h
 
       - name: Download compiled binary artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v4
         with:
           name: car_dashboard-bin
           path: bin_artifact/
@@ -210,7 +220,7 @@ jobs:
           ls -lah ../../image_dist/
 
       - name: Upload Image Artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: icarmeter-image-zip
           path: image_dist/
@@ -225,19 +235,19 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Create release assets directory
         run: mkdir -p release_assets
 
       - name: Download APK artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v4
         with:
           name: icarmeter-apk
           path: release_assets/
 
       - name: Download OS Image artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v4
         with:
           name: icarmeter-image-zip
           path: release_assets/
@@ -272,7 +282,7 @@ jobs:
           echo "title=${TITLE}" >> $GITHUB_OUTPUT
 
       - name: Publish to GitHub Releases
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.rel_meta.outputs.tag }}
           name: ${{ steps.rel_meta.outputs.title }}
