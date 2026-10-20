@@ -4,8 +4,20 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { useApp } from '../../context/AppContext';
 
-export const AppHeader: React.FC = () => {
-  const { isWifiConnected, forceReconnectWifi } = useApp();
+interface AppHeaderProps {
+  onOpenPairing?: () => void;
+}
+
+export const AppHeader: React.FC<AppHeaderProps> = ({ onOpenPairing }) => {
+  const { isBtConnected, connectBt, settings } = useApp();
+
+  const handleStatusPress = () => {
+    if (!isBtConnected && settings.piBtMac) {
+      connectBt(settings.piBtMac);
+    } else if (onOpenPairing) {
+      onOpenPairing();
+    }
+  };
 
   return (
     <View style={styles.header}>
@@ -15,26 +27,26 @@ export const AppHeader: React.FC = () => {
         </View>
         <View style={styles.titleWrap}>
           <Text style={styles.title}>ICarMeter</Text>
-          <Text style={styles.subtitle}>Wi-Fi Companion</Text>
+          <Text style={styles.subtitle}>Bluetooth</Text>
         </View>
       </View>
 
       <TouchableOpacity
         activeOpacity={0.7}
-        onPress={forceReconnectWifi}
+        onPress={handleStatusPress}
         style={[
           styles.statusBadge,
-          isWifiConnected ? styles.statusBadgeConnected : styles.statusBadgeDisconnected,
+          isBtConnected ? styles.statusBadgeConnected : styles.statusBadgeDisconnected,
         ]}
       >
         <View
           style={[
             styles.statusDot,
-            isWifiConnected ? styles.statusDotConnected : styles.statusDotDisconnected,
+            isBtConnected ? styles.statusDotConnected : styles.statusDotDisconnected,
           ]}
         />
         <Text style={styles.statusText}>
-          {isWifiConnected ? 'Đã kết nối' : 'Chưa kết nối'}
+          {isBtConnected ? 'Bluetooth OK' : 'Chờ Bluetooth'}
         </Text>
       </TouchableOpacity>
     </View>
