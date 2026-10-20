@@ -25,8 +25,9 @@ cat << 'EOF' > /etc/bluetooth/main.conf
 [General]
 Name = ICarMeter
 Class = 0x000100
-DiscoverableTimeout = 60
+DiscoverableTimeout = 0
 PairableTimeout = 0
+AlwaysPairable = true
 AutoEnable = true
 ControllerMode = dual
 

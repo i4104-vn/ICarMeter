@@ -120,10 +120,23 @@ def bt_broadcast(msg_dict):
     except Exception as e:
         print(f"[BT] Broadcast error: {e}", file=sys.stderr)
 
+def ensure_bt_always_ready():
+    """Keeps Bluetooth adapter powered, discoverable, and pairable at all times."""
+    try:
+        subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=2)
+        subprocess.run(["bluetoothctl", "discoverable-timeout", "0"], capture_output=True, timeout=2)
+        subprocess.run(["bluetoothctl", "pairable-timeout", "0"], capture_output=True, timeout=2)
+        subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=2)
+        subprocess.run(["bluetoothctl", "pairable", "on"], capture_output=True, timeout=2)
+    except Exception:
+        pass
+
 def bt_heartbeat_worker():
-    """Background worker: keeps app connection marker fresh when Bluetooth clients are active."""
+    """Background worker: keeps app connection marker fresh when Bluetooth clients are active and ensures channel stays open."""
+    tick = 0
     while True:
         time.sleep(4)
+        tick += 1
         with bt_clients_lock:
             num_bt = len(connected_bt_clients)
         if num_bt > 0:
@@ -134,6 +147,10 @@ def bt_heartbeat_worker():
                 "clients": num_bt,
                 "timestamp": int(time.time())
             })
+
+        # Periodically ensure adapter never goes into sleep/non-discoverable mode
+        if tick % 5 == 0:
+            ensure_bt_always_ready()
 
 PORT = 8080
 HTTP_PORT = 80
@@ -221,7 +238,8 @@ def stop_bluetooth_discovery():
         _bt_discovery_active = False
     try:
         subprocess.run(["bluetoothctl", "scan", "off"], capture_output=True, timeout=3)
-        subprocess.run(["bluetoothctl", "discoverable", "off"], capture_output=True, timeout=3)
+        # Keep discoverable and pairable on permanently
+        subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=3)
     except Exception:
         pass
 
@@ -673,12 +691,18 @@ def rfcomm_server_worker():
     while True:
         server_sock = None
         try:
+            ensure_bt_always_ready()
+            try:
+                subprocess.run(["sdptool", "add", "SP"], capture_output=True, timeout=3)
+            except Exception:
+                pass
+
             server_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
             server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_sock.bind(("00:00:00:00:00:00", RFCOMM_PORT))
-            server_sock.listen(1)
+            server_sock.listen(4)
             _rfcomm_listening = True
-            print(f"[BT-RFCOMM] RFCOMM server listening on channel {RFCOMM_PORT}...")
+            print(f"[BT-RFCOMM] RFCOMM server permanently listening on channel {RFCOMM_PORT}...")
 
             while True:
                 client_sock, client_info = server_sock.accept()
@@ -695,8 +719,8 @@ def rfcomm_server_worker():
                     server_sock.close()
                 except Exception:
                     pass
-            print(f"[BT-RFCOMM] Server socket note: {e}. Retrying in 5s...", file=sys.stderr)
-            time.sleep(5)
+            print(f"[BT-RFCOMM] Server socket note: {e}. Re-establishing listening channel in 3s...", file=sys.stderr)
+            time.sleep(3)
 
 
 class ApiHandler(http.server.BaseHTTPRequestHandler):

@@ -29,12 +29,14 @@ if [ -x /usr/bin/btmgmt ]; then
 fi
 /usr/bin/bluetoothctl power on || true
 
-# Controller is pairable for mobile companion app (RFCOMM/SPP)
-# Initial discoverable is off until app requests discovery
-/usr/bin/bluetoothctl discoverable off 2>/dev/null || true
+# Controller is permanently discoverable and pairable (RFCOMM/SPP)
+# Never times out, channel is always ready for phone connection
+/usr/bin/bluetoothctl discoverable-timeout 0 2>/dev/null || true
+/usr/bin/bluetoothctl pairable-timeout 0 2>/dev/null || true
+/usr/bin/bluetoothctl discoverable on 2>/dev/null || true
 /usr/bin/bluetoothctl pairable on 2>/dev/null || true
 
 # Register Serial Port Profile (SPP) in BlueZ SDP
 sdptool add SP 2>/dev/null || true
 
-echo "[Bluetooth-Init] Controller powered and configured for TPMS LE scanning and RFCOMM SPP."
+echo "[Bluetooth-Init] Controller powered and permanently listening for RFCOMM SPP connections."
