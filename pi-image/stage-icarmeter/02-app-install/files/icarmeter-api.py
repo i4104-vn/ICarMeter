@@ -363,16 +363,39 @@ def get_bluetooth_status():
 def _bt_discovery_worker():
     global _bt_discovery_active
     log_bt("BT", "Starting Bluetooth scan & discovery...")
+
+    # Check if a controller is available, attempt recovery if missing
+    controller_ready = False
+    try:
+        check = subprocess.run(["bluetoothctl", "list"], capture_output=True, text=True, timeout=3)
+        if "Controller" in (check.stdout or ""):
+            controller_ready = True
+        else:
+            subprocess.run(["rfkill", "unblock", "bluetooth"], capture_output=True, timeout=2)
+            subprocess.run(["systemctl", "restart", "hciuart.service"], capture_output=True, timeout=5)
+            time.sleep(1)
+            check2 = subprocess.run(["bluetoothctl", "list"], capture_output=True, text=True, timeout=3)
+            if "Controller" in (check2.stdout or ""):
+                controller_ready = True
+    except Exception:
+        pass
+
+    if not controller_ready:
+        log_bt("BT", "Warning: No Bluetooth controller available (check hardware / miniuart-bt overlay)")
+
     try:
         run_bluetoothctl(["discoverable", "on"], timeout=3)
         run_bluetoothctl(["scan", "on"], timeout=3)
     except Exception:
         pass
 
+    fail_count = 0
     while _bt_discovery_active:
         try:
             res = run_bluetoothctl(["devices"], timeout=4)
-            if res.returncode == 0:
+            out = (res.stdout or "") + " " + (res.stderr or "")
+            if res.returncode == 0 and "No default controller available" not in out:
+                fail_count = 0
                 for line in res.stdout.strip().splitlines():
                     m = re.match(r"^Device\s+([0-9A-Fa-f:]{17})\s*(.*)$", line.strip())
                     if m:
@@ -391,6 +414,10 @@ def _bt_discovery_worker():
                                     "name": name,
                                     "rssi": 0
                                 })
+            else:
+                fail_count += 1
+                if fail_count >= 5:
+                    time.sleep(4)
         except Exception:
             pass
         time.sleep(2)

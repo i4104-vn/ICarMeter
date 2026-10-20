@@ -77,12 +77,6 @@ cat << 'EOF' > /etc/NetworkManager/conf.d/10-icarmeter-hotspot.conf
 # wlan0 is dedicated to the ICarMeter AP hotspot.
 wifi.scan-rand-mac-address=no
 
-[connection-wifi-wlan0-no-autoconnect]
-# Block all station-mode wifi auto-connections. Only the ICarMeter-Hotspot
-# AP profile (installed in system-connections/) is allowed.
-match-device=interface-name:wlan0
-connection.autoconnect=false
-
 [main]
 # Use internal DHCP client (not dhclient) for reliability
 dhcp=internal

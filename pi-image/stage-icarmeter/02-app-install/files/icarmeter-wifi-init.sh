@@ -36,12 +36,16 @@ ensure_iptables_open() {
     # Allow port 80 (Standard HTTP & captive portal)
     iptables -C INPUT -i wlan0 -p tcp --dport 80 -j ACCEPT 2>/dev/null \
         || iptables -I INPUT -i wlan0 -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
-    # Allow DNS (UDP/TCP 53)
+    # Allow DNS (UDP & TCP 53)
     iptables -C INPUT -i wlan0 -p udp --dport 53 -j ACCEPT 2>/dev/null \
         || iptables -I INPUT -i wlan0 -p udp --dport 53 -j ACCEPT 2>/dev/null || true
-    # Allow DHCP (UDP 67)
+    iptables -C INPUT -i wlan0 -p tcp --dport 53 -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT -i wlan0 -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
+    # Allow DHCP (UDP 67 server & 68 client)
     iptables -C INPUT -i wlan0 -p udp --dport 67 -j ACCEPT 2>/dev/null \
         || iptables -I INPUT -i wlan0 -p udp --dport 67 -j ACCEPT 2>/dev/null || true
+    iptables -C INPUT -i wlan0 -p udp --dport 68 -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT -i wlan0 -p udp --dport 68 -j ACCEPT 2>/dev/null || true
     # Backup NAT redirect: Forward incoming port 80 to 8080 if port 80 is not natively bound
     iptables -t nat -C PREROUTING -i wlan0 -p tcp --dport 80 -j REDIRECT --to-ports "$API_PORT" 2>/dev/null \
         || iptables -t nat -I PREROUTING -i wlan0 -p tcp --dport 80 -j REDIRECT --to-ports "$API_PORT" 2>/dev/null || true
@@ -61,14 +65,19 @@ activate_hotspot() {
     return 1
 }
 
-# Verify the hotspot interface actually has the correct IP bound
+# Verify the hotspot interface actually has the correct IP bound (with retry buffer to avoid restart flapping)
 verify_ip_assigned() {
-    if ! ip addr show wlan0 2>/dev/null | grep -q "192.168.4.1"; then
-        log "WARNING: wlan0 missing 192.168.4.1 — forcing hotspot restart..."
-        nmcli connection down "$CONN_NAME" 2>/dev/null || true
+    local attempt
+    for attempt in $(seq 1 5); do
+        if ip addr show wlan0 2>/dev/null | grep -q "192.168.4.1"; then
+            return 0
+        fi
         sleep 1
-        nmcli connection up "$CONN_NAME"   2>/dev/null || true
-    fi
+    done
+    log "WARNING: wlan0 missing 192.168.4.1 after 5s — forcing hotspot restart..."
+    nmcli connection down "$CONN_NAME" 2>/dev/null || true
+    sleep 2
+    nmcli connection up "$CONN_NAME"   2>/dev/null || true
 }
 
 # ─── Clean shutdown ──────────────────────────────────────────────────────────

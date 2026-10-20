@@ -52,9 +52,9 @@ elif [ -f "/boot/config.txt" ]; then
 fi
 
 if [ -n "$CONFIG_FILE" ]; then
-    # Remove only an explicit disable overlay. Keep miniuart-bt intact: some
-    # Pi models require it to route the onboard controller to the HCI UART.
+    # Remove disable-bt overlay so onboard Bluetooth hardware remains enabled
     sed -i '/disable-bt/d' "$CONFIG_FILE" 2>/dev/null || true
+    sed -i '/dtparam=bluetooth=on/d' "$CONFIG_FILE" 2>/dev/null || true
 
     if ! grep -q "ICarMeter" "$CONFIG_FILE"; then
         cat << 'EOF' >> "$CONFIG_FILE"
@@ -63,11 +63,20 @@ if [ -n "$CONFIG_FILE" ]; then
 disable_splash=1
 boot_delay=0
 enable_uart=1
-dtparam=bluetooth=on
+dtoverlay=miniuart-bt
+core_freq=250
+core_freq_min=250
 framebuffer_depth=32
 framebuffer_ignore_alpha=1
 EOF
-    elif ! grep -q "dtparam=bluetooth=on" "$CONFIG_FILE"; then
-        echo "dtparam=bluetooth=on" >> "$CONFIG_FILE"
+    else
+        # Ensure miniuart-bt and core frequency locking exist so Bluetooth controller is active alongside GPS serial
+        if ! grep -q "dtoverlay=miniuart-bt" "$CONFIG_FILE"; then
+            echo "dtoverlay=miniuart-bt" >> "$CONFIG_FILE"
+        fi
+        if ! grep -q "core_freq=250" "$CONFIG_FILE"; then
+            echo "core_freq=250" >> "$CONFIG_FILE"
+            echo "core_freq_min=250" >> "$CONFIG_FILE"
+        fi
     fi
 fi

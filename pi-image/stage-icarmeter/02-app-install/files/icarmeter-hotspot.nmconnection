@@ -15,10 +15,6 @@ channel=6
 powersave=2
 hidden=false
 
-[wifi-security]
-key-mgmt=wpa-psk
-psk=icarmeterbyi4104
-
 [ipv4]
 address1=192.168.4.1/24
 method=shared

@@ -15,11 +15,16 @@ log_bt "Initializing Bluetooth adapter for TPMS sensor scanning..."
 rfkill unblock bluetooth 2>/dev/null || true
 
 controller_found=0
-for _ in $(seq 1 45); do
+for i in $(seq 1 45); do
     if /usr/bin/bluetoothctl list 2>/dev/null | grep -q "Controller" || \
        /usr/bin/btmgmt info 2>/dev/null | grep -Eq "hci[0-9]+:"; then
         controller_found=1
         break
+    fi
+    # If controller hasn't appeared yet, poke rfkill and hciuart to trigger driver attachment
+    if [ "$i" -eq 4 ] || [ "$i" -eq 12 ] || [ "$i" -eq 25 ]; then
+        rfkill unblock bluetooth 2>/dev/null || true
+        systemctl restart hciuart.service 2>/dev/null || true
     fi
     sleep 1
 done
@@ -32,6 +37,8 @@ fi
 log_bt "Bluetooth controller detected. Powering on..."
 
 # Power on the controller so the raw HCI socket in car_dashboard can capture TPMS LE advertisements
+rfkill unblock bluetooth 2>/dev/null || true
+hciconfig hci0 up 2>/dev/null || true
 if [ -x /usr/bin/btmgmt ]; then
     /usr/bin/btmgmt power on || true
 fi
