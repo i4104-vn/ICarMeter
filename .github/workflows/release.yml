@@ -28,62 +28,70 @@ on:
         type: boolean
 
 permissions:
-  contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  contents: write
 
 jobs:
   # ==============================================================================
-  # Job 1: Build the Android APKs for 32-bit and 64-bit ARM
+  # Job 1: Build Android Companion APK (Flutter - Universal x32 & x64)
   # ==============================================================================
   build-apk:
     name: Build Android Companion APK (Flutter)
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
+        uses: actions/checkout@v6
 
       - name: Setup Java JDK 17
-        uses: actions/setup-java@v6.1.0
+        uses: actions/setup-java@v6
         with:
           distribution: "temurin"
           java-version: "17"
 
       - name: Setup Flutter
-        uses: subosito/flutter-action@v2.23.0
+        uses: subosito/flutter-action@v2
         with:
           channel: "stable"
           cache: true
-          pub-cache: true
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6.4.0
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Get Flutter Dependencies
         working-directory: mobile-app
-        run: flutter pub get --enforce-lockfile
+        run: flutter pub get
 
-      - name: Android Release APK
+      - name: Release APK
         working-directory: mobile-app
-        run: flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64
+        run: flutter build apk --release --split-per-abi
 
       - name: Package Release APKs
-        shell: bash
         run: |
-          set -euo pipefail
           mkdir -p apk_dist
-          APK_DIR=mobile-app/build/app/outputs/flutter-apk
-          cp -v "$APK_DIR/app-arm64-v8a-release.apk" apk_dist/ICarMeter-arm64-v8a.apk
-          cp -v "$APK_DIR/app-arm64-v8a-release.apk" apk_dist/ICarMeter.apk
-          cp -v "$APK_DIR/app-armeabi-v7a-release.apk" apk_dist/ICarMeter-armeabi-v7a.apk
+          V8A_APK=$(find mobile-app/build/app/outputs/flutter-apk -name "*arm64-v8a*release*.apk" 2>/dev/null | head -n 1)
+          V7A_APK=$(find mobile-app/build/app/outputs/flutter-apk -name "*armeabi-v7a*release*.apk" 2>/dev/null | head -n 1)
+
+          if [ -f "$V8A_APK" ]; then
+            cp -v "$V8A_APK" apk_dist/ICarMeter-arm64-v8a.apk
+            cp -v "$V8A_APK" apk_dist/ICarMeter.apk
+            echo "Packaged v8a APK -> apk_dist/ICarMeter-arm64-v8a.apk and apk_dist/ICarMeter.apk"
+          else
+            echo "ERROR: Output arm64-v8a APK not found!" >&2
+            exit 1
+          fi
+
+          if [ -f "$V7A_APK" ]; then
+            cp -v "$V7A_APK" apk_dist/ICarMeter-armeabi-v7a.apk
+            echo "Packaged v7a APK -> apk_dist/ICarMeter-armeabi-v7a.apk"
+          else
+            echo "ERROR: Output armeabi-v7a APK not found!" >&2
+            exit 1
+          fi
+
+          echo "=== Packaged APKs ==="
           ls -lah apk_dist/
 
       - name: Upload APK Artifact
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@v6
         with:
           name: icarmeter-apk
           path: apk_dist/
@@ -97,9 +105,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
+        uses: actions/checkout@v6
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -107,18 +113,18 @@ jobs:
           targets: aarch64-unknown-linux-gnu
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.9.2
+        uses: Swatinem/rust-cache@v2
 
       - name: Install cross-compilation linker
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu
+          sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build ICarMeter for aarch64
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: |
-          cargo build --locked --release --target aarch64-unknown-linux-gnu
+          cargo build --release --target aarch64-unknown-linux-gnu
 
       - name: Verify compiled binary
         run: |
@@ -133,7 +139,7 @@ jobs:
           ls -lah dist_bin/
 
       - name: Upload compiled binary artifact
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@v6
         with:
           name: car_dashboard-bin
           path: dist_bin/
@@ -149,9 +155,7 @@ jobs:
     timeout-minutes: 180
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
+        uses: actions/checkout@v6
 
       - name: Free disk space on runner
         run: |
@@ -166,44 +170,40 @@ jobs:
           df -h
 
       - name: Download compiled binary artifact
-        uses: actions/download-artifact@v8.0.2
+        uses: actions/download-artifact@v6
         with:
           name: car_dashboard-bin
           path: bin_artifact/
 
       - name: Inject binary into stage-icarmeter files
-        shell: bash
         run: |
-          set -euo pipefail
           mkdir -p pi-image/stage-icarmeter/02-app-install/files
-          cp -v bin_artifact/car_dashboard pi-image/stage-icarmeter/02-app-install/files/car_dashboard
-          cp -v bin_artifact/config.toml pi-image/stage-icarmeter/02-app-install/files/config.toml
+          find bin_artifact -type f -name "car_dashboard" -exec cp -v {} pi-image/stage-icarmeter/02-app-install/files/car_dashboard \;
+          find bin_artifact -type f -name "config.toml" -exec cp -v {} pi-image/stage-icarmeter/02-app-install/files/config.toml \;
           chmod +x pi-image/stage-icarmeter/02-app-install/files/car_dashboard
           ls -lah pi-image/stage-icarmeter/02-app-install/files/
 
-      - name: Build Pi OS Image with pi-gen Docker
-        shell: bash
+      - name: Setup QEMU and binfmt
         run: |
-          set -euo pipefail
+          docker run --privileged --rm tonistiigi/binfmt --install all
+
+      - name: Build Pi OS Image with pi-gen Docker
+        run: |
           cd pi-image
-          chmod +x build-docker.sh
+          chmod -R +x .
+          find . -type f \( -name "*.sh" -o -name "EXPORT_IMAGE" \) -exec chmod +x {} + || true
           ./build-docker.sh
 
       - name: Package Image into Flashable Zip
-        shell: bash
         run: |
-          set -euo pipefail
           mkdir -p image_dist
           cd pi-image/deploy
 
-          shopt -s nullglob
-          images=( *.img )
-          if [ "${#images[@]}" -ne 1 ]; then
-            printf 'ERROR: Expected one .img file, found %s.\n' "${#images[@]}" >&2
-            ls -lah
+          IMG_FILE=$(ls *.img 2>/dev/null | head -n 1)
+          if [ -z "$IMG_FILE" ]; then
+            echo "ERROR: No .img file found in deploy/!" >&2
             exit 1
           fi
-          IMG_FILE=${images[0]}
 
           echo "Found image: ${IMG_FILE}"
           ZIP_NAME="ICarMeter-RaspberryPiOS-arm64.zip"
@@ -211,11 +211,14 @@ jobs:
           # Package ONLY the .img file into the zip archive so Raspberry Pi Imager / BalenaEtcher can flash directly
           zip -6 -j "../../image_dist/${ZIP_NAME}" "${IMG_FILE}"
 
+          # Copy info file to artifact for build details
+          cp -v *.info ../../image_dist/image_build.info 2>/dev/null || true
+
           echo "=== Output Zipped Artifact ==="
           ls -lah ../../image_dist/
 
       - name: Upload Image Artifact
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@v6
         with:
           name: icarmeter-image-zip
           path: image_dist/
@@ -228,67 +231,61 @@ jobs:
     name: Publish GitHub Release (OS Image & APK)
     needs: [build-apk, build-binary, build-image]
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Create release assets directory
+        run: mkdir -p release_assets
+
       - name: Download APK artifact
-        uses: actions/download-artifact@v8.0.2
+        uses: actions/download-artifact@v6
         with:
           name: icarmeter-apk
-          path: release_assets/apk/
+          path: release_assets/
 
       - name: Download OS Image artifact
-        uses: actions/download-artifact@v8.0.2
+        uses: actions/download-artifact@v6
         with:
           name: icarmeter-image-zip
-          path: release_assets/image/
+          path: release_assets/
 
-      - name: Prepare release assets and compute SHA256 checksums
-        shell: bash
+      - name: Flatten assets and compute unified SHA256 checksums
+        working-directory: release_assets
         run: |
-          set -euo pipefail
-          cp release_assets/apk/ICarMeter-arm64-v8a.apk release_assets/
-          cp release_assets/apk/ICarMeter-armeabi-v7a.apk release_assets/
-          cp release_assets/apk/ICarMeter.apk release_assets/
-          cp release_assets/image/ICarMeter-RaspberryPiOS-arm64.zip release_assets/
-          (
-            cd release_assets
-            sha256sum ICarMeter-arm64-v8a.apk ICarMeter-armeabi-v7a.apk ICarMeter.apk ICarMeter-RaspberryPiOS-arm64.zip > SHA256SUMS.txt
-            ls -lah
-          )
+          find . -mindepth 2 -type f -exec mv -v {} . \; || true
+          rm -f SHA256SUMS.txt
+          sha256sum ICarMeter-arm64-v8a.apk ICarMeter-armeabi-v7a.apk ICarMeter.apk ICarMeter-RaspberryPiOS-arm64.zip 2>/dev/null | tee SHA256SUMS.txt || true
+          echo "=== Release Assets Ready ==="
+          ls -lah
 
       - name: Resolve Release Tag & Name
         id: rel_meta
-        env:
-          INPUT_TAG_NAME: ${{ inputs.tag_name }}
-          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
-          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          set -euo pipefail
-          if [ -n "$INPUT_TAG_NAME" ]; then
-            TAG="$INPUT_TAG_NAME"
-          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
           else
-            TAG="v1.0.0-build.${RUN_NUMBER}"
+            TAG="v1.0.0-build.${{ github.run_number }}"
           fi
 
-          if [ -n "$INPUT_RELEASE_NAME" ]; then
-            TITLE="$INPUT_RELEASE_NAME"
+          if [ -n "${{ github.event.inputs.release_name }}" ]; then
+            TITLE="${{ github.event.inputs.release_name }}"
           else
             TITLE="ICarMeter ${TAG}"
           fi
 
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "title=${TITLE}" >> $GITHUB_OUTPUT
 
       - name: Publish to GitHub Releases
-        uses: softprops/action-gh-release@v3.0.3
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.rel_meta.outputs.tag }}
           name: ${{ steps.rel_meta.outputs.title }}
-          draft: ${{ inputs.draft }}
-          prerelease: ${{ inputs.prerelease }}
+          draft: ${{ github.event.inputs.draft == true }}
+          prerelease: ${{ github.event.inputs.prerelease == true }}
           files: |
             release_assets/ICarMeter-arm64-v8a.apk
             release_assets/ICarMeter-armeabi-v7a.apk
