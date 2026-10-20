@@ -31,6 +31,7 @@ export const BtPairingScreen: React.FC<BtPairingScreenProps> = ({
   const [pairedDevices, setPairedDevices] = useState<BtDevice[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [pairingMac, setPairingMac] = useState<string | null>(null);
+  const [pinCode, setPinCode] = useState<string | null>(null);
   const [customMac, setCustomMac] = useState(settings.phoneMac || '');
 
   useEffect(() => {
@@ -60,8 +61,11 @@ export const BtPairingScreen: React.FC<BtPairingScreenProps> = ({
             return [...prev, { mac, name, rssi }];
           });
         }
+      } else if (msg.type === 'bt_pin_code') {
+        setPinCode(msg.pin ? msg.pin : null);
       } else if (msg.type === 'bt_pair_result') {
         setPairingMac(null);
+        setPinCode(null);
         if (msg.success) {
           showToast('Ghép đôi thành công');
           finishPairing();
@@ -103,6 +107,7 @@ export const BtPairingScreen: React.FC<BtPairingScreenProps> = ({
       showToast('Chưa nhập địa chỉ MAC');
       return;
     }
+    setPinCode(null);
     setPairingMac(cleanMac);
     wifiTransport.send({ type: 'bt_pair', mac: cleanMac });
   };
@@ -128,6 +133,15 @@ export const BtPairingScreen: React.FC<BtPairingScreenProps> = ({
         </View>
         {isScanning && <ActivityIndicator size="small" color={colors.accentCyan} />}
       </View>
+
+      {/* PIN / Passkey Display */}
+      {pinCode && (
+        <Card style={styles.pinCard}>
+          <Text style={styles.pinLabel}>MÃ GHÉP NỐI</Text>
+          <Text style={styles.pinValue}>{pinCode}</Text>
+          <Text style={styles.pinSub}>Nhập hoặc xác nhận mã này trên điện thoại</Text>
+        </Card>
+      )}
 
       {/* Auto-detected Phone MAC section */}
       {settings.phoneMac ? (
@@ -303,5 +317,35 @@ const styles = StyleSheet.create({
   emptyText: {
     color: colors.textMuted,
     fontSize: 13,
+  },
+  pinCard: {
+    marginBottom: 16,
+    padding: 16,
+    alignItems: 'center',
+    backgroundColor: 'rgba(234, 179, 8, 0.12)',
+    borderColor: '#eab308',
+    borderWidth: 2,
+    borderRadius: 12,
+  },
+  pinLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#eab308',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  pinValue: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: colors.textPrimary,
+    letterSpacing: 4,
+    fontFamily: 'monospace',
+    marginVertical: 4,
+  },
+  pinSub: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 2,
   },
 });

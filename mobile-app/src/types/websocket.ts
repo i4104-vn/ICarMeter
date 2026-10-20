@@ -6,18 +6,18 @@ export type WsClientCommand =
   | { type: 'ping' }
   | { type: 'get_config' }
   | {
-      type: 'set_config';
-      payload: {
-        action: 'update_config';
-        fl: string;
-        fr: string;
-        rl: string;
-        rr: string;
-        alert: number;
-        high_temp_alert: number;
-        gps_enabled: boolean;
-      };
-    }
+    type: 'set_config';
+    payload: {
+      action: 'update_config';
+      fl: string;
+      fr: string;
+      rl: string;
+      rr: string;
+      alert: number;
+      high_temp_alert: number;
+      gps_enabled: boolean;
+    };
+  }
   | ({ type: 'telemetry' } & GpsTelemetry)
   | { type: 'get_bt_status' }
   | { type: 'bt_start_discovery' }
@@ -27,18 +27,19 @@ export type WsClientCommand =
 
 export interface WsServerMessage {
   type:
-    | 'welcome'
-    | 'config'
-    | 'error'
-    | 'status'
-    | 'heartbeat'
-    | 'pong'
-    | 'bt_status'
-    | 'bt_discovery_started'
-    | 'bt_discovery_stopped'
-    | 'bt_device_found'
-    | 'bt_pair_result'
-    | 'bt_unpair_result';
+  | 'welcome'
+  | 'config'
+  | 'status'
+  | 'error'
+  | 'heartbeat'
+  | 'pong'
+  | 'bt_status'
+  | 'bt_discovery_started'
+  | 'bt_discovery_stopped'
+  | 'bt_device_found'
+  | 'bt_pair_result'
+  | 'bt_unpair_result'
+  | 'bt_pin_code';
   message?: string;
   config?: PiFullConfig;
   data?: PiFullConfig | BtStatusData | any;
@@ -49,4 +50,5 @@ export interface WsServerMessage {
   name?: string;
   rssi?: number;
   success?: boolean;
+  pin?: string;
 }

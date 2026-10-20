@@ -157,11 +157,42 @@ HTTP_PORT = 80
 CONFIG_PATH = "/opt/icarmeter/config.toml"
 APP_CONN_MARKER = "/dev/shm/icarmeter_app_connected"
 WS_EVENT_MARKER = "/dev/shm/icarmeter_ws_event"
+PIN_MARKER = "/dev/shm/icarmeter_bt_pin"
 
 _rfcomm_listening = False
 _bt_discovery_active = False
 _bt_discovery_lock = threading.Lock()
 _bt_discovered_devices = set()
+_last_pin_timestamp = 0.0
+
+def pin_monitor_worker():
+    """Watches /dev/shm/icarmeter_bt_pin and broadcasts bt_pin_code to WiFi clients."""
+    global _last_pin_timestamp
+    while True:
+        try:
+            if os.path.exists(PIN_MARKER):
+                try:
+                    with open(PIN_MARKER, "r", encoding="utf-8") as f:
+                        content = f.read().strip()
+                    if content:
+                        data = json.loads(content)
+                        ts = float(data.get("timestamp", 0.0))
+                        now = time.time()
+                        if ts > _last_pin_timestamp and (now - ts) < 60.0:
+                            _last_pin_timestamp = ts
+                            pin = str(data.get("pin", "")).strip()
+                            mac = str(data.get("mac", "")).strip()
+                            if pin:
+                                ws_broadcast({
+                                    "type": "bt_pin_code",
+                                    "pin": pin,
+                                    "mac": mac
+                                })
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        time.sleep(0.5)
 
 def get_bluetooth_status():
     """Query Bluetooth adapter status and paired devices list."""
@@ -245,14 +276,30 @@ def stop_bluetooth_discovery():
 
 def pair_bluetooth_device(mac):
     try:
+        if os.path.exists(PIN_MARKER):
+            try:
+                os.remove(PIN_MARKER)
+            except Exception:
+                pass
+
         subprocess.run(["bluetoothctl", "trust", mac], capture_output=True, timeout=5)
-        res = subprocess.run(["bluetoothctl", "pair", mac], capture_output=True, text=True, timeout=25)
+        res = subprocess.run(["bluetoothctl", "pair", mac], capture_output=True, text=True, timeout=30)
+
+        if os.path.exists(PIN_MARKER):
+            try:
+                os.remove(PIN_MARKER)
+            except Exception:
+                pass
+        ws_broadcast({"type": "bt_pin_code", "pin": ""})
+
         if res.returncode == 0 or "successful" in res.stdout.lower():
             return True, "Paired successfully"
         return False, res.stderr.strip() or res.stdout.strip() or "Pairing failed"
     except subprocess.TimeoutExpired:
+        ws_broadcast({"type": "bt_pin_code", "pin": ""})
         return False, "Pairing timed out"
     except Exception as e:
+        ws_broadcast({"type": "bt_pin_code", "pin": ""})
         return False, str(e)
 
 def unpair_bluetooth_device(mac):
@@ -1003,6 +1050,10 @@ def main():
     # Start Bluetooth background heartbeat worker
     t_hb = threading.Thread(target=bt_heartbeat_worker, daemon=True)
     t_hb.start()
+
+    # Start PIN/passkey monitor worker
+    t_pin = threading.Thread(target=pin_monitor_worker, daemon=True)
+    t_pin.start()
 
     # Start Bluetooth RFCOMM/SPP server worker
     t_rfcomm = threading.Thread(target=rfcomm_server_worker, daemon=True)
