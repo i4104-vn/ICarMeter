@@ -1,0 +1,21 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Android build
+.gradle/
+build/
+android/app/build/
+android/build/
+android/.gradle/
+
+# Bundle
+*.bundle
+*.bundle.map
+
+# Temporary
+.DS_Store
+*.swp
+*.orig
