@@ -1,18 +1,14 @@
 package com.icarmeter.companion
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -62,116 +58,6 @@ class MainActivity : FlutterActivity() {
             return manager?.adapter ?: BluetoothAdapter.getDefaultAdapter()
         }
 
-    private val btReceiver = object : BroadcastReceiver() {
-        @SuppressLint("MissingPermission")
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val action = intent?.action ?: return
-            when (action) {
-                BluetoothDevice.ACTION_FOUND,
-                BluetoothDevice.ACTION_NAME_CHANGED -> {
-                    val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                    } ?: return
-
-                    val extraName = intent.getStringExtra(BluetoothDevice.EXTRA_NAME)
-                    var devName = extraName
-                    try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !device.alias.isNullOrBlank()) {
-                            devName = device.alias
-                        } else if (devName.isNullOrBlank()) {
-                            devName = device.name
-                        }
-                    } catch (_: Exception) {}
-
-                    val finalName = if (!devName.isNullOrBlank()) devName else (extraName ?: device.address)
-                    val rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE).toInt()
-                    emitBtEvent(
-                        mapOf(
-                            "type" to "device_found",
-                            "mac" to device.address,
-                            "name" to finalName,
-                            "rssi" to rssi
-                        )
-                    )
-                }
-
-                BluetoothAdapter.ACTION_DISCOVERY_STARTED -> {
-                    emitBtEvent(mapOf("type" to "discovery_state", "discovering" to true))
-                }
-
-                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-                    emitBtEvent(mapOf("type" to "discovery_state", "discovering" to false))
-                }
-
-                BluetoothDevice.ACTION_PAIRING_REQUEST -> {
-                    val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                    }
-
-                    val pinInt = intent.getIntExtra(BluetoothDevice.EXTRA_PAIRING_KEY, -1)
-                    val pin = if (pinInt != -1) String.format("%06d", pinInt) else ""
-
-                    if (device != null) {
-                        var dName = device.name
-                        try {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !device.alias.isNullOrBlank()) {
-                                dName = device.alias
-                            }
-                        } catch (_: Exception) {}
-
-                        emitBtEvent(
-                            mapOf(
-                                "type" to "pin_code",
-                                "mac" to device.address,
-                                "name" to (dName ?: device.address),
-                                "pin" to pin
-                            )
-                        )
-                    }
-                }
-
-                BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
-                    val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                    }
-                    val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)
-                    val stateStr = when (bondState) {
-                        BluetoothDevice.BOND_BONDED -> "bonded"
-                        BluetoothDevice.BOND_BONDING -> "bonding"
-                        else -> "none"
-                    }
-
-                    if (device != null) {
-                        var dName = device.name
-                        try {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !device.alias.isNullOrBlank()) {
-                                dName = device.alias
-                            }
-                        } catch (_: Exception) {}
-
-                        emitBtEvent(
-                            mapOf(
-                                "type" to "bond_state",
-                                "mac" to device.address,
-                                "name" to (dName ?: device.address),
-                                "state" to stateStr
-                            )
-                        )
-                    }
-                }
-            }
-        }
-    }
-
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -180,28 +66,6 @@ class MainActivity : FlutterActivity() {
             event.putAll(params)
             emitBtEvent(event)
         }
-
-        // Register BroadcastReceiver for Bluetooth Scanning & Pairing safely
-        try {
-            val filter = IntentFilter().apply {
-                addAction(BluetoothDevice.ACTION_FOUND)
-                addAction(BluetoothDevice.ACTION_NAME_CHANGED)
-                addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED)
-                addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
-                addAction(BluetoothDevice.ACTION_PAIRING_REQUEST)
-                addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ContextCompat.registerReceiver(
-                    this,
-                    btReceiver,
-                    filter,
-                    ContextCompat.RECEIVER_EXPORTED
-                )
-            } else {
-                registerReceiver(btReceiver, filter)
-            }
-        } catch (_: Exception) {}
 
         // Event Channels
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, BT_EVENT_CHANNEL)
@@ -252,74 +116,6 @@ class MainActivity : FlutterActivity() {
 
     private fun handleMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "getPhonePairedDevices" -> {
-                val devices = btSppManager?.getPairedDevices() ?: emptyList()
-                result.success(devices)
-            }
-
-            "startBtDiscovery" -> {
-                val adapter = bluetoothAdapter
-                if (adapter == null || !adapter.isEnabled) {
-                    result.error("BT_OFF", "Bluetooth is disabled", null)
-                    return
-                }
-                try {
-                    if (adapter.isDiscovering) adapter.cancelDiscovery()
-                    val ok = adapter.startDiscovery()
-                    result.success(ok)
-                } catch (e: Exception) {
-                    result.error("DISCOVERY_ERROR", e.message, null)
-                }
-            }
-
-            "stopBtDiscovery" -> {
-                try {
-                    bluetoothAdapter?.cancelDiscovery()
-                    result.success(true)
-                } catch (e: Exception) {
-                    result.error("DISCOVERY_ERROR", e.message, null)
-                }
-            }
-
-            "pairDevice" -> {
-                val mac = call.argument<String>("mac")
-                if (mac.isNullOrEmpty()) {
-                    result.error("INVALID_ARG", "MAC is required", null)
-                    return
-                }
-                try {
-                    val device = bluetoothAdapter?.getRemoteDevice(mac)
-                    if (device == null) {
-                        result.error("DEVICE_NOT_FOUND", "Device not found", null)
-                        return
-                    }
-                    val bonded = device.createBond()
-                    result.success(bonded)
-                } catch (e: Exception) {
-                    result.error("PAIR_ERROR", e.message, null)
-                }
-            }
-
-            "unpairDevice" -> {
-                val mac = call.argument<String>("mac")
-                if (mac.isNullOrEmpty()) {
-                    result.error("INVALID_ARG", "MAC is required", null)
-                    return
-                }
-                try {
-                    val device = bluetoothAdapter?.getRemoteDevice(mac)
-                    if (device == null) {
-                        result.error("DEVICE_NOT_FOUND", "Device not found", null)
-                        return
-                    }
-                    val method = device.javaClass.getMethod("removeBond")
-                    val ok = method.invoke(device) as? Boolean ?: false
-                    result.success(ok)
-                } catch (e: Exception) {
-                    result.error("UNPAIR_ERROR", e.message, null)
-                }
-            }
-
             "connectBtSpp" -> {
                 val mac = call.argument<String>("mac")
                 val uuid = call.argument<String>("uuid")

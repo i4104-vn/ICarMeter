@@ -44,7 +44,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
     // Request fresh status and logs
     if (widget.appState.isWifiConnected) {
       widget.appState.loadPairedDevices();
-      _requestLogsFromPi();
+      _requestBluetoothLogs();
     }
   }
 
@@ -55,7 +55,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
     super.dispose();
   }
 
-  void _requestLogsFromPi() {
+  void _requestBluetoothLogs() {
     final cmd = {'type': 'get_bt_logs'};
     if (widget.appState.isBtConnected) {
       widget.appState.sendBtCommand(cmd);
@@ -81,8 +81,8 @@ class _BtPairingModalState extends State<BtPairingModal> {
 
   Color _getLogColor(String line) {
     if (line.contains('[BT-SPP]')) return AppColors.primary;
-    if (line.contains('[BT-PAIR]') || line.contains('[PI-PAIR]')) return AppColors.warning;
-    if (line.contains('[HUB-LOG]') || line.contains('[PI-BT]')) return AppColors.success;
+    if (line.contains('[BT-PAIR]')) return AppColors.warning;
+    if (line.contains('[HUB-LOG]') || line.contains('[BT]')) return AppColors.success;
     if (line.contains('error') || line.contains('Error') || line.contains('FAILED')) {
       return AppColors.danger;
     }
@@ -450,7 +450,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
               ),
               const SizedBox(width: 8),
               IconButton(
-                onPressed: _requestLogsFromPi,
+                onPressed: _requestBluetoothLogs,
                 icon: const Icon(Icons.download, color: AppColors.primary, size: 20),
                 tooltip: 'Lấy nhật ký mới nhất',
               ),

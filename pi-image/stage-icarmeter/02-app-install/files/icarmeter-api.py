@@ -304,7 +304,7 @@ PIN_MARKER = "/dev/shm/icarmeter_bt_pin"
 _rfcomm_listening = False
 _bt_discovery_active = False
 _bt_discovery_lock = threading.Lock()
-_bt_discovered_devices = set()
+_bt_discovered_devices = {}
 _last_pin_timestamp = 0.0
 
 def pin_monitor_worker():
@@ -379,8 +379,11 @@ def _bt_discovery_worker():
                         mac = m.group(1).upper()
                         name = m.group(2).strip() or mac
                         with _bt_discovery_lock:
-                            if mac not in _bt_discovered_devices:
-                                _bt_discovered_devices.add(mac)
+                            previous_name = _bt_discovered_devices.get(mac)
+                            # BlueZ may report the address before the advertising name.
+                            # Broadcast again when a useful name appears or changes.
+                            if previous_name != name:
+                                _bt_discovered_devices[mac] = name
                                 log_bt("BT-Discovery", f"Found device: {name} ({mac})")
                                 ws_broadcast({
                                     "type": "bt_device_found",

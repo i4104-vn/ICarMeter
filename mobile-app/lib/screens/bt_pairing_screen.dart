@@ -28,6 +28,10 @@ class _BtPairingScreenState extends State<BtPairingScreen> {
   }
 
   Widget _buildDeviceItem(BtDeviceInfo device, {required bool isPaired}) {
+    final displayName = device.name.trim().isNotEmpty &&
+            device.name.toUpperCase() != device.mac.toUpperCase()
+        ? device.name
+        : 'Thiết bị không tên';
     final isConnected = widget.appState.isBtConnected &&
         widget.appState.connectedMac.toUpperCase() == device.mac.toUpperCase();
 
@@ -63,7 +67,7 @@ class _BtPairingScreenState extends State<BtPairingScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  device.name.isNotEmpty ? device.name : 'Thiết bị không tên',
+                  displayName,
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -254,7 +258,7 @@ class _BtPairingScreenState extends State<BtPairingScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'Thiết bị đã ghép nối trên điện thoại',
+                'Thiết bị đã ghép nối',
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.text),
               ),
               IconButton(
@@ -270,7 +274,7 @@ class _BtPairingScreenState extends State<BtPairingScreen> {
               padding: const EdgeInsets.all(16),
               alignment: Alignment.center,
               child: const Text(
-                'Không tìm thấy thiết bị nào đã ghép nối.',
+                'Chưa có thiết bị nào đã ghép nối.',
                 style: TextStyle(fontSize: 12, color: AppColors.textMuted),
               ),
             )

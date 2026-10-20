@@ -32,52 +32,6 @@ class NativeBridge {
     return _wifiEventStream!;
   }
 
-  static Future<List<Map<String, String>>> getPhonePairedDevices() async {
-    try {
-      final res = await _channel.invokeListMethod<Map>('getPhonePairedDevices');
-      if (res == null) return [];
-      return res.map((item) => Map<String, String>.from(item)).toList();
-    } catch (_) {
-      return [];
-    }
-  }
-
-  static Future<bool> startBtDiscovery() async {
-    try {
-      final ok = await _channel.invokeMethod<bool>('startBtDiscovery');
-      return ok ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static Future<bool> stopBtDiscovery() async {
-    try {
-      final ok = await _channel.invokeMethod<bool>('stopBtDiscovery');
-      return ok ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static Future<bool> pairDevice(String mac) async {
-    try {
-      final ok = await _channel.invokeMethod<bool>('pairDevice', {'mac': mac});
-      return ok ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static Future<bool> unpairDevice(String mac) async {
-    try {
-      final ok = await _channel.invokeMethod<bool>('unpairDevice', {'mac': mac});
-      return ok ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
   static Future<bool> connectBtSpp(String mac, {String? uuid}) async {
     try {
       final ok = await _channel.invokeMethod<bool>('connectBtSpp', {

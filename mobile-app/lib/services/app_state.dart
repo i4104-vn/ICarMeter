@@ -142,47 +142,6 @@ class AppState extends ChangeNotifier {
         _processIncomingMessage(raw, 'BT');
         break;
 
-      case 'device_found':
-      case 'device_name_changed':
-        final mac = event['mac'] as String? ?? '';
-        final name = event['name'] as String? ?? '';
-        final rssi = (event['rssi'] as num?)?.toInt() ?? -100;
-        if (mac.isNotEmpty) {
-          final existing = _discoveredDevices[mac];
-          final cleanName = (name.isNotEmpty && name != mac)
-              ? name
-              : (existing != null && existing.name.isNotEmpty && existing.name != mac
-                  ? existing.name
-                  : (name.isNotEmpty ? name : mac));
-          _discoveredDevices[mac] = BtDeviceInfo(
-            mac: mac,
-            name: cleanName,
-            rssi: rssi != -100 ? rssi : (existing?.rssi ?? -100),
-            isBonded: _pairedDevices.any((d) => d.mac.toUpperCase() == mac.toUpperCase()),
-          );
-          notifyListeners();
-        }
-        break;
-
-      case 'discovery_state':
-        _isDiscovering = event['discovering'] as bool? ?? false;
-        notifyListeners();
-        break;
-
-      case 'pin_code':
-        _pendingPinCode = event['pin'] as String? ?? '';
-        _pendingPinDeviceMac = event['mac'] as String? ?? '';
-        _pendingPinDeviceName = event['name'] as String? ?? '';
-        _addLog('[BT-PAIR] Yêu cầu mã xác nhận ghép nối PIN: $_pendingPinCode ($_pendingPinDeviceName)');
-        notifyListeners();
-        break;
-
-      case 'bond_state':
-        final mac = event['mac'] as String? ?? '';
-        final state = event['state'] as String? ?? 'none';
-        _addLog('[BT-BOND] Trạng thái ghép nối $mac: $state');
-        loadPairedDevices();
-        break;
     }
   }
 
@@ -242,7 +201,7 @@ class AppState extends ChangeNotifier {
       final mac = msg['mac'] as String? ?? '';
       final success = msg['success'] as bool? ?? false;
       final message = msg['message'] as String? ?? '';
-      _addLog('[PI-PAIR] Ghép nối với $mac: ${success ? "Thành công" : "Thất bại ($message)"}');
+      _addLog('[BT-PAIR] Ghép nối với $mac: ${success ? "Thành công" : "Thất bại ($message)"}');
       loadPiBluetoothStatus();
       notifyListeners();
     } else if (type == 'bt_logs' && msg['logs'] is List) {
@@ -266,7 +225,7 @@ class AppState extends ChangeNotifier {
       final name = m['name'] as String? ?? mac;
       return BtDeviceInfo(mac: mac, name: name, isBonded: true);
     }).toList();
-    _addLog('[PI-BT] Đã nhận danh sách ${_pairedDevices.length} thiết bị ghép nối từ Pi');
+    _addLog('[BT] Đã nhận danh sách ${_pairedDevices.length} thiết bị ghép nối');
     notifyListeners();
   }
 
@@ -279,9 +238,9 @@ class AppState extends ChangeNotifier {
         _telemetry = CarTelemetry.fromJson(map);
         _updateTripTracking(_telemetry.speed);
         notifyListeners();
-      } else if (type == 'bt_status' || map.containsKey('paired_devices')) {
+      } else if (source == 'WS' && (type == 'bt_status' || map.containsKey('paired_devices'))) {
         _handleBtStatusMessage(map);
-      } else if (type == 'bt_device_found') {
+      } else if (source == 'WS' && type == 'bt_device_found') {
         _handleWsMessage(map);
       } else if (type == 'bt_pair_result') {
         _handleWsMessage(map);
@@ -349,7 +308,7 @@ class AppState extends ChangeNotifier {
     _discoveredDevices.clear();
     _isDiscovering = true;
     notifyListeners();
-    _addLog('[PI-BT] Bắt đầu quét thiết bị Bluetooth...');
+    _addLog('[BT] Bắt đầu quét thiết bị Bluetooth...');
     final cmd = {'type': 'bt_start_discovery'};
     if (_isBtConnected) sendBtCommand(cmd);
     wifiWs.send(cmd);
@@ -361,18 +320,18 @@ class AppState extends ChangeNotifier {
     wifiWs.send(cmd);
     _isDiscovering = false;
     notifyListeners();
-    _addLog('[PI-BT] Dừng quét thiết bị Bluetooth');
+    _addLog('[BT] Dừng quét thiết bị Bluetooth');
   }
 
   Future<void> pairDevice(String mac) async {
-    _addLog('[PI-BT] Yêu cầu Pi ghép nối thiết bị: $mac');
+    _addLog('[BT] Yêu cầu ghép nối thiết bị: $mac');
     final cmd = {'type': 'bt_pair', 'mac': mac};
     if (_isBtConnected) sendBtCommand(cmd);
     wifiWs.send(cmd);
   }
 
   Future<void> unpairDevice(String mac) async {
-    _addLog('[PI-BT] Yêu cầu Pi hủy ghép nối thiết bị: $mac');
+    _addLog('[BT] Yêu cầu hủy ghép nối thiết bị: $mac');
     final cmd = {'type': 'bt_unpair', 'mac': mac};
     if (_isBtConnected) sendBtCommand(cmd);
     wifiWs.send(cmd);
