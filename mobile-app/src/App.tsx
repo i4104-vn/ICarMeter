@@ -9,6 +9,7 @@ import { TpmsScreen } from './screens/TpmsScreen';
 import { TripsScreen } from './screens/TripsScreen';
 import { WifiSetupScreen } from './screens/WifiSetupScreen';
 import { BtPairingScreen } from './screens/BtPairingScreen';
+import { BtLogsScreen } from './screens/BtLogsScreen';
 import { colors } from './theme/colors';
 import { NativeICarMeter } from './native/ICarMeterNative';
 
@@ -77,6 +78,8 @@ const AppContent: React.FC = () => {
         return <TpmsScreen />;
       case 'trips':
         return <TripsScreen />;
+      case 'bt_logs':
+        return <BtLogsScreen />;
       case 'dashboard':
       default:
         return <DashboardScreen />;

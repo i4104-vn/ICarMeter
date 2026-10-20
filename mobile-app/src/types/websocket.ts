@@ -1,6 +1,6 @@
-import { PiFullConfig } from './config';
-import { GpsTelemetry } from './telemetry';
-import { BtDevice, BtStatusData } from './bluetooth';
+import type { PiFullConfig } from './config';
+import type { GpsTelemetry } from './telemetry';
+import type { BtStatusData } from './bluetooth';
 
 export type WsClientCommand =
   | { type: 'ping' }
@@ -23,7 +23,9 @@ export type WsClientCommand =
   | { type: 'bt_start_discovery' }
   | { type: 'bt_stop_discovery' }
   | { type: 'bt_pair'; mac: string }
-  | { type: 'bt_unpair'; mac: string };
+  | { type: 'bt_unpair'; mac: string }
+  | { type: 'get_bt_logs'; limit?: number }
+  | { type: 'clear_bt_logs' };
 
 export interface WsServerMessage {
   type:
@@ -39,7 +41,9 @@ export interface WsServerMessage {
   | 'bt_device_found'
   | 'bt_pair_result'
   | 'bt_unpair_result'
-  | 'bt_pin_code';
+  | 'bt_pin_code'
+  | 'bt_logs'
+  | 'bt_log_entry';
   message?: string;
   config?: PiFullConfig;
   data?: PiFullConfig | BtStatusData | any;
@@ -51,4 +55,6 @@ export interface WsServerMessage {
   rssi?: number;
   success?: boolean;
   pin?: string;
+  logs?: string[];
+  line?: string;
 }

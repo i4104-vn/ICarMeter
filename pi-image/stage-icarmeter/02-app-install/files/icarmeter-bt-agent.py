@@ -6,6 +6,7 @@ incoming pairing and connection requests from the companion phone.
 If a PIN or Passkey is required/generated, it is recorded to /dev/shm/icarmeter_bt_pin
 so the companion app can display it to the user.
 """
+import datetime
 import json
 import os
 import re
@@ -16,6 +17,20 @@ import subprocess
 AGENT_INTERFACE = "org.bluez.Agent1"
 AGENT_PATH = "/org/icarmeter/btagent"
 PIN_MARKER = "/dev/shm/icarmeter_bt_pin"
+BT_LOG_FILE = "/var/log/icarmeter-bluetooth.log"
+BT_LOG_FALLBACK = "/dev/shm/icarmeter-bluetooth.log"
+
+def log_bt(message):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{timestamp}] [BTAgent] {message}"
+    print(line)
+    for path in (BT_LOG_FILE, BT_LOG_FALLBACK):
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+            break
+        except Exception:
+            continue
 
 def record_pin(pin_code, device=""):
     try:
@@ -32,9 +47,9 @@ def record_pin(pin_code, device=""):
         }
         with open(PIN_MARKER, "w", encoding="utf-8") as f:
             f.write(json.dumps(data) + "\n")
-        print(f"[BTAgent] Recorded PIN/Passkey: {pin_code} for device {mac}")
+        log_bt(f"Recorded PIN/Passkey: {pin_code} for device {mac}")
     except Exception as e:
-        print(f"[BTAgent] Error writing PIN marker: {e}", file=sys.stderr)
+        log_bt(f"Error writing PIN marker: {e}")
 
 def clear_pin():
     try:
@@ -56,37 +71,37 @@ def run_dbus_agent():
         class AutoAgent(dbus.service.Object):
             @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
             def Release(self):
-                print("[BTAgent] Released")
+                log_bt("Release agent callback triggered")
                 clear_pin()
 
             @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
             def AuthorizeService(self, device, uuid):
-                print(f"[BTAgent] AuthorizeService: {device} uuid: {uuid} -> Authorized")
+                log_bt(f"AuthorizeService: {device} uuid: {uuid} -> Auto-Authorized")
                 return
 
             @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="s")
             def RequestPinCode(self, device):
                 pin = "1234"
-                print(f"[BTAgent] RequestPinCode: {device} -> {pin}")
+                log_bt(f"RequestPinCode: {device} -> providing PIN {pin}")
                 record_pin(pin, device)
                 return pin
 
             @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="u")
             def RequestPasskey(self, device):
                 passkey = 123456
-                print(f"[BTAgent] RequestPasskey: {device} -> {passkey:06d}")
+                log_bt(f"RequestPasskey: {device} -> providing passkey {passkey:06d}")
                 record_pin(f"{passkey:06d}", device)
                 return dbus.UInt32(passkey)
 
             @dbus.service.method(AGENT_INTERFACE, in_signature="ou", out_signature="")
             def DisplayPasskey(self, device, passkey):
                 code_str = f"{passkey:06d}"
-                print(f"[BTAgent] DisplayPasskey: {device} passkey: {code_str}")
+                log_bt(f"DisplayPasskey: {device} passkey: {code_str}")
                 record_pin(code_str, device)
 
             @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
             def DisplayPinCode(self, device, pincode):
-                print(f"[BTAgent] DisplayPinCode: {device} pin: {pincode}")
+                log_bt(f"DisplayPinCode: {device} pin: {pincode}")
                 record_pin(str(pincode), device)
 
             @dbus.service.method(AGENT_INTERFACE, in_signature="ouq", out_signature="")
@@ -96,18 +111,18 @@ def run_dbus_agent():
             @dbus.service.method(AGENT_INTERFACE, in_signature="ou", out_signature="")
             def RequestConfirmation(self, device, passkey):
                 code_str = f"{passkey:06d}"
-                print(f"[BTAgent] RequestConfirmation: {device} passkey: {code_str} -> Auto-Accepted")
+                log_bt(f"RequestConfirmation: {device} passkey: {code_str} -> Auto-Accepted")
                 record_pin(code_str, device)
                 return
 
             @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="")
             def RequestAuthorization(self, device):
-                print(f"[BTAgent] RequestAuthorization: {device} -> Accepted")
+                log_bt(f"RequestAuthorization: {device} -> Auto-Accepted")
                 return
 
             @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
             def Cancel(self):
-                print("[BTAgent] Cancelled")
+                log_bt("Cancel agent callback triggered")
                 clear_pin()
 
         agent = AutoAgent(bus, AGENT_PATH)
@@ -117,15 +132,15 @@ def run_dbus_agent():
         )
         manager.RegisterAgent(AGENT_PATH, "NoInputNoOutput")
         manager.RequestDefaultAgent(AGENT_PATH)
-        print("[BTAgent] Registered NoInputNoOutput agent as default agent via D-Bus.")
+        log_bt("Registered NoInputNoOutput agent as default agent via D-Bus")
 
         loop = GLib.MainLoop()
         loop.run()
     except ImportError:
-        print("[BTAgent] dbus/gi not available, falling back to bluetoothctl agent loop...", file=sys.stderr)
+        log_bt("dbus/gi not available, falling back to bluetoothctl agent loop...")
         run_bluetoothctl_agent()
     except Exception as e:
-        print(f"[BTAgent] D-Bus registration error ({e}), falling back to bluetoothctl...", file=sys.stderr)
+        log_bt(f"D-Bus registration error ({e}), falling back to bluetoothctl...")
         run_bluetoothctl_agent()
 
 def run_bluetoothctl_agent():
@@ -142,7 +157,7 @@ def run_bluetoothctl_agent():
             commands = "agent NoInputNoOutput\ndefault-agent\npower on\npairable on\n"
             p.stdin.write(commands)
             p.stdin.flush()
-            print("[BTAgent] Fallback bluetoothctl agent active.")
+            log_bt("Fallback bluetoothctl agent active")
             while True:
                 line = p.stdout.readline()
                 if not line:
@@ -163,7 +178,7 @@ def run_bluetoothctl_agent():
                     record_pin("1234")
             p.wait()
         except Exception as e:
-            print(f"[BTAgent] bluetoothctl agent loop error: {e}", file=sys.stderr)
+            log_bt(f"bluetoothctl agent loop error: {e}")
         time.sleep(3)
 
 if __name__ == "__main__":

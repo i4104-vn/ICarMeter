@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors } from '../theme/colors';
 
-export type TabId = 'dashboard' | 'tpms' | 'trips';
+export type TabId = 'dashboard' | 'tpms' | 'trips' | 'bt_logs';
 
 interface PillNavBarProps {
   activeTab: TabId;
@@ -13,6 +13,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Đồng hồ', icon: '⏱' },
   { id: 'tpms', label: 'TPMS', icon: '🔘' },
   { id: 'trips', label: 'Hành trình', icon: '📋' },
+  { id: 'bt_logs', label: 'Logs', icon: '📜' },
 ];
 
 export const PillNavBar: React.FC<PillNavBarProps> = ({ activeTab, onTabChange }) => {
@@ -65,9 +66,9 @@ const styles = StyleSheet.create({
   navItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
     paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 11,
     borderRadius: 24,
   },
   navItemActive: {

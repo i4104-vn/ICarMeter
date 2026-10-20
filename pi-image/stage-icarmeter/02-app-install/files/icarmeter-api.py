@@ -6,6 +6,8 @@ to read, write, and synchronize /opt/icarmeter/config.toml in real time.
 """
 
 import base64
+import collections
+import datetime
 import hashlib
 import http.server
 import json
@@ -29,6 +31,146 @@ ws_clients_lock = threading.Lock()
 connected_bt_clients = set()
 bt_clients_lock = threading.Lock()
 RFCOMM_PORT = 1
+
+# ==============================================================================
+# Dedicated Bluetooth Operations & bluetoothctl Event Logging Subsystem
+# ==============================================================================
+BT_LOG_FILE = "/var/log/icarmeter-bluetooth.log"
+BT_LOG_FALLBACK = "/dev/shm/icarmeter-bluetooth.log"
+bt_logs_lock = threading.Lock()
+bt_logs_buffer = collections.deque(maxlen=1000)
+
+def _get_bt_log_path():
+    if os.path.exists(BT_LOG_FILE) and os.access(BT_LOG_FILE, os.W_OK):
+        return BT_LOG_FILE
+    try:
+        with open(BT_LOG_FILE, "a") as f:
+            pass
+        return BT_LOG_FILE
+    except Exception:
+        return BT_LOG_FALLBACK
+
+def log_bt(source, message):
+    """
+    Appends a timestamped log entry to the in-memory ring buffer, writes to log file,
+    and broadcasts live entry to connected WS and RFCOMM clients.
+    """
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{timestamp}] [{source}] {message}"
+    with bt_logs_lock:
+        bt_logs_buffer.append(line)
+
+    try:
+        log_path = _get_bt_log_path()
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+        # Keep log file bounded under 2MB
+        if os.path.getsize(log_path) > 2 * 1024 * 1024:
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                    file_lines = f.readlines()
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.writelines(file_lines[-500:])
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Broadcast live entry to both WS and RFCOMM clients
+    try:
+        ws_broadcast({"type": "bt_log_entry", "line": line})
+    except Exception:
+        pass
+    try:
+        bt_broadcast({"type": "bt_log_entry", "line": line})
+    except Exception:
+        pass
+
+def clear_bt_logs():
+    """Clears in-memory buffer and truncates log file."""
+    with bt_logs_lock:
+        bt_logs_buffer.clear()
+    try:
+        log_path = _get_bt_log_path()
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write("")
+    except Exception:
+        pass
+
+def init_bt_logs_buffer():
+    try:
+        log_path = _get_bt_log_path()
+        if os.path.exists(log_path):
+            with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                file_lines = f.readlines()
+            with bt_logs_lock:
+                for l in file_lines[-500:]:
+                    clean = l.strip()
+                    if clean:
+                        bt_logs_buffer.append(clean)
+    except Exception:
+        pass
+
+def run_bluetoothctl(args, timeout=5):
+    """Executes a bluetoothctl command, logging command and output to the dedicated Bluetooth log."""
+    cmd_str = "bluetoothctl " + " ".join(args)
+    log_bt("bt-exec", f"> {cmd_str}")
+    try:
+        res = subprocess.run(
+            ["bluetoothctl"] + list(args),
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        out = (res.stdout or "").strip()
+        err = (res.stderr or "").strip()
+        if out:
+            for line in out.splitlines():
+                log_bt("bt-exec", f"  {line.strip()}")
+        if err:
+            for line in err.splitlines():
+                log_bt("bt-exec", f"  [ERR] {line.strip()}")
+        return res
+    except subprocess.TimeoutExpired:
+        log_bt("bt-exec", f"  [TIMEOUT] {cmd_str} timed out after {timeout}s")
+        raise
+    except Exception as e:
+        log_bt("bt-exec", f"  [EXC] {cmd_str} error: {e}")
+        raise
+
+def bluetoothctl_monitor_worker():
+    """
+    Dedicated worker streaming real-time events directly from bluetoothctl.
+    Logs BlueZ adapter, device discovery, connection, pairing, and passkey events.
+    """
+    time.sleep(2)
+    log_bt("SYSTEM", "Starting bluetoothctl live event monitor...")
+    while True:
+        try:
+            p = subprocess.Popen(
+                ["bluetoothctl"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            for line in iter(p.stdout.readline, ""):
+                clean = line.strip()
+                if not clean:
+                    continue
+                # Skip interactive prompt lines like '[bluetooth]# '
+                clean = re.sub(r'\[bluetooth\s*\]#\s*', '', clean).strip()
+                if not clean:
+                    continue
+                # Strip ANSI color escape sequences
+                clean_line = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', clean).strip()
+                if clean_line:
+                    log_bt("bluetoothctl", clean_line)
+            p.wait()
+        except Exception as e:
+            log_bt("bluetoothctl", f"Monitor restart note: {e}")
+        time.sleep(3)
 
 def encode_ws_frame(payload_bytes, opcode=0x1):
     """Encodes server-to-client WebSocket frame (unmasked per RFC 6455)."""
@@ -183,6 +325,7 @@ def pin_monitor_worker():
                             pin = str(data.get("pin", "")).strip()
                             mac = str(data.get("mac", "")).strip()
                             if pin:
+                                log_bt("BTAgent-PIN", f"Passkey/PIN code required: {pin} for device {mac}")
                                 ws_broadcast({
                                     "type": "bt_pin_code",
                                     "pin": pin,
@@ -199,10 +342,7 @@ def get_bluetooth_status():
     adapter_avail = os.path.exists("/sys/class/bluetooth/hci0")
     paired = []
     try:
-        res = subprocess.run(
-            ["bluetoothctl", "paired-devices"],
-            capture_output=True, text=True, timeout=5
-        )
+        res = run_bluetoothctl(["paired-devices"], timeout=5)
         if res.returncode == 0:
             for line in res.stdout.strip().splitlines():
                 m = re.match(r"^Device\s+([0-9A-Fa-f:]{17})\s*(.*)$", line.strip())
@@ -212,7 +352,7 @@ def get_bluetooth_status():
                     paired.append({"mac": mac, "name": name})
             adapter_avail = True
     except Exception as e:
-        print(f"[BT] Error querying paired devices: {e}", file=sys.stderr)
+        log_bt("BT", f"Error querying paired devices: {e}")
 
     return {
         "adapter_available": adapter_avail,
@@ -222,18 +362,16 @@ def get_bluetooth_status():
 
 def _bt_discovery_worker():
     global _bt_discovery_active
+    log_bt("BT", "Starting Bluetooth scan & discovery...")
     try:
-        subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=3)
-        subprocess.run(["bluetoothctl", "scan", "on"], capture_output=True, timeout=3)
+        run_bluetoothctl(["discoverable", "on"], timeout=3)
+        run_bluetoothctl(["scan", "on"], timeout=3)
     except Exception:
         pass
 
     while _bt_discovery_active:
         try:
-            res = subprocess.run(
-                ["bluetoothctl", "devices"],
-                capture_output=True, text=True, timeout=4
-            )
+            res = run_bluetoothctl(["devices"], timeout=4)
             if res.returncode == 0:
                 for line in res.stdout.strip().splitlines():
                     m = re.match(r"^Device\s+([0-9A-Fa-f:]{17})\s*(.*)$", line.strip())
@@ -243,6 +381,7 @@ def _bt_discovery_worker():
                         with _bt_discovery_lock:
                             if mac not in _bt_discovered_devices:
                                 _bt_discovered_devices.add(mac)
+                                log_bt("BT-Discovery", f"Found device: {name} ({mac})")
                                 ws_broadcast({
                                     "type": "bt_device_found",
                                     "mac": mac,
@@ -267,14 +406,15 @@ def stop_bluetooth_discovery():
     global _bt_discovery_active
     with _bt_discovery_lock:
         _bt_discovery_active = False
+    log_bt("BT", "Stopping Bluetooth scan...")
     try:
-        subprocess.run(["bluetoothctl", "scan", "off"], capture_output=True, timeout=3)
-        # Keep discoverable and pairable on permanently
-        subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=3)
+        run_bluetoothctl(["scan", "off"], timeout=3)
+        run_bluetoothctl(["discoverable", "on"], timeout=3)
     except Exception:
         pass
 
 def pair_bluetooth_device(mac):
+    log_bt("BT-Pair", f"Initiating pairing with {mac}...")
     try:
         if os.path.exists(PIN_MARKER):
             try:
@@ -282,8 +422,8 @@ def pair_bluetooth_device(mac):
             except Exception:
                 pass
 
-        subprocess.run(["bluetoothctl", "trust", mac], capture_output=True, timeout=5)
-        res = subprocess.run(["bluetoothctl", "pair", mac], capture_output=True, text=True, timeout=30)
+        run_bluetoothctl(["trust", mac], timeout=5)
+        res = run_bluetoothctl(["pair", mac], timeout=30)
 
         if os.path.exists(PIN_MARKER):
             try:
@@ -293,19 +433,30 @@ def pair_bluetooth_device(mac):
         ws_broadcast({"type": "bt_pin_code", "pin": ""})
 
         if res.returncode == 0 or "successful" in res.stdout.lower():
+            log_bt("BT-Pair", f"Pairing with {mac} SUCCESSFUL")
             return True, "Paired successfully"
-        return False, res.stderr.strip() or res.stdout.strip() or "Pairing failed"
+        err_msg = res.stderr.strip() or res.stdout.strip() or "Pairing failed"
+        log_bt("BT-Pair", f"Pairing with {mac} FAILED: {err_msg}")
+        return False, err_msg
     except subprocess.TimeoutExpired:
         ws_broadcast({"type": "bt_pin_code", "pin": ""})
+        log_bt("BT-Pair", f"Pairing with {mac} TIMED OUT")
         return False, "Pairing timed out"
     except Exception as e:
         ws_broadcast({"type": "bt_pin_code", "pin": ""})
+        log_bt("BT-Pair", f"Pairing with {mac} ERROR: {e}")
         return False, str(e)
 
 def unpair_bluetooth_device(mac):
+    log_bt("BT-Unpair", f"Removing paired device {mac}...")
     try:
-        res = subprocess.run(["bluetoothctl", "remove", mac], capture_output=True, timeout=5)
-        return res.returncode == 0
+        res = run_bluetoothctl(["remove", mac], timeout=5)
+        success = (res.returncode == 0)
+        log_bt("BT-Unpair", f"Remove {mac} result: {success}")
+        return success
+    except Exception as e:
+        log_bt("BT-Unpair", f"Remove {mac} error: {e}")
+        return False
     except Exception:
         return False
 
@@ -611,6 +762,20 @@ def handle_bt_command(msg_dict, reply_fn):
     touch_app_connected("Bluetooth Companion")
     msg_type = msg_dict.get("type", "")
 
+    if msg_type == "get_bt_logs":
+        with bt_logs_lock:
+            logs_list = list(bt_logs_buffer)
+        reply_fn({"type": "bt_logs", "logs": logs_list})
+        return
+
+    if msg_type == "clear_bt_logs":
+        clear_bt_logs()
+        reply_fn({"type": "bt_logs", "logs": []})
+        return
+
+    if msg_type not in ("ping", "telemetry", "gps"):
+        log_bt("BT-RFCOMM", f"Received command: {msg_type}")
+
     if msg_type == "ping":
         reply_fn({"type": "pong", "timestamp": int(time.time())})
         return
@@ -670,6 +835,7 @@ def rfcomm_client_handler(client_sock, client_info):
     log_ws_event("Connected")
     with bt_clients_lock:
         connected_bt_clients.add(client_sock)
+    log_bt("BT-RFCOMM", f"Client connected from {client_info}")
     print(f"[BT-RFCOMM] Client connected from {client_info}")
 
     welcome = {
@@ -726,12 +892,14 @@ def rfcomm_client_handler(client_sock, client_info):
         except Exception:
             pass
         log_ws_event("Disconnected")
+        log_bt("BT-RFCOMM", f"Client disconnected from {client_info}")
         print(f"[BT-RFCOMM] Client disconnected from {client_info}")
 
 
 def rfcomm_server_worker():
     global _rfcomm_listening
     if not hasattr(socket, "AF_BLUETOOTH") or not hasattr(socket, "BTPROTO_RFCOMM"):
+        log_bt("BT-RFCOMM", "AF_BLUETOOTH or BTPROTO_RFCOMM not supported in python socket.")
         print("[BT-RFCOMM] AF_BLUETOOTH or BTPROTO_RFCOMM not supported in python socket.", file=sys.stderr)
         return
 
@@ -749,6 +917,7 @@ def rfcomm_server_worker():
             server_sock.bind(("00:00:00:00:00:00", RFCOMM_PORT))
             server_sock.listen(4)
             _rfcomm_listening = True
+            log_bt("BT-RFCOMM", f"RFCOMM server permanently listening on channel {RFCOMM_PORT}...")
             print(f"[BT-RFCOMM] RFCOMM server permanently listening on channel {RFCOMM_PORT}...")
 
             while True:
@@ -766,6 +935,7 @@ def rfcomm_server_worker():
                     server_sock.close()
                 except Exception:
                     pass
+            log_bt("BT-RFCOMM", f"Server socket note: {e}. Re-establishing listening channel in 3s...")
             print(f"[BT-RFCOMM] Server socket note: {e}. Re-establishing listening channel in 3s...", file=sys.stderr)
             time.sleep(3)
 
@@ -1007,6 +1177,19 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
             return
 
+        if msg_type == "get_bt_logs":
+            with bt_logs_lock:
+                logs_list = list(bt_logs_buffer)
+            reply = {"type": "bt_logs", "logs": logs_list}
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type == "clear_bt_logs":
+            clear_bt_logs()
+            reply = {"type": "bt_logs", "logs": []}
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
         if msg_type == "get_status":
             with ws_clients_lock:
                 num_clients = len(connected_ws_clients)
@@ -1047,6 +1230,14 @@ def start_http_listener(port):
 
 
 def main():
+    # Initialize Bluetooth logs buffer from disk
+    init_bt_logs_buffer()
+    log_bt("SYSTEM", "ICarMeter API service initializing...")
+
+    # Start bluetoothctl live event monitor worker
+    t_btmon = threading.Thread(target=bluetoothctl_monitor_worker, daemon=True)
+    t_btmon.start()
+
     # Start Bluetooth background heartbeat worker
     t_hb = threading.Thread(target=bt_heartbeat_worker, daemon=True)
     t_hb.start()

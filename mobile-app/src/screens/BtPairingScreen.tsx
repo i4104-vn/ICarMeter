@@ -16,6 +16,7 @@ import { BtDeviceItem } from '../components/bluetooth/BtDeviceItem';
 import { useApp } from '../context/AppContext';
 import { BtDevice, BtStatusData } from '../types/bluetooth';
 import { NativeICarMeter } from '../native/ICarMeterNative';
+import { BtLogsScreen } from './BtLogsScreen';
 
 interface BtPairingScreenProps {
   onPairSuccess: (piMac: string) => void;
@@ -33,6 +34,7 @@ export const BtPairingScreen: React.FC<BtPairingScreenProps> = ({
   const [pairingMac, setPairingMac] = useState<string | null>(null);
   const [pinCode, setPinCode] = useState<string | null>(null);
   const [customMac, setCustomMac] = useState(settings.phoneMac || '');
+  const [showLogs, setShowLogs] = useState(false);
 
   useEffect(() => {
     // 1. Get initial BT status from Pi via WiFi WS
@@ -120,6 +122,10 @@ export const BtPairingScreen: React.FC<BtPairingScreenProps> = ({
     return pairedDevices.some((d) => d.mac.toUpperCase() === mac.toUpperCase());
   };
 
+  if (showLogs) {
+    return <BtLogsScreen onBack={() => setShowLogs(false)} />;
+  }
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -131,7 +137,12 @@ export const BtPairingScreen: React.FC<BtPairingScreenProps> = ({
           <Text style={styles.title}>Ghép Đôi Bluetooth</Text>
           <Text style={styles.subtitle}>Chọn điện thoại để Pi kết nối</Text>
         </View>
-        {isScanning && <ActivityIndicator size="small" color={colors.accentCyan} />}
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.logsBtn} onPress={() => setShowLogs(true)}>
+            <Text style={styles.logsBtnText}>Logs</Text>
+          </TouchableOpacity>
+          {isScanning && <ActivityIndicator size="small" color={colors.accentCyan} />}
+        </View>
       </View>
 
       {/* PIN / Passkey Display */}
@@ -230,6 +241,24 @@ const styles = StyleSheet.create({
   },
   headerTitles: {
     flex: 1,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  logsBtn: {
+    backgroundColor: colors.bgSurface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  logsBtnText: {
+    color: colors.accentCyan,
+    fontSize: 11,
+    fontWeight: '700',
   },
   title: {
     fontSize: 18,

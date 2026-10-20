@@ -5,7 +5,13 @@
 # ==============================================================================
 set -u
 
-echo "[Bluetooth-Init] Initializing Bluetooth adapter for TPMS sensor scanning..."
+log_bt() {
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [Bluetooth-Init] $1"
+    echo "${msg}"
+    echo "${msg}" >> /var/log/icarmeter-bluetooth.log 2>/dev/null || true
+}
+
+log_bt "Initializing Bluetooth adapter for TPMS sensor scanning..."
 rfkill unblock bluetooth 2>/dev/null || true
 
 controller_found=0
@@ -19,9 +25,11 @@ for _ in $(seq 1 45); do
 done
 
 if [ "${controller_found}" != "1" ]; then
-    echo "[Bluetooth-Init] Warning: No Bluetooth controller appeared after 45s." >&2
+    log_bt "Warning: No Bluetooth controller appeared after 45s." >&2
     exit 0
 fi
+
+log_bt "Bluetooth controller detected. Powering on..."
 
 # Power on the controller so the raw HCI socket in car_dashboard can capture TPMS LE advertisements
 if [ -x /usr/bin/btmgmt ]; then
@@ -39,4 +47,4 @@ fi
 # Register Serial Port Profile (SPP) in BlueZ SDP
 sdptool add SP 2>/dev/null || true
 
-echo "[Bluetooth-Init] Controller powered and permanently listening for RFCOMM SPP connections."
+log_bt "Controller powered and permanently listening for RFCOMM SPP connections."
