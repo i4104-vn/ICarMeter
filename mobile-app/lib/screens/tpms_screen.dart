@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/app_state.dart';
 import '../widgets/car_tpms_diagram.dart';
-import '../services/native_bridge.dart';
 
 class TpmsScreen extends StatefulWidget {
   final AppState appState;
@@ -20,10 +19,6 @@ class _TpmsScreenState extends State<TpmsScreen> {
   late TextEditingController _rrCtrl;
   late double _pressureAlert;
   late double _tempAlert;
-
-  bool _isAdvertising = false;
-  final double _testPressure = 2.3;
-  final double _testTemp = 28.0;
 
   @override
   void initState() {
@@ -43,9 +38,6 @@ class _TpmsScreenState extends State<TpmsScreen> {
     _frCtrl.dispose();
     _rlCtrl.dispose();
     _rrCtrl.dispose();
-    if (_isAdvertising) {
-      NativeBridge.stopBleAdvertising();
-    }
     super.dispose();
   }
 
@@ -66,40 +58,6 @@ class _TpmsScreenState extends State<TpmsScreen> {
         backgroundColor: AppColors.success,
       ),
     );
-  }
-
-  void _toggleBleAdvertising() async {
-    if (_isAdvertising) {
-      await NativeBridge.stopBleAdvertising();
-      setState(() => _isAdvertising = false);
-    } else {
-      final phoneMac = await NativeBridge.getDeviceBluetoothAddress();
-      final ok = await NativeBridge.startBleAdvertising(
-        phoneMac: phoneMac.isNotEmpty ? phoneMac : '11:22:33:44:55:66',
-        pressureBar: _testPressure,
-        tempC: _testTemp,
-      );
-      if (ok) {
-        setState(() => _isAdvertising = true);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Đang phát tín hiệu BLE TPMS mô phỏng (Sysgration)...'),
-              backgroundColor: AppColors.primary,
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Không thể kích hoạt BLE Advertising trên máy này.'),
-              backgroundColor: AppColors.danger,
-            ),
-          );
-        }
-      }
-    }
   }
 
   Widget _buildSensorInput(String label, TextEditingController ctrl) {
@@ -257,47 +215,6 @@ class _TpmsScreenState extends State<TpmsScreen> {
             ),
           ),
 
-          const SizedBox(height: 16),
-
-          // BLE Simulation Card
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border, width: 1),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.cell_tower, color: AppColors.info, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'Mô phỏng phát tín hiệu BLE TPMS',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.text),
-                        ),
-                      ],
-                    ),
-                    Switch(
-                      value: _isAdvertising,
-                      activeThumbColor: AppColors.primary,
-                      onChanged: (v) => _toggleBleAdvertising(),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Phát gói tin BLE định dạng Sysgration (0xACAC) từ điện thoại để kiểm tra bộ thu trên xe.',
-                  style: TextStyle(fontSize: 11, color: AppColors.textSecondary, height: 1.4),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );

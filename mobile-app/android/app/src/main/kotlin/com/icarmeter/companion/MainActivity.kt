@@ -1,12 +1,6 @@
 package com.icarmeter.companion
 
 import android.Manifest
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothManager
-import android.bluetooth.le.AdvertiseCallback
-import android.bluetooth.le.AdvertiseData
-import android.bluetooth.le.AdvertiseSettings
-import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -42,21 +36,12 @@ class MainActivity : FlutterActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var btSppManager: BtSppManager? = null
-    private var advertiser: BluetoothLeAdvertiser? = null
-    private var advertiseCallback: AdvertiseCallback? = null
-
     @Volatile
     private var activeWifiNetwork: Network? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     private var locationManager: LocationManager? = null
     private var locationListener: LocationListener? = null
-
-    private val bluetoothAdapter: BluetoothAdapter?
-        get() {
-            val manager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-            return manager?.adapter ?: BluetoothAdapter.getDefaultAdapter()
-        }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -149,28 +134,6 @@ class MainActivity : FlutterActivity() {
                 result.success(btSppManager?.isConnected ?: false)
             }
 
-            "getDeviceBluetoothAddress" -> {
-                result.success(getBtAddress())
-            }
-
-            "isBleAdvertisingSupported" -> {
-                val adapter = bluetoothAdapter
-                val supported = adapter != null && adapter.isEnabled && adapter.bluetoothLeAdvertiser != null
-                result.success(supported)
-            }
-
-            "startBleAdvertising" -> {
-                val phoneMac = call.argument<String>("phoneMac") ?: ""
-                val pressureBar = call.argument<Double>("pressureBar") ?: 2.3
-                val tempC = call.argument<Double>("tempC") ?: 25.0
-                startBleAdvertisingInternal(phoneMac, pressureBar, tempC, result)
-            }
-
-            "stopBleAdvertising" -> {
-                stopBleAdvertisingInternal()
-                result.success(true)
-            }
-
             "bindToCarWifi" -> {
                 bindToCarWifiInternal(result)
             }
@@ -224,102 +187,6 @@ class MainActivity : FlutterActivity() {
 
             else -> result.notImplemented()
         }
-    }
-
-    private fun getBtAddress(): String {
-        try {
-            val addr = android.provider.Settings.Secure.getString(contentResolver, "bluetooth_address")
-            if (!addr.isNullOrEmpty() && addr != "02:00:00:00:00:00") {
-                return addr.uppercase()
-            }
-        } catch (_: Exception) {}
-        return ""
-    }
-
-    private fun startBleAdvertisingInternal(
-        phoneMac: String,
-        pressureBar: Double,
-        tempC: Double,
-        result: MethodChannel.Result
-    ) {
-        try {
-            val adapter = bluetoothAdapter
-            val adv = adapter?.bluetoothLeAdvertiser
-            if (adv == null) {
-                result.error("UNSUPPORTED", "Device does not support BLE advertising", null)
-                return
-            }
-            advertiser = adv
-            stopBleAdvertisingInternal()
-
-            val settings = AdvertiseSettings.Builder()
-                .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-                .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-                .setConnectable(false)
-                .setTimeout(0)
-                .build()
-
-            val pRaw = (pressureBar * 100_000.0).toInt()
-            val tRaw = (tempC * 100.0).toInt()
-            val macBytes = parseMacBytes(phoneMac)
-
-            val data = ByteArray(16)
-            data[0] = 0x00
-            data[1] = 0x00
-            data[2] = (pRaw and 0xFF).toByte()
-            data[3] = ((pRaw shr 8) and 0xFF).toByte()
-            data[4] = ((pRaw shr 16) and 0xFF).toByte()
-            data[5] = ((pRaw shr 24) and 0xFF).toByte()
-            data[6] = (tRaw and 0xFF).toByte()
-            data[7] = ((tRaw shr 8) and 0xFF).toByte()
-            data[8] = ((tRaw shr 16) and 0xFF).toByte()
-            data[9] = ((tRaw shr 24) and 0xFF).toByte()
-            System.arraycopy(macBytes, 0, data, 10, 6)
-
-            val advertiseData = AdvertiseData.Builder()
-                .setIncludeDeviceName(false)
-                .setIncludeTxPowerLevel(false)
-                .addManufacturerData(0xACAC, data)
-                .build()
-
-            val cb = object : AdvertiseCallback() {
-                override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-                    super.onStartSuccess(settingsInEffect)
-                }
-
-                override fun onStartFailure(errorCode: Int) {
-                    super.onStartFailure(errorCode)
-                }
-            }
-            advertiseCallback = cb
-            adv.startAdvertising(settings, advertiseData, cb)
-            result.success(true)
-        } catch (e: Exception) {
-            result.error("BLE_ADV_ERROR", e.message, null)
-        }
-    }
-
-    private fun stopBleAdvertisingInternal() {
-        try {
-            advertiseCallback?.let { advertiser?.stopAdvertising(it) }
-            advertiseCallback = null
-        } catch (_: Exception) {}
-    }
-
-    private fun parseMacBytes(macStr: String): ByteArray {
-        val clean = macStr.replace(":", "").replace("-", "").replace(" ", "").trim().uppercase()
-        val bytes = ByteArray(6)
-        if (clean.length >= 12) {
-            for (i in 0 until 6) {
-                val sub = clean.substring(i * 2, i * 2 + 2)
-                try {
-                    bytes[i] = sub.toInt(16).toByte()
-                } catch (_: Exception) {
-                    bytes[i] = 0
-                }
-            }
-        }
-        return bytes
     }
 
     private fun bindToCarWifiInternal(result: MethodChannel.Result) {
@@ -430,11 +297,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        try {
-            unregisterReceiver(btReceiver)
-        } catch (_: Exception) {}
         btSppManager?.disconnect()
-        stopBleAdvertisingInternal()
         stopGpsInternal()
         super.onDestroy()
     }

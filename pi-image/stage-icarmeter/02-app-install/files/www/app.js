@@ -2,7 +2,7 @@
  * ICarMeter Companion App - Wi-Fi Architecture
  * Single Source of Truth: All configs are stored on Raspberry Pi.
  * Mobile communicates over Wi-Fi Hotspot (192.168.4.1:8080) to read, sync,
- * and test TPMS / GPS configurations in real time.
+ * and sync TPMS / GPS configurations in real time.
  *
  * Connection reliability: aggressive auto-reconnect with exponential backoff,
  * request queuing during disconnection, and visual connection state feedback.
@@ -15,7 +15,6 @@ const defaultHost = (typeof window !== 'undefined' && window.location && window.
 // App State
 const state = {
     piHost: localStorage.getItem('icarmeter_pi_host') || defaultHost,
-    phoneMac: localStorage.getItem('icarmeter_phone_mac') || '',
     wifiConnected: false,
 
     // Synced State from Pi (Single Source of Truth)
@@ -319,13 +318,6 @@ function loadLocalFallbackSettings() {
             if (hostInput) hostInput.value = savedHost;
         }
 
-        const savedMac = localStorage.getItem('icarmeter_phone_mac');
-        if (savedMac) {
-            state.phoneMac = savedMac;
-            const macInput = document.getElementById('inputTestPhoneMac');
-            if (macInput) macInput.value = savedMac;
-        }
-
         const savedFl = localStorage.getItem('icarmeter_tpms_fl');
         const savedFr = localStorage.getItem('icarmeter_tpms_fr');
         const savedRl = localStorage.getItem('icarmeter_tpms_rl');
@@ -380,10 +372,6 @@ function initWifiCompanionUI() {
     if (hostInput && !hostInput.value) {
         hostInput.value = state.piHost;
     }
-    const macInput = document.getElementById('inputTestPhoneMac');
-    if (macInput && !macInput.value && state.phoneMac) {
-        macInput.value = state.phoneMac;
-    }
     updateWifiStatusUI(false);
 
     // Make status badge tappable to force reconnect
@@ -403,14 +391,6 @@ function savePiHost() {
         state.piHost = hostInput.value.trim() || '192.168.4.1:8080';
         localStorage.setItem('icarmeter_pi_host', state.piHost);
         connMgr.forceReconnect();
-    }
-}
-
-function savePhoneMac() {
-    const macInput = document.getElementById('inputTestPhoneMac');
-    if (macInput) {
-        state.phoneMac = macInput.value.trim().toUpperCase();
-        localStorage.setItem('icarmeter_phone_mac', state.phoneMac);
     }
 }
 
@@ -639,187 +619,6 @@ async function saveAndSyncTpmsToPi(overrideConfig = null) {
         showToast(`Lỗi khi ghi cấu hình: ${err.message}`);
         return false;
     }
-}
-
-// ==============================================================================
-// Auto Test TPMS Workflow
-// ==============================================================================
-const autoTestState = {
-    running: false,
-    original: null
-};
-
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function updateAutoTestUI(title, desc, percent) {
-    const titleEl = document.getElementById('autoTestStepTitle');
-    const descEl = document.getElementById('autoTestStepDesc');
-    const barEl = document.getElementById('autoTestProgressBar');
-
-    if (titleEl) titleEl.textContent = title;
-    if (descEl) descEl.textContent = desc;
-    if (barEl) barEl.style.width = `${percent}%`;
-}
-
-async function startAutoTpmsTest() {
-    const macInput = document.getElementById('inputTestPhoneMac');
-    const phoneMac = (macInput?.value || '').trim().toUpperCase();
-
-    if (!phoneMac || phoneMac.length < 8) {
-        showToast("Vui lòng nhập địa chỉ Bluetooth MAC hợp lệ của điện thoại!");
-        macInput?.focus();
-        return;
-    }
-
-    savePhoneMac();
-
-    // 1. Snapshot original sensor IDs & alert thresholds
-    const original = {
-        fl: document.getElementById('inputFlSensor')?.value.trim().toUpperCase() || state.piConfig.tpms.fl,
-        fr: document.getElementById('inputFrSensor')?.value.trim().toUpperCase() || state.piConfig.tpms.fr,
-        rl: document.getElementById('inputRlSensor')?.value.trim().toUpperCase() || state.piConfig.tpms.rl,
-        rr: document.getElementById('inputRrSensor')?.value.trim().toUpperCase() || state.piConfig.tpms.rr,
-        alert: parseFloat(document.getElementById('inputPressureAlert')?.value) || 2.2,
-        high_temp_alert: parseFloat(document.getElementById('inputTempAlert')?.value) || 70.0
-    };
-
-    autoTestState.running = true;
-    autoTestState.original = original;
-
-    // Update UI elements to running state
-    document.getElementById('btnStartAutoTest').style.display = 'none';
-    document.getElementById('btnStopAutoTest').style.display = 'inline-block';
-    document.getElementById('autoTestProgress').style.display = 'block';
-
-    const badge = document.getElementById('autoTestStatusBadge');
-    if (badge) {
-        badge.textContent = "ĐANG TEST";
-        badge.style.background = "#eab308";
-        badge.style.color = "#000";
-    }
-
-    const testPressure = parseFloat(document.getElementById('inputTestPressure')?.value) || 2.4;
-    const testTemp = parseFloat(document.getElementById('inputTestTemp')?.value) || 75.0;
-
-    const testSteps = [
-        { label: "Trước Trái (FL)", key: "fl", percent: 25 },
-        { label: "Trước Phải (FR)", key: "fr", percent: 50 },
-        { label: "Sau Trái (RL)", key: "rl", percent: 75 },
-        { label: "Sau Phải (RR)", key: "rr", percent: 100 }
-    ];
-
-    for (let i = 0; i < testSteps.length; i++) {
-        if (!autoTestState.running) break;
-
-        const step = testSteps[i];
-
-        // 1. Set tested wheel ID to phoneMac
-        const testConfig = {
-            fl: step.key === "fl" ? phoneMac : original.fl,
-            fr: step.key === "fr" ? phoneMac : original.fr,
-            rl: step.key === "rl" ? phoneMac : original.rl,
-            rr: step.key === "rr" ? phoneMac : original.rr,
-            alert: original.alert,
-            high_temp_alert: original.high_temp_alert
-        };
-
-        // Update input fields in UI
-        if (document.getElementById('inputFlSensor')) document.getElementById('inputFlSensor').value = testConfig.fl;
-        if (document.getElementById('inputFrSensor')) document.getElementById('inputFrSensor').value = testConfig.fr;
-        if (document.getElementById('inputRlSensor')) document.getElementById('inputRlSensor').value = testConfig.rl;
-        if (document.getElementById('inputRrSensor')) document.getElementById('inputRrSensor').value = testConfig.rr;
-
-        // Push to Pi over Wi-Fi
-        await saveAndSyncTpmsToPi(testConfig);
-
-        // 2. Transmit BLE TPMS packets over the air from mobile device
-        if (window.AndroidBleTpms && typeof window.AndroidBleTpms.startBleAdvertising === 'function') {
-            try {
-                window.AndroidBleTpms.startBleAdvertising(phoneMac, testPressure, testTemp);
-            } catch (bleErr) {
-                console.warn("[BLE-TPMS] Native BLE advertiser start failed:", bleErr);
-            }
-        }
-
-        // Countdown 5 seconds per wheel while phone transmits BLE packets
-        for (let countdown = 5; countdown > 0; countdown--) {
-            if (!autoTestState.running) break;
-            updateAutoTestUI(
-                `Bước ${i + 1}/4: Kiểm tra bánh ${step.label} (${countdown}s)`,
-                `Đang phát sóng BLE từ điện thoại (${testPressure} bar, ${testTemp}°C) tới xe cho bánh ${step.label} [${phoneMac}]...`,
-                step.percent
-            );
-            await delay(1000);
-        }
-
-        // Stop BLE advertising for this wheel before switching or ending
-        if (window.AndroidBleTpms && typeof window.AndroidBleTpms.stopBleAdvertising === 'function') {
-            try {
-                window.AndroidBleTpms.stopBleAdvertising();
-            } catch (_) { }
-        }
-    }
-
-    // 3. Restore original IDs back to the Pi!
-    await restoreOriginalTpmsConfig();
-}
-
-async function restoreOriginalTpmsConfig() {
-    // Ensure native BLE advertising is stopped
-    if (window.AndroidBleTpms && typeof window.AndroidBleTpms.stopBleAdvertising === 'function') {
-        try {
-            window.AndroidBleTpms.stopBleAdvertising();
-        } catch (_) { }
-    }
-
-    if (!autoTestState.original) return;
-    const original = autoTestState.original;
-
-    updateAutoTestUI(
-        "Đang khôi phục ID cảm biến ban đầu...",
-        "Đang lưu lại cấu hình 4 van gốc...",
-        100
-    );
-
-    if (document.getElementById('inputFlSensor')) document.getElementById('inputFlSensor').value = original.fl;
-    if (document.getElementById('inputFrSensor')) document.getElementById('inputFrSensor').value = original.fr;
-    if (document.getElementById('inputRlSensor')) document.getElementById('inputRlSensor').value = original.rl;
-    if (document.getElementById('inputRrSensor')) document.getElementById('inputRrSensor').value = original.rr;
-    if (document.getElementById('inputPressureAlert')) document.getElementById('inputPressureAlert').value = original.alert;
-    if (document.getElementById('inputTempAlert')) document.getElementById('inputTempAlert').value = original.high_temp_alert;
-
-    await saveAndSyncTpmsToPi(original);
-
-    autoTestState.running = false;
-    document.getElementById('btnStartAutoTest').style.display = 'inline-block';
-    document.getElementById('btnStopAutoTest').style.display = 'none';
-
-    const badge = document.getElementById('autoTestStatusBadge');
-    if (badge) {
-        badge.textContent = "HOÀN TẤT";
-        badge.style.background = "#22c55e";
-        badge.style.color = "#000";
-    }
-
-    updateAutoTestUI(
-        "Hoàn tất Auto Test qua BLE!",
-        "Đã phát sóng BLE kiểm tra cả 4 vị trí bánh và tự động khôi phục toàn bộ ID gốc ban đầu.",
-        100
-    );
-    showToast("Auto Test qua BLE hoàn tất! Đã khôi phục các ID cảm biến ban đầu.");
-}
-
-function stopAutoTpmsTest() {
-    autoTestState.running = false;
-    if (window.AndroidBleTpms && typeof window.AndroidBleTpms.stopBleAdvertising === 'function') {
-        try {
-            window.AndroidBleTpms.stopBleAdvertising();
-        } catch (_) { }
-    }
-    restoreOriginalTpmsConfig();
-    showToast("Đã dừng Auto Test và khôi phục cấu hình gốc.");
 }
 
 // ==============================================================================

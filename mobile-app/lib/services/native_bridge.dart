@@ -71,50 +71,6 @@ class NativeBridge {
     }
   }
 
-  static Future<String> getDeviceBluetoothAddress() async {
-    try {
-      final addr = await _channel.invokeMethod<String>('getDeviceBluetoothAddress');
-      return addr ?? '';
-    } catch (_) {
-      return '';
-    }
-  }
-
-  static Future<bool> isBleAdvertisingSupported() async {
-    try {
-      final ok = await _channel.invokeMethod<bool>('isBleAdvertisingSupported');
-      return ok ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static Future<bool> startBleAdvertising({
-    required String phoneMac,
-    required double pressureBar,
-    required double tempC,
-  }) async {
-    try {
-      final ok = await _channel.invokeMethod<bool>('startBleAdvertising', {
-        'phoneMac': phoneMac,
-        'pressureBar': pressureBar,
-        'tempC': tempC,
-      });
-      return ok ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static Future<bool> stopBleAdvertising() async {
-    try {
-      final ok = await _channel.invokeMethod<bool>('stopBleAdvertising');
-      return ok ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
   static Future<bool> bindToCarWifi() async {
     try {
       final ok = await _channel.invokeMethod<bool>('bindToCarWifi');

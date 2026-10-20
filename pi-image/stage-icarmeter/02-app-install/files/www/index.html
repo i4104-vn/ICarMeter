@@ -203,61 +203,6 @@
                     </div>
                 </div>
 
-                <!-- AUTO TEST SECTION (BLE OVER-THE-AIR) -->
-                <div class="card auto-test-card" style="margin-top: 16px;">
-                    <div class="card-header">
-                        <span class="card-label">TEST CẢM BIẾN</span>
-                        <span class="badge" id="autoTestStatusBadge">SẴN SÀNG</span>
-                    </div>
-
-                    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 12px; line-height: 1.4;">
-                        Dữ liệu kiểm tra được phát qua sóng <strong>Bluetooth LE (BLE)</strong> từ điện thoại tới xe
-                        (không qua mô phỏng Wi-Fi). Cấu hình ID cảm biến được cập nhật tức thì vào xe.
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Bluetooth MAC của điện thoại</label>
-                        <input type="text" class="input-flat" id="inputTestPhoneMac" placeholder="VD: AA:BB:CC:11:22:33"
-                            maxlength="17" spellcheck="false" onchange="savePhoneMac()">
-                    </div>
-
-                    <div class="setting-item" style="margin-top: 10px; padding: 6px 0;">
-                        <div class="setting-text">
-                            <div class="setting-title">Áp suất phát sóng (bar)</div>
-                        </div>
-                        <input type="number" class="input-flat" id="inputTestPressure" step="0.1" min="1.0" max="4.0"
-                            value="2.4" style="max-width: 90px; text-align: center;">
-                    </div>
-
-                    <div class="setting-item" style="padding: 6px 0;">
-                        <div class="setting-text">
-                            <div class="setting-title">Nhiệt độ phát sóng (°C)</div>
-                        </div>
-                        <input type="number" class="input-flat" id="inputTestTemp" step="1" min="20" max="100"
-                            value="75" style="max-width: 90px; text-align: center;">
-                    </div>
-
-                    <!-- Test Progress Container -->
-                    <div class="auto-test-progress" id="autoTestProgress"
-                        style="display: none; margin: 14px 0; padding: 12px; background: rgba(0,0,0,0.25); border-radius: 8px; border: 1px solid var(--border, #334155);">
-                        <div style="font-size: 13px; font-weight: 700; color: #38bdf8; margin-bottom: 6px;"
-                            id="autoTestStepTitle">Đang chuẩn bị...</div>
-                        <div style="font-size: 12px; color: #cbd5e1;" id="autoTestStepDesc">Đang sao lưu cấu hình 4 van
-                            gốc...</div>
-                        <div class="progress-bar-wrap"
-                            style="height: 6px; background: #334155; border-radius: 3px; margin-top: 8px; overflow: hidden;">
-                            <div id="autoTestProgressBar"
-                                style="height: 100%; width: 0%; background: #38bdf8; transition: width 0.3s;"></div>
-                        </div>
-                    </div>
-
-                    <div class="actions-row" style="margin-top: 14px;">
-                        <button class="btn btn-primary" id="btnStartAutoTest" onclick="startAutoTpmsTest()">Bắt Đầu Auto
-                            Test</button>
-                        <button class="btn btn-secondary" id="btnStopAutoTest" onclick="stopAutoTpmsTest()"
-                            style="display: none; background: #ef4444; color: #fff;">Dừng Test</button>
-                    </div>
-                </div>
             </section>
 
             <!-- TAB 3: TRIP HISTORY LOGS -->
