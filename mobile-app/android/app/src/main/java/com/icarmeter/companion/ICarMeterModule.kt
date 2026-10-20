@@ -40,6 +40,10 @@ class ICarMeterModule(private val reactContext: ReactApplicationContext) :
     private var locationManager: LocationManager? = null
     private var locationListener: LocationListener? = null
 
+    private val btSppManager = BtSppManager(reactContext) { eventName, params ->
+        sendEvent(eventName, params)
+    }
+
     override fun getName(): String = "ICarMeterBridge"
 
     private fun sendEvent(eventName: String, params: WritableMap?) {
@@ -498,5 +502,51 @@ class ICarMeterModule(private val reactContext: ReactApplicationContext) :
                 promise.resolve(json.toString())
             }
         }.start()
+    }
+
+    @ReactMethod
+    fun getPhonePairedDevices(promise: Promise) {
+        try {
+            val list = btSppManager.getPairedDevices()
+            promise.resolve(list)
+        } catch (e: Exception) {
+            promise.reject("BT_ERROR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun connectBtSpp(mac: String, uuid: String?, promise: Promise) {
+        btSppManager.connect(mac, uuid) { success, err ->
+            if (success) {
+                promise.resolve(true)
+            } else {
+                promise.reject("BT_CONNECT_ERROR", err ?: "Connection failed")
+            }
+        }
+    }
+
+    @ReactMethod
+    fun disconnectBtSpp(promise: Promise) {
+        try {
+            btSppManager.disconnect()
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("BT_DISCONNECT_ERROR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun btSend(jsonMessage: String, promise: Promise) {
+        try {
+            val ok = btSppManager.send(jsonMessage)
+            promise.resolve(ok)
+        } catch (e: Exception) {
+            promise.reject("BT_SEND_ERROR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun isBtSppConnected(promise: Promise) {
+        promise.resolve(btSppManager.isConnected)
     }
 }
