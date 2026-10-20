@@ -3,19 +3,24 @@ import '../theme/app_theme.dart';
 import '../services/app_state.dart';
 import '../models/bluetooth_device.dart';
 
-void showBluetoothModal(BuildContext context, AppState appState) {
+void showBluetoothModal(BuildContext context, AppState appState, {VoidCallback? onOpenWifi}) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (ctx) => BtPairingModal(appState: appState),
+    builder: (ctx) => BtPairingModal(appState: appState, onOpenWifi: onOpenWifi),
   );
 }
 
 class BtPairingModal extends StatefulWidget {
   final AppState appState;
+  final VoidCallback? onOpenWifi;
 
-  const BtPairingModal({super.key, required this.appState});
+  const BtPairingModal({
+    super.key,
+    required this.appState,
+    this.onOpenWifi,
+  });
 
   @override
   State<BtPairingModal> createState() => _BtPairingModalState();
@@ -23,7 +28,6 @@ class BtPairingModal extends StatefulWidget {
 
 class _BtPairingModalState extends State<BtPairingModal> {
   int _selectedTab = 0; // 0: Kết nối, 1: Nhật ký
-  late TextEditingController _macCtrl;
   final TextEditingController _logSearchCtrl = TextEditingController();
   final ScrollController _logScrollCtrl = ScrollController();
   bool _autoScroll = true;
@@ -32,20 +36,20 @@ class _BtPairingModalState extends State<BtPairingModal> {
   @override
   void initState() {
     super.initState();
-    _macCtrl = TextEditingController(text: widget.appState.storage.piMac);
     _logSearchCtrl.addListener(() {
       setState(() {
         _logFilter = _logSearchCtrl.text.trim().toLowerCase();
       });
     });
-    // Request fresh status and logs from Pi
-    widget.appState.loadPairedDevices();
-    _requestLogsFromPi();
+    // Request fresh status and logs
+    if (widget.appState.isWifiConnected) {
+      widget.appState.loadPairedDevices();
+      _requestLogsFromPi();
+    }
   }
 
   @override
   void dispose() {
-    _macCtrl.dispose();
     _logSearchCtrl.dispose();
     _logScrollCtrl.dispose();
     super.dispose();
@@ -95,7 +99,6 @@ class _BtPairingModalState extends State<BtPairingModal> {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(14),
@@ -106,117 +109,134 @@ class _BtPairingModalState extends State<BtPairingModal> {
           width: isConnected ? 1.5 : 1.0,
         ),
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(9),
-            decoration: BoxDecoration(
-              color: (isConnected
-                      ? AppColors.success
-                      : (isConnectingThis ? AppColors.warning : AppColors.primary))
-                  .withOpacity(0.15),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              isConnected ? Icons.bluetooth_connected : Icons.bluetooth,
-              color: isConnected
-                  ? AppColors.success
-                  : (isConnectingThis ? AppColors.warning : AppColors.primary),
-              size: 22,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () {
+            if (isConnected || isConnectingThis) return;
+            if (isPaired) {
+              state.connectToPi(device.mac);
+            } else {
+              state.pairDevice(device.mac);
+            }
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
               children: [
-                // Tên thiết bị hiển thị to, rõ ràng
-                Text(
-                  displayName,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.text,
-                    letterSpacing: 0.2,
+                Container(
+                  padding: const EdgeInsets.all(9),
+                  decoration: BoxDecoration(
+                    color: (isConnected
+                            ? AppColors.success
+                            : (isConnectingThis ? AppColors.warning : AppColors.primary))
+                        .withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  child: Icon(
+                    isConnected ? Icons.bluetooth_connected : Icons.bluetooth,
+                    color: isConnected
+                        ? AppColors.success
+                        : (isConnectingThis ? AppColors.warning : AppColors.primary),
+                    size: 22,
+                  ),
                 ),
-                const SizedBox(height: 3),
-                Row(
-                  children: [
-                    Text(
-                      device.mac,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.textSecondary,
-                        fontFamily: 'monospace',
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Tên thiết bị hiển thị to, rõ ràng
+                      Text(
+                        displayName,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.text,
+                          letterSpacing: 0.2,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    if (device.rssi != -100 && device.rssi != 0) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceLight,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '${device.rssi} dBm',
-                          style: const TextStyle(fontSize: 10, color: AppColors.textMuted),
-                        ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Text(
+                            device.mac,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textSecondary,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                          if (device.rssi != -100 && device.rssi != 0) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceLight,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '${device.rssi} dBm',
+                                style: const TextStyle(fontSize: 10, color: AppColors.textMuted),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ],
-                  ],
+                  ),
                 ),
+                const SizedBox(width: 8),
+                if (isConnected)
+                  OutlinedButton(
+                    onPressed: () => state.disconnectPi(),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.danger,
+                      side: const BorderSide(color: AppColors.danger),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      minimumSize: const Size(0, 36),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Ngắt nối', style: TextStyle(fontSize: 12)),
+                  )
+                else if (isConnectingThis)
+                  const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(AppColors.primary)),
+                  )
+                else if (isPaired)
+                  ElevatedButton(
+                    onPressed: () => state.connectToPi(device.mac),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      minimumSize: const Size(0, 36),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Kết nối', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  )
+                else
+                  ElevatedButton(
+                    onPressed: () => state.pairDevice(device.mac),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.secondary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      minimumSize: const Size(0, 36),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Ghép nối', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          if (isConnected)
-            OutlinedButton(
-              onPressed: () => state.disconnectPi(),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.danger,
-                side: const BorderSide(color: AppColors.danger),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                minimumSize: const Size(0, 36),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              child: const Text('Ngắt nối', style: TextStyle(fontSize: 12)),
-            )
-          else if (isConnectingThis)
-            const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(AppColors.primary)),
-            )
-          else if (isPaired)
-            ElevatedButton(
-              onPressed: () => state.connectToPi(device.mac),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                minimumSize: const Size(0, 36),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              child: const Text('Kết nối', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            )
-          else
-            ElevatedButton(
-              onPressed: () => state.pairDevice(device.mac),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.secondary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                minimumSize: const Size(0, 36),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              child: const Text('Ghép nối', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            ),
-        ],
+        ),
       ),
     );
   }
@@ -275,7 +295,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
                     Text(
                       isConnected
                           ? 'MAC: ${state.connectedMac}'
-                          : 'Danh sách được lấy từ máy tính xe (Pi).',
+                          : 'Chọn thiết bị từ danh sách bên dưới để kết nối.',
                       style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
                     ),
                   ],
@@ -285,77 +305,9 @@ class _BtPairingModalState extends State<BtPairingModal> {
           ),
         ),
 
-        const SizedBox(height: 16),
-
-        // Nhập MAC thủ công
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Địa chỉ MAC của thiết bị xe (kết nối trực tiếp)',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _macCtrl,
-                      style: const TextStyle(fontSize: 13, color: AppColors.text, fontFamily: 'monospace'),
-                      decoration: InputDecoration(
-                        hintText: 'AA:BB:CC:DD:EE:FF',
-                        hintStyle: const TextStyle(color: AppColors.textMuted),
-                        isDense: true,
-                        filled: true,
-                        fillColor: AppColors.background,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppColors.border),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppColors.border),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppColors.primary),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  ElevatedButton(
-                    onPressed: () {
-                      final mac = _macCtrl.text.trim();
-                      if (mac.isNotEmpty) {
-                        state.connectToPi(mac);
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    ),
-                    child: const Text('Kết nối', style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-
         const SizedBox(height: 20),
 
-        // Danh sách thiết bị đã ghép nối từ Pi
+        // Danh sách thiết bị đã ghép nối
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -364,7 +316,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
                 Icon(Icons.link, size: 18, color: AppColors.primary),
                 SizedBox(width: 6),
                 Text(
-                  'Thiết bị đã ghép nối (từ Pi)',
+                  'Thiết bị đã ghép nối',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.text),
                 ),
               ],
@@ -372,7 +324,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
             IconButton(
               onPressed: () => state.loadPairedDevices(),
               icon: const Icon(Icons.refresh, size: 20, color: AppColors.primary),
-              tooltip: 'Lấy lại từ Pi',
+              tooltip: 'Làm mới danh sách',
             ),
           ],
         ),
@@ -382,7 +334,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
             padding: const EdgeInsets.all(16),
             alignment: Alignment.center,
             child: const Text(
-              'Chưa có thiết bị nào được ghép nối trên Pi.',
+              'Chưa có thiết bị nào được ghép nối.',
               style: TextStyle(fontSize: 12, color: AppColors.textMuted),
             ),
           )
@@ -391,7 +343,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
 
         const SizedBox(height: 20),
 
-        // Quét tìm thiết bị xung quanh từ Pi
+        // Quét tìm thiết bị xung quanh
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -400,7 +352,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
                 Icon(Icons.search, size: 18, color: AppColors.secondary),
                 SizedBox(width: 6),
                 Text(
-                  'Dò tìm thiết bị lân cận (từ Pi)',
+                  'Dò tìm thiết bị lân cận',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.text),
                 ),
               ],
@@ -420,7 +372,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
                     )
                   : const Icon(Icons.radar, size: 16),
               label: Text(
-                state.isDiscovering ? 'Dừng quét' : 'Quét từ Pi',
+                state.isDiscovering ? 'Dừng quét' : 'Tìm thiết bị',
                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
@@ -441,8 +393,8 @@ class _BtPairingModalState extends State<BtPairingModal> {
             alignment: Alignment.center,
             child: Text(
               state.isDiscovering
-                  ? 'Pi đang dò quét các thiết bị Bluetooth xung quanh...'
-                  : 'Bấm "Quét từ Pi" để tìm thiết bị lân cận qua Pi.',
+                  ? 'Đang dò quét các thiết bị Bluetooth xung quanh...'
+                  : 'Bấm "Tìm thiết bị" để quét các thiết bị lân cận.',
               style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
             ),
           )
@@ -500,7 +452,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
               IconButton(
                 onPressed: _requestLogsFromPi,
                 icon: const Icon(Icons.download, color: AppColors.primary, size: 20),
-                tooltip: 'Lấy log mới nhất từ Pi',
+                tooltip: 'Lấy nhật ký mới nhất',
               ),
               IconButton(
                 onPressed: () => state.clearLogs(),
@@ -533,7 +485,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
               child: filteredLogs.isEmpty
                 ? const Center(
                     child: Text(
-                      'Chưa có dữ liệu nhật ký Bluetooth từ Pi.\nNhấn nút tải xuống để đồng bộ log.',
+                      'Chưa có dữ liệu nhật ký Bluetooth.\nNhấn nút tải xuống để đồng bộ nhật ký.',
                       style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                       textAlign: TextAlign.center,
                     ),
@@ -563,6 +515,81 @@ class _BtPairingModalState extends State<BtPairingModal> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildWifiRequiredView(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.warning.withOpacity(0.12),
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.warning.withOpacity(0.35), width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.warning.withOpacity(0.2),
+                    blurRadius: 24,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.wifi_off_rounded,
+                color: AppColors.warning,
+                size: 38,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Yêu cầu kết nối Wi-Fi',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.text,
+                letterSpacing: 0.3,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Để quản lý, tìm kiếm thiết bị và ghép nối Bluetooth cho xe, bạn bắt buộc phải kết nối vào mạng Wi-Fi của xe trước.',
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.textSecondary,
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 28),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                widget.onOpenWifi?.call();
+              },
+              icon: const Icon(Icons.wifi, size: 18),
+              label: const Text(
+                'Kết nối Wi-Fi ngay',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 3,
+                shadowColor: AppColors.primary.withOpacity(0.4),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -602,81 +629,108 @@ class _BtPairingModalState extends State<BtPairingModal> {
                     ),
                   ),
 
-                  // Modal Header with 2 Tabs
+                  // Modal Header
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // Custom 2-Tab Switcher
-                        Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: AppColors.background,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Row(
-                            children: [
-                              GestureDetector(
-                                onTap: () => setState(() => _selectedTab = 0),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: _selectedTab == 0 ? AppColors.primary : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.bluetooth,
-                                        size: 16,
-                                        color: _selectedTab == 0 ? Colors.black : AppColors.textSecondary,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        'Kết nối',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: _selectedTab == 0 ? FontWeight.bold : FontWeight.normal,
+                        if (state.isWifiConnected)
+                          // Custom 2-Tab Switcher
+                          Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: AppColors.background,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: Row(
+                              children: [
+                                GestureDetector(
+                                  onTap: () => setState(() => _selectedTab = 0),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    curve: Curves.easeOutCubic,
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: _selectedTab == 0 ? AppColors.primary : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.bluetooth,
+                                          size: 16,
                                           color: _selectedTab == 0 ? Colors.black : AppColors.textSecondary,
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Kết nối',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: _selectedTab == 0 ? FontWeight.bold : FontWeight.normal,
+                                            color: _selectedTab == 0 ? Colors.black : AppColors.textSecondary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              ),
-                              GestureDetector(
-                                onTap: () => setState(() => _selectedTab = 1),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: _selectedTab == 1 ? AppColors.primary : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.terminal,
-                                        size: 16,
-                                        color: _selectedTab == 1 ? Colors.black : AppColors.textSecondary,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        'Nhật ký',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: _selectedTab == 1 ? FontWeight.bold : FontWeight.normal,
+                                GestureDetector(
+                                  onTap: () => setState(() => _selectedTab = 1),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    curve: Curves.easeOutCubic,
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: _selectedTab == 1 ? AppColors.primary : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.terminal,
+                                          size: 16,
                                           color: _selectedTab == 1 ? Colors.black : AppColors.textSecondary,
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Nhật ký',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: _selectedTab == 1 ? FontWeight.bold : FontWeight.normal,
+                                            color: _selectedTab == 1 ? Colors.black : AppColors.textSecondary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(7),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.bluetooth, color: AppColors.primary, size: 20),
+                              ),
+                              const SizedBox(width: 10),
+                              const Text(
+                                'Cài đặt Bluetooth',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.text,
                                 ),
                               ),
                             ],
                           ),
-                        ),
 
                         IconButton(
                           icon: const Icon(Icons.close, color: AppColors.textSecondary),
@@ -688,11 +742,27 @@ class _BtPairingModalState extends State<BtPairingModal> {
 
                   const Divider(color: AppColors.border, height: 1),
 
-                  // Tab View Content
+                  // Tab View Content or Wi-Fi Required Screen
                   Expanded(
-                    child: _selectedTab == 0
-                        ? _buildConnectionTab(state)
-                        : _buildLogsTab(state),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 250),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (child, animation) {
+                        return FadeTransition(
+                          opacity: animation,
+                          child: child,
+                        );
+                      },
+                      child: !state.isWifiConnected
+                          ? _buildWifiRequiredView(context)
+                          : KeyedSubtree(
+                              key: ValueKey<int>(_selectedTab),
+                              child: _selectedTab == 0
+                                  ? _buildConnectionTab(state)
+                                  : _buildLogsTab(state),
+                            ),
+                    ),
                   ),
                 ],
               ),

@@ -3,7 +3,7 @@
 # ==============================================================================
 
 [gps]
-# Cổng serial GPS UART phần cứng (nối qua chân GPIO Tx/Rx /dev/serial0 trên Pi)
+# Cổng serial GPS UART phần cứng (nối qua chân GPIO Tx/Rx /dev/serial0)
 device = "/dev/serial0"
 baud_rate = 9600
 enabled = true

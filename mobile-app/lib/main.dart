@@ -64,15 +64,38 @@ class MainHomeScreen extends StatefulWidget {
 
 class _MainHomeScreenState extends State<MainHomeScreen> {
   int _currentIndex = 0;
+  late final PageController _pageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: _currentIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
   void _onSelectTab(int index) {
+    if (_currentIndex == index) return;
     setState(() {
       _currentIndex = index;
     });
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   void _openBluetoothModal() {
-    showBluetoothModal(context, widget.appState);
+    showBluetoothModal(
+      context,
+      widget.appState,
+      onOpenWifi: _openWifiSetupModal,
+    );
   }
 
   void _openSettingsModal() {
@@ -121,8 +144,14 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
       ),
       body: Stack(
         children: [
-          IndexedStack(
-            index: _currentIndex.clamp(0, screens.length - 1),
+          PageView(
+            controller: _pageController,
+            physics: const NeverScrollableScrollPhysics(),
+            onPageChanged: (index) {
+              setState(() {
+                _currentIndex = index;
+              });
+            },
             children: screens,
           ),
 

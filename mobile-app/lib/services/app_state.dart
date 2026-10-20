@@ -349,7 +349,7 @@ class AppState extends ChangeNotifier {
     _discoveredDevices.clear();
     _isDiscovering = true;
     notifyListeners();
-    _addLog('[PI-BT] Bắt đầu quét thiết bị Bluetooth trên Pi...');
+    _addLog('[PI-BT] Bắt đầu quét thiết bị Bluetooth...');
     final cmd = {'type': 'bt_start_discovery'};
     if (_isBtConnected) sendBtCommand(cmd);
     wifiWs.send(cmd);
@@ -361,7 +361,7 @@ class AppState extends ChangeNotifier {
     wifiWs.send(cmd);
     _isDiscovering = false;
     notifyListeners();
-    _addLog('[PI-BT] Dừng quét thiết bị Bluetooth trên Pi');
+    _addLog('[PI-BT] Dừng quét thiết bị Bluetooth');
   }
 
   Future<void> pairDevice(String mac) async {
