@@ -40,6 +40,9 @@ class StorageService {
   /// Preference key for the maximum tire temperature alert threshold in Celsius.
   static const String keyAlertTemp = 'tpms_alert_temp';
 
+  /// Preference key for enabling or disabling the TPMS subsystem.
+  static const String keyTpmsEnabled = 'tpms_enabled';
+
   /// Preference key for the serialized list of historical trips.
   static const String keyTrips = 'saved_trips';
 
@@ -126,6 +129,12 @@ class StorageService {
 
   /// Persists the high temperature alert threshold [val] in Celsius.
   Future<void> setAlertTemp(double val) => prefs.setDouble(keyAlertTemp, val);
+
+  /// Whether the TPMS subsystem is enabled locally.
+  bool get tpmsEnabled => prefs.getBool(keyTpmsEnabled) ?? true;
+
+  /// Persists the TPMS subsystem enabled state [val].
+  Future<void> setTpmsEnabled(bool val) => prefs.setBool(keyTpmsEnabled, val);
 
   /// Loads and deserializes the list of saved trips from local storage.
   List<TripRecord> getTrips() {

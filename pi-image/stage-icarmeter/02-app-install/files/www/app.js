@@ -1,7 +1,7 @@
 /**
  * ICarMeter Companion App - Wi-Fi Architecture
  * Single Source of Truth: All configs are stored on Raspberry Pi.
- * Mobile communicates over Wi-Fi Hotspot (192.169.204.145:8080) to read, sync,
+ * Mobile communicates over Wi-Fi Hotspot (192.168.204.145:8080) to read, sync,
  * and sync TPMS / GPS configurations in real time.
  *
  * Connection reliability: aggressive auto-reconnect with exponential backoff,
@@ -10,7 +10,7 @@
 
 const defaultHost = (typeof window !== 'undefined' && window.location && window.location.host && !window.location.protocol.startsWith('file'))
     ? window.location.host
-    : '192.169.204.145:8080';
+    : '192.168.204.145:8080';
 
 // App State
 const state = {
@@ -388,7 +388,7 @@ function initWifiCompanionUI() {
 function savePiHost() {
     const hostInput = document.getElementById('inputPiHost');
     if (hostInput) {
-        state.piHost = hostInput.value.trim() || '192.169.204.145:8080';
+        state.piHost = hostInput.value.trim() || '192.168.204.145:8080';
         localStorage.setItem('icarmeter_pi_host', state.piHost);
         connMgr.forceReconnect();
     }
@@ -474,6 +474,11 @@ function applyConfigToStateAndUI(data, isManual = false) {
         if (rrInput) rrInput.value = state.piConfig.tpms.rr;
         if (alertInput) alertInput.value = state.piConfig.tpms.alert;
         if (tempAlertInput) tempAlertInput.value = state.piConfig.tpms.high_temp_alert;
+        if (data.tpms.enabled !== undefined) {
+            state.piConfig.tpms.enabled = !!data.tpms.enabled;
+            const toggle = document.getElementById('toggleTpmsEnabled');
+            if (toggle) toggle.checked = state.piConfig.tpms.enabled;
+        }
     }
 
     if (data.gps) {
@@ -546,6 +551,7 @@ async function saveAndSyncTpmsToPi(overrideConfig = null) {
     const alertPressure = overrideConfig ? overrideConfig.alert : (parseFloat(document.getElementById('inputPressureAlert')?.value) || 2.2);
     const alertTemp = overrideConfig ? (overrideConfig.high_temp_alert ?? overrideConfig.temp_alert ?? 70.0) : (parseFloat(document.getElementById('inputTempAlert')?.value) || 70.0);
     const gpsHwEnabled = document.getElementById('toggleHardwareGps')?.checked ?? true;
+    const tpmsEnabled = document.getElementById('toggleTpmsEnabled')?.checked ?? true;
 
     if (!overrideConfig && !fl && !fr && !rl && !rr) {
         showToast("Vui lòng nhập ít nhất 1 mã cảm biến van lốp");
@@ -560,7 +566,9 @@ async function saveAndSyncTpmsToPi(overrideConfig = null) {
         rr: rr,
         alert: alertPressure,
         high_temp_alert: alertTemp,
-        gps_enabled: gpsHwEnabled
+        gps_enabled: gpsHwEnabled,
+        tpms_enabled: tpmsEnabled,
+        enabled: tpmsEnabled
     };
 
     // Update local state and UI immediately

@@ -233,7 +233,6 @@ class MainActivity : FlutterActivity() {
             }
             networkCallback = cb
             cm.requestNetwork(request, cb)
-            cm.registerNetworkCallback(request, cb)
             result.success(true)
         } catch (e: Exception) {
             result.error("WIFI_ERROR", e.message, null)

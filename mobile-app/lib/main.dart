@@ -124,12 +124,16 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final state = widget.appState;
-
+    final showTpms = state.isTpmsEnabled;
     final screens = [
       DashboardScreen(appState: state),
-      TpmsScreen(appState: state),
+      if (showTpms) TpmsScreen(appState: state),
       TripsScreen(appState: state),
     ];
+
+    if (_currentIndex >= screens.length) {
+      _currentIndex = screens.length - 1;
+    }
 
     return Scaffold(
       appBar: AppHeader(
@@ -168,6 +172,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
       bottomNavigationBar: PillNavBar(
         currentIndex: _currentIndex,
         onTap: _onSelectTab,
+        showTpms: showTpms,
       ),
     );
   }

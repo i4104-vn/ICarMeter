@@ -2,7 +2,7 @@
 
 pub mod nmea;
 
-use nmea::parse_nmea_speed;
+use nmea::{GpsUpdate, parse_nmea_update};
 use std::fs::{File, OpenOptions};
 use std::os::unix::io::AsRawFd;
 use std::time::{Duration, Instant};
@@ -92,8 +92,8 @@ impl GpsReceiver {
         }
     }
 
-    /// Reads available NMEA bytes and returns updated speed (km/h) if a valid sentence was received
-    pub fn poll_speed(&mut self) -> Option<f32> {
+    /// Reads available NMEA bytes and returns the latest full GPS telemetry update if available
+    pub fn poll_update(&mut self) -> Option<GpsUpdate> {
         if self.file.is_none() {
             self.try_open();
             self.file.as_ref()?;
@@ -110,8 +110,6 @@ impl GpsReceiver {
         };
 
         if bytes_read < 0 {
-            // The GPS was unplugged or the serial device disappeared. Let the
-            // next poll attempt reopen it instead of keeping a stale handle.
             self.file = None;
             self.last_valid_fix = None;
             self.buffer.clear();
@@ -125,20 +123,28 @@ impl GpsReceiver {
         self.buffer
             .extend_from_slice(&read_buf[..bytes_read as usize]);
 
-        let mut latest_speed = None;
+        let mut latest_update = None;
 
         // Process complete NMEA lines
         while let Some(pos) = self.buffer.iter().position(|&b| b == b'\n') {
             let line_bytes: Vec<u8> = self.buffer.drain(..=pos).collect();
             if let Ok(line) = std::str::from_utf8(&line_bytes) {
                 let trimmed = line.trim();
-                if let Some(spd) = parse_nmea_speed(trimmed) {
-                    self.last_valid_fix = Some(Instant::now());
-                    latest_speed = Some(spd);
+                if let Some(upd) = parse_nmea_update(trimmed) {
+                    if upd.valid_fix {
+                        self.last_valid_fix = Some(Instant::now());
+                    }
+                    latest_update = Some(upd);
                 }
             }
         }
 
-        latest_speed
+        latest_update
+    }
+
+    /// Reads available NMEA bytes and returns updated speed (km/h) if a valid sentence was received
+    #[allow(dead_code)]
+    pub fn poll_speed(&mut self) -> Option<f32> {
+        self.poll_update().and_then(|u| u.speed_kmh)
     }
 }

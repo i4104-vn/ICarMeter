@@ -11,22 +11,26 @@ class PillNavBarItem {
 class PillNavBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
-
-  static const List<PillNavBarItem> items = [
-    PillNavBarItem(icon: Icons.speed, label: 'Đồng hồ'),
-    PillNavBarItem(icon: Icons.tire_repair, label: 'Lốp xe'),
-    PillNavBarItem(icon: Icons.route, label: 'Chuyến đi'),
-  ];
+  final bool showTpms;
 
   const PillNavBar({
     super.key,
     required this.currentIndex,
     required this.onTap,
+    this.showTpms = true,
   });
+
+  List<PillNavBarItem> get items => [
+    const PillNavBarItem(icon: Icons.speed, label: 'Đồng hồ'),
+    if (showTpms) const PillNavBarItem(icon: Icons.tire_repair, label: 'Lốp xe'),
+    const PillNavBarItem(icon: Icons.route, label: 'Chuyến đi'),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final selectedIndex = currentIndex.clamp(0, items.length - 1);
+    final activeItems = items;
+    final selectedIndex = currentIndex.clamp(0, activeItems.length - 1);
+    final denom = activeItems.length > 1 ? (activeItems.length - 1) : 1;
 
     return SafeArea(
       top: false,
@@ -51,13 +55,13 @@ class PillNavBar extends StatelessWidget {
             children: [
               AnimatedAlign(
                 alignment: Alignment(
-                  -1 + (2 * selectedIndex / (items.length - 1)),
+                  -1 + (2 * selectedIndex / denom),
                   0,
                 ),
                 duration: const Duration(milliseconds: 380),
                 curve: Curves.easeInOutCubic,
                 child: FractionallySizedBox(
-                  widthFactor: 1 / items.length,
+                  widthFactor: 1 / activeItems.length,
                   heightFactor: 1,
                   child: Container(
                     margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -76,9 +80,9 @@ class PillNavBar extends StatelessWidget {
                 ),
               ),
               Row(
-                children: List.generate(items.length, (index) {
+                children: List.generate(activeItems.length, (index) {
                   final isSelected = index == selectedIndex;
-                  final item = items[index];
+                  final item = activeItems[index];
 
                   return Expanded(
                     child: Semantics(

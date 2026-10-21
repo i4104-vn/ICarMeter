@@ -26,6 +26,7 @@ class _SettingsFormState extends State<SettingsForm> {
   late String _tempUnit;
   late bool _autoReconnect;
   late bool _gpsForeground;
+  late bool _tpmsEnabled;
   late TextEditingController _piMacCtrl;
 
   @override
@@ -37,6 +38,7 @@ class _SettingsFormState extends State<SettingsForm> {
     _tempUnit = s.tempUnit;
     _autoReconnect = s.autoReconnect;
     _gpsForeground = s.gpsForeground;
+    _tpmsEnabled = widget.appState.isTpmsEnabled;
     _piMacCtrl = TextEditingController(text: s.piMac);
   }
 
@@ -53,6 +55,7 @@ class _SettingsFormState extends State<SettingsForm> {
     await s.setTempUnit(_tempUnit);
     await s.setAutoReconnect(_autoReconnect);
     await s.setGpsForeground(_gpsForeground);
+    await widget.appState.setTpmsEnabled(_tpmsEnabled);
     await s.setPiMac(_piMacCtrl.text.trim());
 
     if (_gpsForeground) {
@@ -237,6 +240,26 @@ class _SettingsFormState extends State<SettingsForm> {
                     value: _gpsForeground,
                     activeThumbColor: AppColors.primary,
                     onChanged: (v) => setState(() => _gpsForeground = v),
+                  ),
+                ],
+              ),
+              const Divider(color: AppColors.border, height: 16),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Cảm biến áp suất lốp (TPMS)', style: TextStyle(fontSize: 13, color: AppColors.text)),
+                        SizedBox(height: 2),
+                        Text('Bật/tắt theo dõi lốp xe (tắt sẽ ẩn tab Lốp xe và hiện Bản đồ trên táp-lô)', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: _tpmsEnabled,
+                    activeThumbColor: AppColors.primary,
+                    onChanged: (v) => setState(() => _tpmsEnabled = v),
                   ),
                 ],
               ),

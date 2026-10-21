@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ICarMeter Headless Wi-Fi Configuration API Service
-Listens for JSON API requests from the ICarMeter Mobile App over Wi-Fi Hotspot (192.169.204.145:8080)
+Listens for JSON API requests from the ICarMeter Mobile App over Wi-Fi Hotspot (192.168.204.145:8080)
 to read, write, and synchronize /opt/icarmeter/config.toml in real time.
 """
 
@@ -967,8 +967,9 @@ def write_config_to_path(path, payload):
             elif k == "high_temp_alert" and ("high_temp_alert" in payload or "temp_alert" in payload):
                 temp_val = float(payload.get("high_temp_alert", payload.get("temp_alert", 70.0)))
                 line = f'high_temp_alert = {temp_val:.1f}\n'
-            elif k == "enabled" and "tpms_enabled" in payload:
-                val = "true" if payload["tpms_enabled"] else "false"
+            elif k == "enabled" and ("tpms_enabled" in payload or "enabled" in payload):
+                val_bool = payload.get("tpms_enabled", payload.get("enabled"))
+                val = "true" if val_bool else "false"
                 line = f'enabled = {val}\n'
             elif k == "adapter" and "adapter" in payload and payload["adapter"]:
                 line = f'adapter = "{payload["adapter"]}"\n'
@@ -1085,8 +1086,9 @@ def handle_bt_command(msg_dict, reply_fn):
             lat = float(msg_dict.get("lat", 0.0))
             lon = float(msg_dict.get("lon", 0.0))
             alt = float(msg_dict.get("alt", 0.0))
+            heading = float(msg_dict.get("heading", msg_dict.get("bearing", 0.0)))
             with open("/dev/shm/icarmeter_phone_telemetry", "w", encoding="utf-8") as f:
-                f.write(f"spd={spd}\nlat={lat}\nlon={lon}\nalt={alt}\n")
+                f.write(f"spd={spd}\nlat={lat}\nlon={lon}\nalt={alt}\nheading={heading}\n")
             log_ws_event("Telemetry")
         except Exception:
             pass

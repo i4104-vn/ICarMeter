@@ -6,6 +6,7 @@ class PiConfig {
   final double pressureAlert; // bar (e.g. 1.8)
   final double highTempAlert; // Celsius (e.g. 70.0)
   final bool gpsEnabled;
+  final bool tpmsEnabled;
 
   const PiConfig({
     this.flSensorId = 'A4:C1:38:00:00:01',
@@ -15,6 +16,7 @@ class PiConfig {
     this.pressureAlert = 2.2,
     this.highTempAlert = 70.0,
     this.gpsEnabled = true,
+    this.tpmsEnabled = true,
   });
 
   factory PiConfig.fromJson(Map<String, dynamic> json) {
@@ -55,6 +57,9 @@ class PiConfig {
           ((source['gps'] is Map<String, dynamic>)
               ? (source['gps'] as Map<String, dynamic>)['enabled'] as bool? ?? true
               : true),
+      tpmsEnabled: (tpmsMap['enabled'] as bool?) ??
+          (source['tpms_enabled'] as bool?) ??
+          true,
     );
   }
 
@@ -66,6 +71,16 @@ class PiConfig {
         'alert': pressureAlert,
         'high_temp_alert': highTempAlert,
         'gps_enabled': gpsEnabled,
+        'tpms_enabled': tpmsEnabled,
+        'tpms': {
+          'enabled': tpmsEnabled,
+          'fl': flSensorId,
+          'fr': frSensorId,
+          'rl': rlSensorId,
+          'rr': rrSensorId,
+          'low_pressure_alert': pressureAlert,
+          'high_temp_alert': highTempAlert,
+        },
       };
 
   PiConfig copyWith({
@@ -76,6 +91,7 @@ class PiConfig {
     double? pressureAlert,
     double? highTempAlert,
     bool? gpsEnabled,
+    bool? tpmsEnabled,
   }) {
     return PiConfig(
       flSensorId: flSensorId ?? this.flSensorId,
@@ -85,6 +101,7 @@ class PiConfig {
       pressureAlert: pressureAlert ?? this.pressureAlert,
       highTempAlert: highTempAlert ?? this.highTempAlert,
       gpsEnabled: gpsEnabled ?? this.gpsEnabled,
+      tpmsEnabled: tpmsEnabled ?? this.tpmsEnabled,
     );
   }
 }

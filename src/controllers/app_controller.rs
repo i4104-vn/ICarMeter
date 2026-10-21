@@ -20,6 +20,7 @@ impl AppController {
         );
 
         let mut state = VehicleState::new();
+        state.tpms_enabled = config.tpms.enabled;
         state.tires.low_pressure_alert = config.tpms.low_pressure_alert;
         state.tires.high_temp_alert = config.tpms.high_temp_alert;
         let mut demo_speed = DemoSpeed::new();
@@ -60,16 +61,23 @@ impl AppController {
                         new_config.tpms.high_temp_alert,
                         new_config.tpms.enabled
                     );
+                    state.tpms_enabled = new_config.tpms.enabled;
                     state.tires.low_pressure_alert = new_config.tpms.low_pressure_alert;
                     state.tires.high_temp_alert = new_config.tpms.high_temp_alert;
                     telemetry.reload_config(&new_config);
                 }
             }
 
-            if let Some(key) = backend.poll_key()
-                && key.eq_ignore_ascii_case(&b'a')
-            {
-                demo_speed.toggle(&mut state);
+            if let Some(key) = backend.poll_key() {
+                if key.eq_ignore_ascii_case(&b'a') {
+                    demo_speed.toggle(&mut state);
+                } else if key.eq_ignore_ascii_case(&b'm') {
+                    state.tpms_enabled = !state.tpms_enabled;
+                    eprintln!(
+                        "[Display] Mode switched manually: TPMS enabled = {}",
+                        state.tpms_enabled
+                    );
+                }
             }
             if !backend.is_open() {
                 break;

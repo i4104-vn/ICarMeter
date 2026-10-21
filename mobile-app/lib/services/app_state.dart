@@ -132,6 +132,9 @@ class AppState extends ChangeNotifier {
   /// The active sensor ID and threshold alert configuration.
   PiConfig get config => _config;
 
+  /// Whether the Tire Pressure Monitoring System is currently active.
+  bool get isTpmsEnabled => _config.tpmsEnabled;
+
   /// An unmodifiable view of all recorded Bluetooth daemon logs.
   List<String> get btLogs => logService.logs;
 
@@ -150,6 +153,7 @@ class AppState extends ChangeNotifier {
       pressureAlert: storage.alertPressure,
       highTempAlert: storage.alertTemp,
       gpsEnabled: storage.gpsForeground,
+      tpmsEnabled: storage.tpmsEnabled,
     );
 
     // Setup native bridge event listeners
@@ -178,6 +182,10 @@ class AppState extends ChangeNotifier {
       btCoordinator.connectToPi(storage.piMac);
     }
 
+    // Android may keep using mobile data when the selected car hotspot has no
+    // internet. Bind to that Wi-Fi network before opening the WebSocket, and
+    // keep the request active so a later Wi-Fi switch is picked up as well.
+    await NativeBridge.bindToCarWifi();
     wifiWs.connect();
   }
 
@@ -302,6 +310,7 @@ class AppState extends ChangeNotifier {
     await storage.setRrId(newCfg.rrSensorId);
     await storage.setAlertPressure(newCfg.pressureAlert);
     await storage.setAlertTemp(newCfg.highTempAlert);
+    await storage.setTpmsEnabled(newCfg.tpmsEnabled);
 
     if (isBtConnected) {
       sendBtCommand({
@@ -315,10 +324,18 @@ class AppState extends ChangeNotifier {
           'alert': newCfg.pressureAlert,
           'high_temp_alert': newCfg.highTempAlert,
           'gps_enabled': newCfg.gpsEnabled,
+          'tpms_enabled': newCfg.tpmsEnabled,
+          'enabled': newCfg.tpmsEnabled,
         }
       });
     }
     notifyListeners();
+  }
+
+  /// Toggles the TPMS subsystem on or off, saves the state, and transmits to hardware.
+  Future<void> setTpmsEnabled(bool enabled) async {
+    final updated = _config.copyWith(tpmsEnabled: enabled);
+    await saveConfig(updated);
   }
 
   // --- Trip Actions ---

@@ -180,6 +180,17 @@
                     <div class="setting-item"
                         style="margin-top: 14px; padding: 10px 0; border-top: 1px solid var(--border-subtle);">
                         <div class="setting-text">
+                            <div class="setting-title">Kích hoạt cảm biến TPMS</div>
+                            <div class="setting-desc">Tắt TPMS sẽ hiển thị Bản đồ 2D trên táp-lô xe</div>
+                        </div>
+                        <label class="switch-flat">
+                            <input type="checkbox" id="toggleTpmsEnabled" checked onchange="saveAndSyncTpmsToPi()">
+                            <span class="slider-flat"></span>
+                        </label>
+                    </div>
+
+                    <div class="setting-item" style="padding: 10px 0; border-top: 1px solid var(--border-subtle);">
+                        <div class="setting-text">
                             <div class="setting-title">Cảnh báo áp suất thấp (Bar)</div>
                             <div class="setting-desc">Báo đỏ khi áp suất lốp dưới ngưỡng</div>
                         </div>

@@ -18,6 +18,11 @@ pub struct VehicleState {
     pub gps_connected: bool,
     pub wifi_active: bool,
     pub ws_event_log: Option<String>,
+    pub tpms_enabled: bool,
+    pub gps_latitude: f64,
+    pub gps_longitude: f64,
+    pub gps_heading: f32,
+    pub gps_altitude: f32,
 }
 
 impl Default for VehicleState {
@@ -36,6 +41,11 @@ impl Default for VehicleState {
             gps_connected: false,
             wifi_active: true,
             ws_event_log: None,
+            tpms_enabled: true,
+            gps_latitude: 21.0285,
+            gps_longitude: 105.8542,
+            gps_heading: 0.0,
+            gps_altitude: 18.0,
         }
     }
 }
