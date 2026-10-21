@@ -14,6 +14,17 @@ import sys
 import time
 import subprocess
 
+try:
+    import dbus
+    import dbus.service
+    import dbus.mainloop.glib
+    from gi.repository import GLib
+    HAS_DBUS = True
+except ImportError:
+    dbus = None
+    GLib = None
+    HAS_DBUS = False
+
 AGENT_INTERFACE = "org.bluez.Agent1"
 AGENT_PATH = "/org/icarmeter/btagent"
 PIN_MARKER = "/dev/shm/icarmeter_bt_pin"
@@ -59,12 +70,12 @@ def clear_pin():
         pass
 
 def run_dbus_agent():
-    try:
-        import dbus
-        import dbus.service
-        import dbus.mainloop.glib
-        from gi.repository import GLib
+    if not HAS_DBUS:
+        log_bt("dbus/gi not available, falling back to bluetoothctl agent loop...")
+        run_bluetoothctl_agent()
+        return
 
+    try:
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
         bus = dbus.SystemBus()
 

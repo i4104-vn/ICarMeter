@@ -1,7 +1,8 @@
 [Unit]
 Description=ICarMeter Bluetooth RFCOMM/SPP service
-After=bluetooth.service icarmeter-bluetooth.service
-Wants=icarmeter-bluetooth.service
+Requires=bluetooth.service icarmeter-bluetooth.service
+Wants=icarmeter-bt-agent.service
+After=bluetooth.service icarmeter-bluetooth.service icarmeter-bt-agent.service
 
 [Service]
 Type=simple

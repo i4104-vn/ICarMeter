@@ -34,16 +34,20 @@ mkdir -p /etc/bluetooth
 cat << 'EOF' > /etc/bluetooth/main.conf
 [General]
 Name = ICarMeter
-Class = 0x000100
+Class = 0x200404
 DiscoverableTimeout = 0
 PairableTimeout = 0
 AlwaysPairable = true
 AutoEnable = true
 ControllerMode = dual
+FastConnectable = true
+Privacy = off
 JustWorksRepairing = always
 
 [Policy]
 AutoEnable = true
+ReconnectAttempts = 7
+ReconnectIntervals = 1, 2, 4, 8, 16, 32, 64
 EOF
 
 # BlueZ Compat Mode Drop-in: enables SDP server socket for SPP profile and grants permissions
@@ -56,7 +60,7 @@ cat << EOF > /etc/systemd/system/bluetooth.service.d/icarmeter-compat.conf
 [Service]
 ExecStart=
 ExecStart=${BT_DAEMON} --compat
-ExecStartPost=-/bin/chmod 777 /var/run/sdp
+ExecStartPost=-/bin/chmod 777 /var/run/sdp /run/sdp
 EOF
 
 # Set system machine-info pretty hostname

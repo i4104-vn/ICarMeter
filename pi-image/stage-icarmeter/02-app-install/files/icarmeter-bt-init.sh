@@ -46,8 +46,15 @@ done
 
 # Set system Bluetooth alias and controller name to ICarMeter
 /usr/bin/bluetoothctl system-alias "ICarMeter" 2>/dev/null || true
+
+# Direct kernel-level Bluetooth controller configuration via btmgmt
 if [ -x /usr/bin/btmgmt ]; then
-    /usr/bin/btmgmt name "ICarMeter" "ICarMeter" 2>/dev/null || true
+    /usr/bin/btmgmt --index 0 power on 2>/dev/null || /usr/bin/btmgmt power on 2>/dev/null || true
+    /usr/bin/btmgmt --index 0 name "ICarMeter" "ICarMeter" 2>/dev/null || /usr/bin/btmgmt name "ICarMeter" "ICarMeter" 2>/dev/null || true
+    /usr/bin/btmgmt --index 0 class 0x200404 2>/dev/null || /usr/bin/btmgmt class 0x200404 2>/dev/null || true
+    /usr/bin/btmgmt --index 0 connectable on 2>/dev/null || /usr/bin/btmgmt connectable on 2>/dev/null || true
+    /usr/bin/btmgmt --index 0 discov on 2>/dev/null || /usr/bin/btmgmt discov on 2>/dev/null || true
+    /usr/bin/btmgmt --index 0 pairable on 2>/dev/null || /usr/bin/btmgmt pairable on 2>/dev/null || true
 fi
 
 # Controller is permanently discoverable and pairable (RFCOMM/SPP)
@@ -58,7 +65,25 @@ fi
 /usr/bin/bluetoothctl pairable on 2>/dev/null || true
 
 # Register Serial Port Profile (SPP) in BlueZ SDP
-chmod 777 /var/run/sdp 2>/dev/null || true
-sdptool add SP 2>/dev/null || true
+# Wait for SDP socket to become available from bluetoothd --compat
+sdp_socket_ready=0
+for i in $(seq 1 20); do
+    if [ -S /var/run/sdp ] || [ -S /run/sdp ]; then
+        chmod 777 /var/run/sdp /run/sdp 2>/dev/null || true
+        sdp_socket_ready=1
+        break
+    fi
+    sleep 0.5
+done
+
+if [ "$sdp_socket_ready" -eq 1 ]; then
+    if sdptool add --channel=1 SP >/dev/null 2>&1 || sdptool add SP >/dev/null 2>&1; then
+        log_bt "Registered Serial Port Profile (SPP) on SDP channel 1."
+    else
+        log_bt "Warning: Failed to register SPP via sdptool."
+    fi
+else
+    log_bt "Warning: SDP socket (/var/run/sdp) not found after 10s. Compat mode may not be active."
+fi
 
 log_bt "Controller powered, named ICarMeter, and permanently listening for RFCOMM SPP connections."

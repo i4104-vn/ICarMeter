@@ -14,6 +14,16 @@ import sys
 import threading
 import time
 
+try:
+    import dbus
+    import dbus.mainloop.glib
+    from gi.repository import GLib
+    HAS_DBUS = True
+except ImportError:
+    dbus = None
+    GLib = None
+    HAS_DBUS = False
+
 
 # Thread-safe Bluetooth RFCOMM client registry
 connected_bt_clients = set()
@@ -123,16 +133,52 @@ def run_bluetoothctl(args, timeout=5):
 
 def bluetoothctl_monitor_worker():
     """
-    Dedicated worker streaming real-time events directly from bluetoothctl.
+    Dedicated worker streaming real-time events directly from D-Bus / bluetoothctl.
     Logs BlueZ adapter, device discovery, connection, pairing, and passkey events.
     """
     time.sleep(2)
-    log_bt("SYSTEM", "Starting bluetoothctl live event monitor...")
+    log_bt("SYSTEM", "Starting Bluetooth live event monitor...")
+
+    # Primary: D-Bus signal monitoring (passive, non-intrusive)
+    try:
+        if not dbus or not GLib:
+            raise RuntimeError("D-Bus / GLib not available")
+
+        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+        bus = dbus.SystemBus()
+
+        def on_properties_changed(interface, changed, invalidated, path=None):
+            if interface == "org.bluez.Device1":
+                mac = str(path).split("dev_")[-1].replace("_", ":").upper() if "dev_" in str(path) else str(path)
+                for k, v in changed.items():
+                    log_bt("bluetooth", f"Device {mac} {k}: {v}")
+                    if k == "Connected":
+                        status = "connected" if v else "disconnected"
+                        bt_broadcast({"type": "bt_device_status", "mac": mac, "status": status})
+            elif interface == "org.bluez.Adapter1":
+                for k, v in changed.items():
+                    log_bt("bluetooth", f"Adapter {k}: {v}")
+
+        bus.add_signal_receiver(
+            on_properties_changed,
+            bus_name="org.bluez",
+            signal_name="PropertiesChanged",
+            dbus_interface="org.freedesktop.DBus.Properties",
+            path_keyword="path"
+        )
+        log_bt("SYSTEM", "Active D-Bus Bluetooth signal monitor listening.")
+        loop = GLib.MainLoop()
+        loop.run()
+        return
+    except Exception as e:
+        log_bt("SYSTEM", f"D-Bus monitor fallback ({e}), using bluetoothctl stream...")
+
+    # Fallback to bluetoothctl passive output
     while True:
         try:
             p = subprocess.Popen(
                 ["bluetoothctl"],
-                stdin=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -142,11 +188,9 @@ def bluetoothctl_monitor_worker():
                 clean = line.strip()
                 if not clean:
                     continue
-                # Skip interactive prompt lines like '[bluetooth]# '
                 clean = re.sub(r'\[bluetooth\s*\]#\s*', '', clean).strip()
                 if not clean:
                     continue
-                # Strip ANSI color escape sequences
                 clean_line = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', clean).strip()
                 if clean_line:
                     log_bt("bluetoothctl", clean_line)
@@ -174,12 +218,43 @@ def bt_broadcast(msg_dict):
 def ensure_bt_always_ready():
     """Keeps Bluetooth adapter powered, named ICarMeter, discoverable, and pairable at all times."""
     try:
-        subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=2)
-        subprocess.run(["bluetoothctl", "system-alias", "ICarMeter"], capture_output=True, timeout=2)
-        subprocess.run(["bluetoothctl", "discoverable-timeout", "0"], capture_output=True, timeout=2)
-        subprocess.run(["bluetoothctl", "pairable-timeout", "0"], capture_output=True, timeout=2)
-        subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=2)
-        subprocess.run(["bluetoothctl", "pairable", "on"], capture_output=True, timeout=2)
+        # Check and configure via D-Bus first to avoid spawning subprocesses
+        try:
+            if not dbus:
+                raise RuntimeError("D-Bus not available")
+            bus = dbus.SystemBus()
+            adapter_obj = bus.get_object("org.bluez", "/org/bluez/hci0")
+            props = dbus.Interface(adapter_obj, "org.freedesktop.DBus.Properties")
+
+            powered = bool(props.Get("org.bluez.Adapter1", "Powered"))
+            discoverable = bool(props.Get("org.bluez.Adapter1", "Discoverable"))
+            pairable = bool(props.Get("org.bluez.Adapter1", "Pairable"))
+            alias = str(props.Get("org.bluez.Adapter1", "Alias"))
+
+            if not powered:
+                props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(True))
+            if alias != "ICarMeter":
+                props.Set("org.bluez.Adapter1", "Alias", dbus.String("ICarMeter"))
+            if not discoverable:
+                props.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(0))
+                props.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(True))
+            if not pairable:
+                props.Set("org.bluez.Adapter1", "PairableTimeout", dbus.UInt32(0))
+                props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
+            return
+        except Exception:
+            pass
+
+        # Fallback to btmgmt or bluetoothctl
+        if os.path.exists("/usr/bin/btmgmt"):
+            subprocess.run(["btmgmt", "--index", "0", "power", "on"], capture_output=True, timeout=2)
+            subprocess.run(["btmgmt", "--index", "0", "name", "ICarMeter", "ICarMeter"], capture_output=True, timeout=2)
+            subprocess.run(["btmgmt", "--index", "0", "discov", "on"], capture_output=True, timeout=2)
+            subprocess.run(["btmgmt", "--index", "0", "pairable", "on"], capture_output=True, timeout=2)
+        else:
+            subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=2)
+            subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=2)
+            subprocess.run(["bluetoothctl", "pairable", "on"], capture_output=True, timeout=2)
     except Exception:
         pass
 
@@ -209,7 +284,7 @@ def bt_heartbeat_worker():
             clear_app_connected()
 
         # Periodically ensure adapter never goes into sleep/non-discoverable mode
-        if tick % 10 == 0:
+        if tick % 30 == 0:
             ensure_bt_always_ready()
 
 def resolve_config_path():
@@ -310,8 +385,9 @@ def is_generic_mac_name(name, mac):
 
 def get_dbus_device_info(mac):
     """Retrieves device properties via BlueZ D-Bus interface."""
+    if not HAS_DBUS:
+        return None
     try:
-        import dbus
         bus = dbus.SystemBus()
         om = dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.ObjectManager")
         objects = om.GetManagedObjects()
@@ -442,43 +518,45 @@ def _bt_discovery_worker():
     global _bt_discovery_active, _scan_process
     log_bt("BT", "Starting comprehensive Bluetooth discovery across Classic BR/EDR and BLE...")
 
-    # Ensure controller is unblocked, powered, and named ICarMeter
+    # Ensure controller is unblocked and powered
     try:
         subprocess.run(["rfkill", "unblock", "bluetooth"], capture_output=True, timeout=2)
-        subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=2)
-        subprocess.run(["bluetoothctl", "system-alias", "ICarMeter"], capture_output=True, timeout=2)
+        ensure_bt_always_ready()
     except Exception:
         pass
 
-    # Start a persistent interactive bluetoothctl session
-    # A persistent session guarantees BlueZ discovery NEVER stops unexpectedly
-    p = None
+    dbus_discovery_used = False
     try:
-        p = subprocess.Popen(
-            ["bluetoothctl"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1
-        )
-        _scan_process = p
-        # Configure discovery filter for all transports (Classic + LE) and start continuous scan
-        init_cmds = (
-            "menu scan\n"
-            "clear\n"
-            "transport auto\n"
-            "duplicate-data on\n"
-            "back\n"
-            "discoverable on\n"
-            "scan on\n"
-        )
-        p.stdin.write(init_cmds)
-        p.stdin.flush()
+        if not dbus:
+            raise RuntimeError("D-Bus not available")
+        bus = dbus.SystemBus()
+        adapter_obj = bus.get_object("org.bluez", "/org/bluez/hci0")
+        adapter = dbus.Interface(adapter_obj, "org.bluez.Adapter1")
+        adapter.StartDiscovery()
+        dbus_discovery_used = True
+        log_bt("BT", "Bluetooth discovery active via BlueZ D-Bus Adapter1.")
     except Exception as e:
-        log_bt("BT", f"Failed to start interactive bluetoothctl scan: {e}")
+        log_bt("BT", f"D-Bus StartDiscovery note: {e}, falling back to bluetoothctl...")
 
-    # Reader thread for real-time [NEW] and [CHG] discovery events from bluetoothctl stdout
+    p = None
+    if not dbus_discovery_used:
+        try:
+            p = subprocess.Popen(
+                ["bluetoothctl"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            _scan_process = p
+            init_cmds = "scan on\n"
+            p.stdin.write(init_cmds)
+            p.stdin.flush()
+        except Exception as e:
+            log_bt("BT", f"Failed to start fallback bluetoothctl scan: {e}")
+
+    # Reader thread for real-time [NEW] and [CHG] discovery events from bluetoothctl stdout (fallback)
     def live_event_reader(proc):
         while _bt_discovery_active and proc and proc.poll() is None:
             try:
@@ -486,7 +564,6 @@ def _bt_discovery_worker():
                 if not line:
                     break
                 line_str = line.strip()
-                # Match [NEW] or [CHG] Device MAC [Name/details]
                 m_dev = re.search(r"\[(NEW|CHG)\]\s+Device\s+([0-9A-Fa-f:]{17})\s*(.*)", line_str)
                 if m_dev:
                     mac = m_dev.group(2).upper()
@@ -497,12 +574,10 @@ def _bt_discovery_worker():
                         name_candidate = detail.replace("Name:", "").strip()
                     elif detail.startswith("Alias:"):
                         name_candidate = detail.replace("Alias:", "").strip()
-                    elif not detail.startswith("RSSI:") and not detail.startswith("Connected:") and not detail.startswith("TxPower:") and not detail.startswith("ManufacturerData"):
+                    elif not any(detail.startswith(x) for x in ("RSSI:", "Connected:", "TxPower:", "ManufacturerData")):
                         name_candidate = detail
 
-                    # Resolve real friendly name
                     real_name = resolve_device_name(mac, name_candidate)
-
                     with _bt_discovery_lock:
                         prev = _bt_discovered_devices.get(mac)
                         if prev != real_name:
@@ -524,26 +599,52 @@ def _bt_discovery_worker():
     # Background cycle: periodically sweep devices list and resolve names for cached devices
     while _bt_discovery_active:
         try:
-            # 1. Sweep devices via bluetoothctl
-            res = subprocess.run(["bluetoothctl", "devices"], capture_output=True, text=True, timeout=3)
-            if res.returncode == 0 and res.stdout:
-                for line in res.stdout.strip().splitlines():
-                    m = re.match(r"^Device\s+([0-9A-Fa-f:]{17})\s*(.*)$", line.strip())
-                    if m:
-                        mac = m.group(1).upper()
-                        raw_name = m.group(2).strip()
-                        real_name = resolve_device_name(mac, raw_name)
-                        with _bt_discovery_lock:
-                            prev = _bt_discovered_devices.get(mac)
-                            if prev != real_name:
-                                _bt_discovered_devices[mac] = real_name
-                                log_bt("BT-Discovery", f"Discovered device: {real_name} ({mac})")
-                                bt_broadcast({
-                                    "type": "bt_device_found",
-                                    "mac": mac,
-                                    "name": real_name,
-                                    "rssi": 0
-                                })
+            if dbus_discovery_used and HAS_DBUS:
+                try:
+                    bus = dbus.SystemBus()
+                    manager = dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.ObjectManager")
+                    objects = manager.GetManagedObjects()
+                    for path, interfaces in objects.items():
+                        if "org.bluez.Device1" in interfaces:
+                            dev = interfaces["org.bluez.Device1"]
+                            mac = str(dev.get("Address", "")).upper()
+                            if mac:
+                                alias = str(dev.get("Alias", dev.get("Name", "")))
+                                real_name = resolve_device_name(mac, alias)
+                                with _bt_discovery_lock:
+                                    prev = _bt_discovered_devices.get(mac)
+                                    if prev != real_name:
+                                        _bt_discovered_devices[mac] = real_name
+                                        log_bt("BT-Discovery", f"Discovered device: {real_name} ({mac})")
+                                        bt_broadcast({
+                                            "type": "bt_device_found",
+                                            "mac": mac,
+                                            "name": real_name,
+                                            "rssi": 0
+                                        })
+                except Exception as e:
+                    log_bt("BT-Discovery", f"D-Bus sweep note: {e}")
+            else:
+                # 1. Sweep devices via bluetoothctl
+                res = subprocess.run(["bluetoothctl", "devices"], capture_output=True, text=True, timeout=3)
+                if res.returncode == 0 and res.stdout:
+                    for line in res.stdout.strip().splitlines():
+                        m = re.match(r"^Device\s+([0-9A-Fa-f:]{17})\s*(.*)$", line.strip())
+                        if m:
+                            mac = m.group(1).upper()
+                            raw_name = m.group(2).strip()
+                            real_name = resolve_device_name(mac, raw_name)
+                            with _bt_discovery_lock:
+                                prev = _bt_discovered_devices.get(mac)
+                                if prev != real_name:
+                                    _bt_discovered_devices[mac] = real_name
+                                    log_bt("BT-Discovery", f"Discovered device: {real_name} ({mac})")
+                                    bt_broadcast({
+                                        "type": "bt_device_found",
+                                        "mac": mac,
+                                        "name": real_name,
+                                        "rssi": 0
+                                    })
 
             # 2. Check any devices that still have generic MAC names and resolve them
             with _bt_discovery_lock:
@@ -569,7 +670,16 @@ def _bt_discovery_worker():
             pass
         time.sleep(2.5)
 
-    # Clean shutdown of interactive session
+    # Clean shutdown
+    if dbus_discovery_used and HAS_DBUS:
+        try:
+            bus = dbus.SystemBus()
+            adapter_obj = bus.get_object("org.bluez", "/org/bluez/hci0")
+            adapter = dbus.Interface(adapter_obj, "org.bluez.Adapter1")
+            adapter.StopDiscovery()
+            log_bt("BT", "Bluetooth discovery stopped via D-Bus.")
+        except Exception:
+            pass
     if p:
         try:
             p.stdin.write("scan off\nquit\n")
@@ -598,6 +708,14 @@ def stop_bluetooth_discovery():
     with _bt_discovery_lock:
         _bt_discovery_active = False
     log_bt("BT", "Stopping Bluetooth scan...")
+    if dbus:
+        try:
+            bus = dbus.SystemBus()
+            adapter_obj = bus.get_object("org.bluez", "/org/bluez/hci0")
+            adapter = dbus.Interface(adapter_obj, "org.bluez.Adapter1")
+            adapter.StopDiscovery()
+        except Exception:
+            pass
     if _scan_process:
         try:
             _scan_process.stdin.write("scan off\nquit\n")
@@ -665,8 +783,6 @@ def unpair_bluetooth_device(mac):
         return success
     except Exception as e:
         log_bt("BT-Unpair", f"Remove {mac} error: {e}")
-        return False
-    except Exception:
         return False
 
 def get_actual_config_path():
@@ -1103,9 +1219,18 @@ def rfcomm_server_worker():
         try:
             ensure_bt_always_ready()
             try:
-                subprocess.run(["sdptool", "add", "SP"], capture_output=True, timeout=3)
-            except Exception:
-                pass
+                for sdp_path in ("/var/run/sdp", "/run/sdp"):
+                    if os.path.exists(sdp_path):
+                        try:
+                            os.chmod(sdp_path, 0o777)
+                        except Exception:
+                            pass
+                res = subprocess.run(["sdptool", "add", f"--channel={RFCOMM_PORT}", "SP"], capture_output=True, timeout=3)
+                if res.returncode != 0:
+                    subprocess.run(["sdptool", "add", "SP"], capture_output=True, timeout=3)
+                log_bt("BT-RFCOMM", f"SDP SPP profile verified on RFCOMM channel {RFCOMM_PORT}")
+            except Exception as e:
+                log_bt("BT-RFCOMM", f"Note registering SDP SPP: {e}")
 
             server_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
             server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

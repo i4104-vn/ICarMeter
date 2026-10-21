@@ -17,3 +17,6 @@ libpng16-16
 libssl3
 libuv1
 libwebp7
+bluez
+bluez-tools
+rfkill
