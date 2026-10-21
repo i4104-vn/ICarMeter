@@ -9,6 +9,7 @@ RUN apt-get -y update && \
         quilt coreutils qemu-user debootstrap zerofree zip unzip dosfstools e2fsprogs\
         libcap2-bin rsync grep udev xz-utils curl xxd file kmod bc \
         ca-certificates fdisk gpg pigz arch-test debian-archive-keyring \
+        python3 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . /pi-gen/

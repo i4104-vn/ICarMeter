@@ -50,7 +50,8 @@ if ! file "${MAP_TEMP_DIR}/vietnam.mbtiles" | grep -q "SQLite 3.x database"; the
     echo "Downloaded Vietnam map is not a valid MBTiles database" >&2
     exit 1
 fi
-python3 - "${MAP_TEMP_DIR}/vietnam.mbtiles" <<'PY'
+if command -v python3 >/dev/null 2>&1; then
+    python3 - "${MAP_TEMP_DIR}/vietnam.mbtiles" <<'PY'
 import sqlite3
 import sys
 
@@ -65,6 +66,9 @@ if database.execute("SELECT 1 FROM tiles LIMIT 1").fetchone() is None:
     raise SystemExit("Vietnam vector MBTiles contains no tiles")
 database.close()
 PY
+else
+    echo "WARNING: python3 not found on host, skipping deep MBTiles table validation"
+fi
 install -m 644 "${MAP_TEMP_DIR}/vietnam.mbtiles" "${APP_DIR}/maps/vietnam.mbtiles"
 
 if [ -f files/icarmeter ]; then
