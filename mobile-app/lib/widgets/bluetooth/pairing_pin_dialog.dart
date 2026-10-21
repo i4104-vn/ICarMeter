@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
+import '../../theme/app_theme.dart';
 
+/// Modal dialog displaying generated Bluetooth PIN code for pairing confirmation.
 class PairingPinDialog extends StatelessWidget {
   final String pinCode;
   final String deviceName;

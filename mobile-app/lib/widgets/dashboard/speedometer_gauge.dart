@@ -1,7 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
+import '../../theme/app_theme.dart';
 
+/// Circular modern digital speedometer gauge with active gradient arc and warning icons.
 class SpeedometerGauge extends StatelessWidget {
   final double speed;
   final double maxSpeed;
