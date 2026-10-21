@@ -120,7 +120,7 @@ time ${DOCKER} run \
       trap 'echo -1 > /proc/sys/fs/binfmt_misc/qemu-aarch64-rpi' EXIT
     fi
     cd /pi-gen
-    find /pi-gen -type f \( -name "*.sh" -o -name "EXPORT_IMAGE" \) -exec chmod +x {} + || true
+    find /pi-gen -type f \( -name \"*.sh\" -o -name \"EXPORT_IMAGE\" \) -exec chmod +x {} + || true
     chmod -R +x /pi-gen/scripts/ 2>/dev/null || true
     ./build.sh ${BUILD_OPTS}
     rsync -av work/*/build.log deploy/

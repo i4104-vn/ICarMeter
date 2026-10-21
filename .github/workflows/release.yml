@@ -150,8 +150,8 @@ jobs:
       - name: Stage APK artifacts
         run: |
           mkdir -p apk_dist
-          V8A_APK=$(find mobile-app/build/app/outputs/flutter-apk -name "*arm64-v8a*release*.apk" 2>/dev/null | head -n 1)
-          V7A_APK=$(find mobile-app/build/app/outputs/flutter-apk -name "*armeabi-v7a*release*.apk" 2>/dev/null | head -n 1)
+          V8A_APK=$(find mobile-app/build/app/outputs/flutter-apk -name '*arm64-v8a*release*.apk' 2>/dev/null | head -n 1)
+          V7A_APK=$(find mobile-app/build/app/outputs/flutter-apk -name '*armeabi-v7a*release*.apk' 2>/dev/null | head -n 1)
 
           if [ -f "$V8A_APK" ]; then
             cp -v "$V8A_APK" apk_dist/ICarMeter-arm64-v8a.apk
@@ -297,7 +297,7 @@ jobs:
         run: |
           cd pi-image
           chmod -R +x .
-          find . -type f \( -name "*.sh" -o -name "EXPORT_IMAGE" \) -exec chmod +x {} + || true
+          find . -type f \( -name '*.sh' -o -name 'EXPORT_IMAGE' \) -exec chmod +x {} + || true
           ./build-docker.sh
 
       - name: Package Image into Flashable Zip
