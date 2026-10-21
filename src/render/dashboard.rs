@@ -1,6 +1,8 @@
 // Main Dashboard UI Renderer orchestrating panels and converting to pixel buffer
 
-use super::components::{CarPanel, CardContainer, FooterRenderer, SpeedometerPanel, StatsPanel};
+use super::components::{
+    CarPanel, CardContainer, FooterRenderer, MapPanel, SpeedometerPanel, StatsPanel,
+};
 use super::core::FontRenderer;
 use super::pixel_buffer::PixelBuffer;
 use crate::configs::display::{SCREEN_HEIGHT, SCREEN_WIDTH};
@@ -14,6 +16,7 @@ pub struct DashboardRenderer {
     pixel_buffer: PixelBuffer,
     fonts: FontRenderer,
     car_panel: CarPanel,
+    map_panel: MapPanel,
     speed_panel: SpeedometerPanel,
     stats_panel: StatsPanel,
     footer_panel: FooterRenderer,
@@ -26,6 +29,7 @@ impl DashboardRenderer {
             .ok_or_else(|| "Failed to allocate 1280x480 pixmap".to_string())?;
         let fonts = FontRenderer::new()?;
         let car_panel = CarPanel::new();
+        let map_panel = MapPanel::new();
         let speed_panel = SpeedometerPanel::new();
         let stats_panel = StatsPanel::new();
         let footer_panel = FooterRenderer::new();
@@ -35,6 +39,7 @@ impl DashboardRenderer {
             pixel_buffer: PixelBuffer::new(),
             fonts,
             car_panel,
+            map_panel,
             speed_panel,
             stats_panel,
             footer_panel,
@@ -46,8 +51,13 @@ impl DashboardRenderer {
         // 1. Draw Background, Card Container, and Dividers
         CardContainer::draw(&mut self.pixmap);
 
-        // 2. Render Left Panel (Vector Car + Wheels + TPMS)
-        self.car_panel.draw(&mut self.pixmap, &self.fonts, state);
+        // 2. Render Left Panel (Vector Car + Wheels + TPMS if enabled, otherwise 2D Offline Map)
+        if state.tpms_enabled {
+            self.car_panel.draw(&mut self.pixmap, &self.fonts, state);
+        } else {
+            self.map_panel
+                .draw(&mut self.pixmap, &self.fonts, state, dt);
+        }
 
         // 3. Render Center Panel (Speedometer or animated expression companion)
         self.speed_panel
