@@ -1,35 +1,16 @@
-// Clean borderless footer status bar: Bluetooth, Mobile App, GPS
-// Displays minimalist vector icons and names:
-// - White when connected (showing connected device name for Bluetooth)
-// - Dim muted gray when disconnected
+// Compact connection footer: Bluetooth and GPS only.
 
 use crate::configs::display::SCREEN_WIDTH;
 use crate::models::VehicleState;
 use crate::render::core::FontRenderer;
 use tiny_skia::{Color, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
-#[derive(Debug, Clone)]
-pub struct FooterRenderer {
-    current_event: Option<String>,
-    prev_event: Option<String>,
-    slide_anim: f32,
-    fade_opacity: f32,
-}
-
-impl Default for FooterRenderer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+#[derive(Debug, Clone, Default)]
+pub struct FooterRenderer;
 
 impl FooterRenderer {
     pub fn new() -> Self {
-        Self {
-            current_event: None,
-            prev_event: None,
-            slide_anim: 1.0,
-            fade_opacity: 0.0,
-        }
+        Self
     }
 
     pub fn draw(
@@ -37,179 +18,64 @@ impl FooterRenderer {
         pixmap: &mut Pixmap,
         fonts: &FontRenderer,
         state: &VehicleState,
-        dt: f32,
+        _dt: f32,
     ) {
         let white_color = Color::from_rgba8(255, 255, 255, 255);
         let dim_color = Color::from_rgba8(110, 110, 120, 255);
         let baseline_y = 458.0;
 
-        // ─── 1. WebSocket Event Log with Slide-Up & Auto-Hide (Bottom-Left) ────
-        // Strictly 1-line event ticker: only displayed when an active event occurs,
-        // and automatically hides (fades out) 3 seconds after the event concludes.
-        if let Some(ref new_ev) = state.ws_event_log {
-            if self.current_event.as_deref() != Some(new_ev.as_str()) {
-                self.prev_event = self.current_event.clone();
-                self.current_event = Some(new_ev.clone());
-                self.slide_anim = 0.0; // Trigger slide-up animation
-            }
-            // Rapid smooth fade-in
-            self.fade_opacity = (self.fade_opacity + dt * 6.0).min(1.0);
-        } else {
-            // No active event: smoothly fade out to completely hide
-            self.fade_opacity = (self.fade_opacity - dt * 3.0).max(0.0);
-            if self.fade_opacity <= 0.0 {
-                self.current_event = None;
-                self.prev_event = None;
-            }
-        }
-
-        if self.slide_anim < 1.0 {
-            self.slide_anim = (self.slide_anim + dt * 4.0).min(1.0);
-        }
-
-        if self.fade_opacity > 0.0
-            && let Some(ref cur) = self.current_event
-        {
-            // Hard vertical clip range: strictly 1 line height (15px slot)
-            let clip_min_y = (baseline_y - 12.0) as i32;
-            let clip_max_y = (baseline_y + 3.0) as i32;
-
-            let t = 1.0 - (1.0 - self.slide_anim).powi(3); // ease-out cubic
-            let slide_dist = 15.0;
-            let event_x = 28.0;
-
-            if self.slide_anim < 1.0 {
-                // 1. Previous event slides UP and exits the top of the single-line slot
-                if let Some(ref prev) = self.prev_event {
-                    let prev_y = baseline_y - t * slide_dist;
-                    let prev_alpha = ((1.0 - t) * 150.0 * self.fade_opacity) as u8;
-                    if prev_alpha > 0 {
-                        fonts.draw_text_clipped_y(
-                            pixmap,
-                            &fonts.regular,
-                            prev,
-                            event_x,
-                            prev_y,
-                            11.5,
-                            Color::from_rgba8(115, 120, 132, prev_alpha),
-                            clip_min_y,
-                            clip_max_y,
-                        );
-                    }
-                }
-
-                // 2. Incoming event slides UP from below and enters the single-line slot
-                let cur_y = baseline_y + (1.0 - t) * slide_dist;
-                let cur_alpha = (t * 180.0 * self.fade_opacity) as u8;
-                if cur_alpha > 0 {
-                    fonts.draw_text_clipped_y(
-                        pixmap,
-                        &fonts.regular,
-                        cur,
-                        event_x,
-                        cur_y,
-                        11.5,
-                        Color::from_rgba8(120, 125, 138, cur_alpha),
-                        clip_min_y,
-                        clip_max_y,
-                    );
-                }
-            } else {
-                // At rest: strictly 1 single line, static and crystal clear dim text
-                let alpha = (180.0 * self.fade_opacity) as u8;
-                if alpha > 0 {
-                    fonts.draw_text_clipped_y(
-                        pixmap,
-                        &fonts.regular,
-                        cur,
-                        event_x,
-                        baseline_y,
-                        11.5,
-                        Color::from_rgba8(120, 125, 138, alpha),
-                        clip_min_y,
-                        clip_max_y,
-                    );
-                }
-            }
-        }
-
-        // ─── 2. Center Status Icons: Wi-Fi, Bluetooth, GPS ───────────────────
-        // 1. Wi-Fi Hotspot item
-        let (wifi_color, wifi_label) = if state.wifi_active {
-            (white_color, "Wi-Fi")
-        } else {
-            (dim_color, "Wi-Fi")
-        };
-
-        // 2. Bluetooth item (pure Bluetooth / BLE sensors, isolated from WebSocket)
         let (bt_color, bt_label) = match (state.bt_device_name.as_deref(), state.bt_active) {
             (Some(name), _) => (white_color, name),
             (None, true) => (white_color, "Bluetooth"),
             (None, false) => (dim_color, "Bluetooth"),
         };
-
-        // 3. GPS item
         let (gps_color, gps_label) = if state.gps_connected {
             (white_color, "GPS")
         } else {
             (dim_color, "GPS")
         };
 
-        let items = [
-            (0, wifi_color, wifi_label),
-            (1, bt_color, bt_label),
-            (3, gps_color, gps_label),
-        ];
-
+        let items = [(0, bt_color, bt_label), (1, gps_color, gps_label)];
         let font_size = 13.0;
         let icon_box_w = 12.0;
         let icon_text_gap = 7.0;
         let item_spacing = 42.0;
         let icon_cy = baseline_y - 4.5;
 
-        // Measure widths to center the 3 items horizontally
-        let mut item_widths = Vec::with_capacity(3);
+        let mut item_widths = Vec::with_capacity(items.len());
         let mut total_w = 0.0;
         for (i, &(_, _, label)) in items.iter().enumerate() {
-            let tw = fonts.measure_width(&fonts.bold, label, font_size);
-            let iw = icon_box_w + icon_text_gap + tw;
-            item_widths.push(iw);
-            total_w += iw;
+            let text_width = fonts.measure_width(&fonts.bold, label, font_size);
+            let item_width = icon_box_w + icon_text_gap + text_width;
+            item_widths.push(item_width);
+            total_w += item_width;
             if i > 0 {
                 total_w += item_spacing;
             }
         }
 
-        let mut cur_x = 640.0 - (total_w / 2.0);
-
+        let mut cur_x = (SCREEN_WIDTH as f32 - total_w) / 2.0;
         for (i, &(kind, color, label)) in items.iter().enumerate() {
-            let iw = item_widths[i];
+            let item_width = item_widths[i];
             let icon_cx = cur_x + (icon_box_w * 0.5);
 
-            // Draw Icon
             match kind {
-                0 => Self::draw_wifi_icon(pixmap, icon_cx, icon_cy, color),
-                1 => Self::draw_bluetooth_icon(pixmap, icon_cx, icon_cy, color),
+                0 => Self::draw_bluetooth_icon(pixmap, icon_cx, icon_cy, color),
                 _ => Self::draw_gps_icon(pixmap, icon_cx, icon_cy, color),
             }
 
-            // Draw Label
-            let text_x = cur_x + icon_box_w + icon_text_gap;
             fonts.draw_text(
                 pixmap,
                 &fonts.bold,
                 label,
-                text_x,
+                cur_x + icon_box_w + icon_text_gap,
                 baseline_y,
                 font_size,
                 color,
             );
-
-            cur_x += iw + item_spacing;
+            cur_x += item_width + item_spacing;
         }
 
-        // Keep the Rust dashboard build version visible in the lower-right
-        // corner, separate from the centered connection status indicators.
         let version_label = concat!("v", env!("CARGO_PKG_VERSION"));
         let version_size = 10.0;
         let version_width = fonts.measure_width(&fonts.regular, version_label, version_size);
@@ -224,16 +90,12 @@ impl FooterRenderer {
         );
     }
 
-    /// Minimalist Bluetooth Rune Icon
     fn draw_bluetooth_icon(pixmap: &mut Pixmap, cx: f32, cy: f32, color: Color) {
         let mut pb = PathBuilder::new();
-        // Vertical stem
         pb.move_to(cx, cy - 6.5);
         pb.line_to(cx, cy + 6.5);
-        // Lower lobe and upper-left diagonal
         pb.line_to(cx + 3.2, cy + 3.2);
         pb.line_to(cx - 3.2, cy - 3.2);
-        // Upper lobe and lower-left diagonal
         pb.move_to(cx - 3.2, cy + 3.2);
         pb.line_to(cx + 3.2, cy - 3.2);
         pb.line_to(cx, cy - 6.5);
@@ -252,39 +114,8 @@ impl FooterRenderer {
         }
     }
 
-    /// Minimalist Wi-Fi Hotspot Icon
-    fn draw_wifi_icon(pixmap: &mut Pixmap, cx: f32, cy: f32, color: Color) {
-        let mut pb = PathBuilder::new();
-        // 1. Center base dot
-        pb.move_to(cx - 1.2, cy + 4.6);
-        pb.line_to(cx + 1.2, cy + 4.6);
-
-        // 2. Middle arc
-        pb.move_to(cx - 3.6, cy + 1.0);
-        pb.quad_to(cx, cy - 2.2, cx + 3.6, cy + 1.0);
-
-        // 3. Top outer arc
-        pb.move_to(cx - 6.5, cy - 3.0);
-        pb.quad_to(cx, cy - 7.0, cx + 6.5, cy - 3.0);
-
-        if let Some(path) = pb.finish() {
-            let mut paint = Paint::default();
-            paint.set_color(color);
-            paint.anti_alias = true;
-            let stroke = Stroke {
-                width: 1.4,
-                line_cap: LineCap::Round,
-                line_join: LineJoin::Round,
-                ..Default::default()
-            };
-            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
-        }
-    }
-
-    /// Minimalist GPS Navigation Arrow Icon
     fn draw_gps_icon(pixmap: &mut Pixmap, cx: f32, cy: f32, color: Color) {
         let mut pb = PathBuilder::new();
-        // Location compass arrow pointing upward
         pb.move_to(cx, cy - 6.5);
         pb.line_to(cx + 4.6, cy + 5.5);
         pb.line_to(cx, cy + 2.8);

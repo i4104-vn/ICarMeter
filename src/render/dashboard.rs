@@ -65,7 +65,7 @@ impl DashboardRenderer {
         // 4. Render Right Panel (Trip Statistics)
         self.stats_panel.draw(&mut self.pixmap, &self.fonts, state);
 
-        // 5. Render Bottom Footer with slide-up event ticker in left corner
+        // 5. Render Bluetooth/GPS connection footer
         self.footer_panel
             .draw(&mut self.pixmap, &self.fonts, state, dt);
 
