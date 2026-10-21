@@ -8,28 +8,53 @@ class PiConfig {
   final bool gpsEnabled;
 
   const PiConfig({
-    this.flSensorId = '01:02:03:04:05:06',
-    this.frSensorId = '02:03:04:05:06:07',
-    this.rlSensorId = '03:04:05:06:07:08',
-    this.rrSensorId = '04:05:06:07:08:09',
-    this.pressureAlert = 1.8,
+    this.flSensorId = 'A4:C1:38:00:00:01',
+    this.frSensorId = 'A4:C1:38:00:00:02',
+    this.rlSensorId = 'A4:C1:38:00:00:03',
+    this.rrSensorId = 'A4:C1:38:00:00:04',
+    this.pressureAlert = 2.2,
     this.highTempAlert = 70.0,
     this.gpsEnabled = true,
   });
 
   factory PiConfig.fromJson(Map<String, dynamic> json) {
+    Map<String, dynamic> source = json;
+    if (json['data'] is Map<String, dynamic>) {
+      source = json['data'] as Map<String, dynamic>;
+    }
+    Map<String, dynamic> tpmsMap = source;
+    if (source['tpms'] is Map<String, dynamic>) {
+      tpmsMap = source['tpms'] as Map<String, dynamic>;
+    }
+
     return PiConfig(
-      flSensorId: json['fl'] as String? ?? json['flSensorId'] as String? ?? '',
-      frSensorId: json['fr'] as String? ?? json['frSensorId'] as String? ?? '',
-      rlSensorId: json['rl'] as String? ?? json['rlSensorId'] as String? ?? '',
-      rrSensorId: json['rr'] as String? ?? json['rrSensorId'] as String? ?? '',
-      pressureAlert: (json['alert'] as num?)?.toDouble() ??
-          (json['pressureAlert'] as num?)?.toDouble() ??
-          1.8,
-      highTempAlert: (json['high_temp_alert'] as num?)?.toDouble() ??
-          (json['highTempAlert'] as num?)?.toDouble() ??
+      flSensorId: tpmsMap['fl'] as String? ??
+          tpmsMap['fl_sensor'] as String? ??
+          tpmsMap['flSensorId'] as String? ??
+          '',
+      frSensorId: tpmsMap['fr'] as String? ??
+          tpmsMap['fr_sensor'] as String? ??
+          tpmsMap['frSensorId'] as String? ??
+          '',
+      rlSensorId: tpmsMap['rl'] as String? ??
+          tpmsMap['rl_sensor'] as String? ??
+          tpmsMap['rlSensorId'] as String? ??
+          '',
+      rrSensorId: tpmsMap['rr'] as String? ??
+          tpmsMap['rr_sensor'] as String? ??
+          tpmsMap['rrSensorId'] as String? ??
+          '',
+      pressureAlert: (tpmsMap['alert'] as num?)?.toDouble() ??
+          (tpmsMap['low_pressure_alert'] as num?)?.toDouble() ??
+          (tpmsMap['pressureAlert'] as num?)?.toDouble() ??
+          2.2,
+      highTempAlert: (tpmsMap['high_temp_alert'] as num?)?.toDouble() ??
+          (tpmsMap['highTempAlert'] as num?)?.toDouble() ??
           70.0,
-      gpsEnabled: (json['gps_enabled'] as bool?) ?? true,
+      gpsEnabled: (source['gps_enabled'] as bool?) ??
+          ((source['gps'] is Map<String, dynamic>)
+              ? (source['gps'] as Map<String, dynamic>)['enabled'] as bool? ?? true
+              : true),
     );
   }
 

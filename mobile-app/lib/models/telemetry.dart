@@ -2,24 +2,30 @@ class TireData {
   final double pressureBar;
   final double tempC;
   final int batteryPercent;
-  final String status; // 'ok', 'low_pressure', 'high_pressure', 'leak'
+  final String status; // 'ok', 'low_pressure', 'high_pressure', 'disconnected'
 
   const TireData({
-    this.pressureBar = 2.3,
-    this.tempC = 25.0,
+    this.pressureBar = 0.0,
+    this.tempC = 0.0,
     this.batteryPercent = 100,
-    this.status = 'ok',
+    this.status = 'disconnected',
   });
+
+  bool get isDisconnected => pressureBar <= 0.0;
+  bool isLow(double alertThreshold) => pressureBar > 0.0 && pressureBar < alertThreshold;
+  bool isHighTemp(double alertTemp) => tempC >= alertTemp;
 
   factory TireData.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const TireData();
     return TireData(
       pressureBar: (json['pressure'] as num?)?.toDouble() ??
           (json['pressureBar'] as num?)?.toDouble() ??
-          2.3,
+          (json['bar'] as num?)?.toDouble() ??
+          0.0,
       tempC: (json['temperature'] as num?)?.toDouble() ??
           (json['tempC'] as num?)?.toDouble() ??
-          25.0,
+          (json['temp'] as num?)?.toDouble() ??
+          0.0,
       batteryPercent: (json['battery'] as num?)?.toInt() ?? 100,
       status: json['status'] as String? ?? 'ok',
     );
@@ -48,11 +54,24 @@ class TpmsData {
 
   factory TpmsData.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const TpmsData();
+
+    TireData parseTire(String key, String tempKey) {
+      final val = json[key];
+      if (val is Map<String, dynamic>) {
+        return TireData.fromJson(val);
+      }
+      final p = (val as num?)?.toDouble() ??
+          (json['${key}_pressure'] as num?)?.toDouble() ??
+          0.0;
+      final t = (json[tempKey] as num?)?.toDouble() ?? 0.0;
+      return TireData(pressureBar: p, tempC: t);
+    }
+
     return TpmsData(
-      fl: TireData.fromJson(json['fl'] as Map<String, dynamic>?),
-      fr: TireData.fromJson(json['fr'] as Map<String, dynamic>?),
-      rl: TireData.fromJson(json['rl'] as Map<String, dynamic>?),
-      rr: TireData.fromJson(json['rr'] as Map<String, dynamic>?),
+      fl: parseTire('fl', 'fl_temp'),
+      fr: parseTire('fr', 'fr_temp'),
+      rl: parseTire('rl', 'rl_temp'),
+      rr: parseTire('rr', 'rr_temp'),
     );
   }
 
