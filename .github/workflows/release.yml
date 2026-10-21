@@ -31,13 +31,19 @@ on:
         default: false
         type: boolean
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 jobs:
-  # Resolve one version for Flutter, Cargo, and the release tag.
+  # ==============================================================================
+  # Job 0: Resolve Version and Tag
+  # ==============================================================================
   resolve-version:
-    name: Resolve build version
+    name: Resolve Version
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -50,47 +56,40 @@ jobs:
           INPUT_TAG_NAME: ${{ inputs.tag_name }}
           GIT_REF: ${{ github.ref }}
         run: |
-          if [ -n "$INPUT_VERSION" ]; then
-            VERSION="${INPUT_VERSION#v}"
-          elif [ -n "$INPUT_TAG_NAME" ]; then
-            VERSION="${INPUT_TAG_NAME#v}"
-          elif [[ "$GIT_REF" == refs/tags/* ]]; then
-            VERSION="${GIT_REF#refs/tags/}"
-            VERSION="${VERSION#v}"
-          else
-            echo "Enter a version in the workflow's version input (for example 1.2.3)." >&2
-            exit 1
-          fi
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
 
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid version '$VERSION'. Use semantic versioning, for example 1.2.3 or 1.2.3-rc.1." >&2
-            exit 1
-          fi
+          input_version = os.environ.get("INPUT_VERSION", "").strip()
+          input_tag = os.environ.get("INPUT_TAG_NAME", "").strip()
+          git_ref = os.environ.get("GIT_REF", "").strip()
 
-          if [ -n "$INPUT_TAG_NAME" ]; then
-            TAG_VERSION="${INPUT_TAG_NAME#v}"
-            if [ "$TAG_VERSION" != "$VERSION" ]; then
-              echo "Release tag '$INPUT_TAG_NAME' does not match version '$VERSION'." >&2
-              exit 1
-            fi
-            TAG="$INPUT_TAG_NAME"
-          elif [[ "$GIT_REF" == refs/tags/* ]]; then
-            TAG="${GIT_REF#refs/tags/}"
-            TAG_VERSION="${TAG#v}"
-            if [ "$TAG_VERSION" != "$VERSION" ]; then
-              echo "Git tag '$TAG' does not match version '$VERSION'." >&2
-              exit 1
-            fi
-          else
-            TAG="v${VERSION}"
-          fi
+          if input_version:
+              version = input_version.removeprefix("v")
+          elif input_tag:
+              version = input_tag.removeprefix("v")
+          elif git_ref.startswith("refs/tags/"):
+              version = git_ref.removeprefix("refs/tags/").removeprefix("v")
+          else:
+              print("ERROR: Version or tag must be provided.", file=sys.stderr)
+              sys.exit(1)
 
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Building version $VERSION (release tag $TAG)"
+          if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$", version):
+              print(f"ERROR: Invalid semantic version '{version}'", file=sys.stderr)
+              sys.exit(1)
+
+          tag = input_tag if input_tag else f"v{version}"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"version={version}\n")
+              f.write(f"tag={tag}\n")
+
+          print(f"Target version: {version} (tag: {tag})")
+          PY
 
   # ==============================================================================
-  # Job 1: Build Android Companion APK (Flutter - Universal x32 & x64)
+  # Job 1: Build Android Companion APK (Flutter)
   # ==============================================================================
   build-apk:
     name: Build Android Companion APK (Flutter)
@@ -134,21 +133,21 @@ jobs:
           else:
               contents = re.sub(r"(?m)^environment:", version_line + "\n\nenvironment:", contents, count=1)
           pubspec.write_text(contents)
-          print(f"Building Flutter app version {version_line.removeprefix('version: ')}")
+          print(f"Updated pubspec.yaml -> {version_line}")
           PY
 
-      - name: Get Flutter Dependencies
+      - name: Get Flutter dependencies
         working-directory: mobile-app
         run: flutter pub get
 
-      - name: Release APK
+      - name: Build Release APKs
         working-directory: mobile-app
         env:
           APP_VERSION: ${{ needs.resolve-version.outputs.version }}
           BUILD_NUMBER: ${{ github.run_number }}
         run: flutter build apk --release --split-per-abi --build-name "$APP_VERSION" --build-number "$BUILD_NUMBER"
 
-      - name: Package Release APKs
+      - name: Stage APK artifacts
         run: |
           mkdir -p apk_dist
           V8A_APK=$(find mobile-app/build/app/outputs/flutter-apk -name "*arm64-v8a*release*.apk" 2>/dev/null | head -n 1)
@@ -157,7 +156,6 @@ jobs:
           if [ -f "$V8A_APK" ]; then
             cp -v "$V8A_APK" apk_dist/ICarMeter-arm64-v8a.apk
             cp -v "$V8A_APK" apk_dist/ICarMeter.apk
-            echo "Packaged v8a APK -> apk_dist/ICarMeter-arm64-v8a.apk and apk_dist/ICarMeter.apk"
           else
             echo "ERROR: Output arm64-v8a APK not found!" >&2
             exit 1
@@ -165,16 +163,13 @@ jobs:
 
           if [ -f "$V7A_APK" ]; then
             cp -v "$V7A_APK" apk_dist/ICarMeter-armeabi-v7a.apk
-            echo "Packaged v7a APK -> apk_dist/ICarMeter-armeabi-v7a.apk"
           else
             echo "ERROR: Output armeabi-v7a APK not found!" >&2
             exit 1
           fi
-
-          echo "=== Packaged APKs ==="
           ls -lah apk_dist/
 
-      - name: Upload APK Artifact
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v6
         with:
           name: icarmeter-apk
@@ -182,7 +177,7 @@ jobs:
           retention-days: 7
 
   # ==============================================================================
-  # Job 2: Build Rust Binary for Raspberry Pi (aarch64)
+  # Job 2: Build Rust Binary for Raspberry Pi (Native ARM64 Runner)
   # ==============================================================================
   build-binary:
     name: Build Cargo Binary (aarch64)
@@ -200,43 +195,16 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Install build dependencies
+      - name: Install native build dependencies
         run: |
-          ARCH=$(uname -m)
-          if [ "$ARCH" = "aarch64" ]; then
-            sudo apt-get update
-            sudo apt-get install -y \
-              gcc g++ pkg-config \
-              libcurl4-openssl-dev libegl1-mesa-dev libgl-dev \
-              libicu-dev libjpeg-turbo8-dev libpng-dev \
-              libssl-dev libuv1-dev libwebp-dev zlib1g-dev
-          else
-            # x86_64 fallback: configure multiarch sources
-            sudo tee /etc/apt/sources.list <<'EOF'
-            deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse
-            deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse
-            deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-backports main restricted universe multiverse
-            deb [arch=amd64] http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
-            EOF
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc g++ pkg-config \
+            libcurl4-openssl-dev libegl1-mesa-dev libgl-dev \
+            libicu-dev libjpeg-turbo8-dev libpng-dev \
+            libssl-dev libuv1-dev libwebp-dev zlib1g-dev
 
-            sudo tee /etc/apt/sources.list.d/arm64-ports.list <<'EOF'
-            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe multiverse
-            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe multiverse
-            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-backports main restricted universe multiverse
-            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe multiverse
-            EOF
-
-            sudo rm -f /etc/apt/sources.list.d/*.sources || true
-            sudo dpkg --add-architecture arm64
-            sudo apt-get update
-            sudo apt-get install -y \
-              gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config \
-              libcurl4-openssl-dev:arm64 libegl1-mesa-dev:arm64 libgl-dev:arm64 \
-              libicu-dev:arm64 libjpeg-turbo8-dev:arm64 libpng-dev:arm64 \
-              libssl-dev:arm64 libuv1-dev:arm64 libwebp-dev:arm64 zlib1g-dev:arm64
-          fi
-
-      - name: Build ICarMeter for aarch64
+      - name: Build ICarMeter binary
         env:
           APP_VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
@@ -247,43 +215,37 @@ jobs:
 
           manifest = Path("Cargo.toml")
           contents = manifest.read_text()
-          package_section = re.search(r"(?ms)^\[package\]\s*(.*?)(?=^\[|\Z)", contents)
-          if package_section is None:
-              raise SystemExit("Cargo.toml has no [package] section")
+          section = re.search(r"(?ms)^\[package\]\s*(.*?)(?=^\[|\Z)", contents)
+          if section is None:
+              raise SystemExit("Cargo.toml missing [package] section")
 
-          section = package_section.group(1)
-          section, replacements = re.subn(
+          new_pkg = re.sub(
               r'(?m)^version\s*=\s*"[^"]+"\s*$',
               f'version = "{os.environ["APP_VERSION"]}"',
-              section,
-              count=1,
+              section.group(1),
+              count=1
           )
-          if replacements != 1:
-              raise SystemExit("Could not set [package].version in Cargo.toml")
-
-          start, end = package_section.span(1)
-          manifest.write_text(contents[:start] + section + contents[end:])
-          print(f"Building Rust package version {os.environ['APP_VERSION']}")
+          start, end = section.span(1)
+          manifest.write_text(contents[:start] + new_pkg + contents[end:])
+          print(f"Updated Cargo.toml version -> {os.environ['APP_VERSION']}")
           PY
+
           cargo build --release --target aarch64-unknown-linux-gnu
 
-      - name: Verify compiled binary
+      - name: Stage compiled binary
         run: |
+          mkdir -p dist_bin
           BIN_PATH=$(find target/aarch64-unknown-linux-gnu/release -maxdepth 1 -type f \( -name "icarmeter" -o -name "car_dashboard" \) | head -n 1)
           if [ -z "$BIN_PATH" ]; then
             echo "ERROR: Compiled binary not found in target/aarch64-unknown-linux-gnu/release" >&2
             exit 1
           fi
-          ls -lah "$BIN_PATH"
-          file "$BIN_PATH"
-
-      - name: Stage binary artifact
-        run: |
-          mkdir -p dist_bin
-          BIN_PATH=$(find target/aarch64-unknown-linux-gnu/release -maxdepth 1 -type f \( -name "icarmeter" -o -name "car_dashboard" \) | head -n 1)
+          echo "Found compiled binary: $BIN_PATH"
           cp -v "$BIN_PATH" dist_bin/icarmeter
           cp -v "$BIN_PATH" dist_bin/car_dashboard
+          chmod +x dist_bin/*
           ls -lah dist_bin/
+          file dist_bin/icarmeter
 
       - name: Upload compiled binary artifact
         uses: actions/upload-artifact@v6
@@ -304,15 +266,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Free disk space on runner
+      - name: Fast disk cleanup
         run: |
           echo "Initial disk space:"
           df -h
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo docker image prune -a -f || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL &
+          sudo docker image prune -a -f &
+          wait
           echo "Cleaned disk space:"
           df -h
 
@@ -322,10 +282,10 @@ jobs:
           name: icarmeter-bin
           path: bin_artifact/
 
-      - name: Inject binary into stage-icarmeter files
+      - name: Inject binary into stage-icarmeter
         run: |
           mkdir -p pi-image/stage-icarmeter/02-app-install/files
-          find bin_artifact -type f -name "icarmeter" -exec cp -v {} pi-image/stage-icarmeter/02-app-install/files/icarmeter \;
+          cp -v bin_artifact/icarmeter pi-image/stage-icarmeter/02-app-install/files/icarmeter
           chmod +x pi-image/stage-icarmeter/02-app-install/files/icarmeter
           ls -lah pi-image/stage-icarmeter/02-app-install/files/
 
@@ -354,13 +314,9 @@ jobs:
           echo "Found image: ${IMG_FILE}"
           ZIP_NAME="ICarMeter-RaspberryPiOS-arm64.zip"
 
-          # Package ONLY the .img file into the zip archive so Raspberry Pi Imager / BalenaEtcher can flash directly
+          # Package ONLY the .img file into the zip archive so BalenaEtcher/Pi Imager can flash directly
           zip -6 -j "../../image_dist/${ZIP_NAME}" "${IMG_FILE}"
-
-          # Copy info file to artifact for build details
           cp -v *.info ../../image_dist/image_build.info 2>/dev/null || true
-
-          echo "=== Output Zipped Artifact ==="
           ls -lah ../../image_dist/
 
       - name: Upload Image Artifact
@@ -374,8 +330,8 @@ jobs:
   # Job 4: Publish GitHub Release (Both Image Zip & APK)
   # ==============================================================================
   publish-release:
-    name: Publish GitHub Release (OS Image & APK)
-    needs: [resolve-version, build-apk, build-binary, build-image]
+    name: Publish GitHub Release
+    needs: [resolve-version, build-apk, build-image]
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -405,7 +361,7 @@ jobs:
           echo "=== Release Assets Ready ==="
           ls -lah
 
-      - name: Resolve Release Tag & Name
+      - name: Resolve Release Title
         id: rel_meta
         env:
           RESOLVED_TAG: ${{ needs.resolve-version.outputs.tag }}
@@ -416,14 +372,12 @@ jobs:
           else
             TITLE="ICarMeter ${RESOLVED_TAG}"
           fi
-
-          echo "tag=${RESOLVED_TAG}" >> $GITHUB_OUTPUT
-          echo "title=${TITLE}" >> $GITHUB_OUTPUT
+          echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.rel_meta.outputs.tag }}
+          tag_name: ${{ needs.resolve-version.outputs.tag }}
           name: ${{ steps.rel_meta.outputs.title }}
           draft: ${{ github.event.inputs.draft == true }}
           prerelease: ${{ github.event.inputs.prerelease == true }}
@@ -435,7 +389,7 @@ jobs:
             release_assets/SHA256SUMS.txt
           generate_release_notes: true
           body: |
-            ## ICarMeter Release ${{ steps.rel_meta.outputs.tag }}
+            ## ICarMeter Release ${{ needs.resolve-version.outputs.tag }}
 
             ### Tệp tải về / Downloads:
             - **ICarMeter-arm64-v8a.apk**: Ứng dụng Android tối ưu cho thiết bị 64-bit (ARM64 / v8a)
