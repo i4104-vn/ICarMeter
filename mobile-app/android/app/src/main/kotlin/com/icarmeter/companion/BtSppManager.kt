@@ -5,7 +5,11 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
@@ -30,6 +34,7 @@ class BtSppManager(
 
     private var connectedMac: String? = null
     private var connectedName: String? = null
+    private var discoveryReceiver: BroadcastReceiver? = null
 
     private val executor = Executors.newSingleThreadExecutor()
 
@@ -192,8 +197,94 @@ class BtSppManager(
         }
     }
 
+    @SuppressLint("MissingPermission", "UnspecifiedRegisterReceiverFlag")
+    fun startDiscovery(): Boolean {
+        val adapter = bluetoothAdapter ?: return false
+        if (!adapter.isEnabled) return false
+
+        stopDiscovery()
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    BluetoothAdapter.ACTION_DISCOVERY_STARTED -> {
+                        onEvent("discoveryState", mapOf("active" to true))
+                    }
+
+                    BluetoothDevice.ACTION_FOUND -> {
+                        val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(
+                                BluetoothDevice.EXTRA_DEVICE,
+                                BluetoothDevice::class.java
+                            )
+                        } else {
+                            @Suppress("DEPRECATION")
+                            intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                        }
+                        if (device != null) {
+                            onEvent(
+                                "deviceFound",
+                                mapOf(
+                                    "mac" to device.address,
+                                    "name" to (device.name ?: ""),
+                                    "rssi" to intent.getShortExtra(
+                                        BluetoothDevice.EXTRA_RSSI,
+                                        0
+                                    ).toInt()
+                                )
+                            )
+                        }
+                    }
+
+                    BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+                        onEvent("discoveryState", mapOf("active" to false))
+                        unregisterDiscoveryReceiver()
+                    }
+                }
+            }
+        }
+
+        discoveryReceiver = receiver
+        val filter = IntentFilter().apply {
+            addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED)
+            addAction(BluetoothDevice.ACTION_FOUND)
+            addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                context.registerReceiver(receiver, filter)
+            }
+            val started = adapter.startDiscovery()
+            if (!started) unregisterDiscoveryReceiver()
+            return started
+        } catch (_: Exception) {
+            unregisterDiscoveryReceiver()
+            return false
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun stopDiscovery() {
+        try {
+            bluetoothAdapter?.cancelDiscovery()
+        } catch (_: Exception) {}
+        unregisterDiscoveryReceiver()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun unregisterDiscoveryReceiver() {
+        discoveryReceiver?.let { receiver ->
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (_: Exception) {}
+        }
+        discoveryReceiver = null
+    }
+
     @Synchronized
     private fun disconnectInternal(notify: Boolean) {
+        stopDiscovery()
         if (!isConnected && socket == null) return
 
         isConnected = false

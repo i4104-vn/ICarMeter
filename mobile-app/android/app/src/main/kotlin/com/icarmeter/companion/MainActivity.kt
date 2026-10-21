@@ -7,10 +7,6 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -27,21 +23,19 @@ class MainActivity : FlutterActivity() {
     private val METHOD_CHANNEL = "com.icarmeter.companion/bridge"
     private val BT_EVENT_CHANNEL = "com.icarmeter.companion/bt_events"
     private val LOCATION_EVENT_CHANNEL = "com.icarmeter.companion/location_events"
-    private val WIFI_EVENT_CHANNEL = "com.icarmeter.companion/wifi_events"
 
     private var btEventSink: EventChannel.EventSink? = null
     private var locationEventSink: EventChannel.EventSink? = null
-    private var wifiEventSink: EventChannel.EventSink? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var btSppManager: BtSppManager? = null
-    @Volatile
-    private var activeWifiNetwork: Network? = null
-    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     private var locationManager: LocationManager? = null
     private var locationListener: LocationListener? = null
+
+    private var pendingDiscoveryResult: MethodChannel.Result? = null
+    private val bluetoothPermissionRequestCode = 4101
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -75,17 +69,6 @@ class MainActivity : FlutterActivity() {
                 }
             })
 
-        EventChannel(flutterEngine.dartExecutor.binaryMessenger, WIFI_EVENT_CHANNEL)
-            .setStreamHandler(object : EventChannel.StreamHandler {
-                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                    wifiEventSink = events
-                }
-
-                override fun onCancel(arguments: Any?) {
-                    wifiEventSink = null
-                }
-            })
-
         // Method Channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
             .setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
@@ -96,12 +79,6 @@ class MainActivity : FlutterActivity() {
     private fun emitBtEvent(data: Map<String, Any?>) {
         mainHandler.post {
             btEventSink?.success(data)
-        }
-    }
-
-    private fun emitWifiEvent(connected: Boolean) {
-        mainHandler.post {
-            wifiEventSink?.success(mapOf("connected" to connected))
         }
     }
 
@@ -140,8 +117,18 @@ class MainActivity : FlutterActivity() {
                 result.success(btSppManager?.isConnected ?: false)
             }
 
-            "bindToCarWifi" -> {
-                bindToCarWifiInternal(result)
+            "startBtDiscovery" -> {
+                if (hasBluetoothDiscoveryPermissions()) {
+                    result.success(btSppManager?.startDiscovery() ?: false)
+                } else {
+                    pendingDiscoveryResult = result
+                    requestPermissions(requiredBluetoothDiscoveryPermissions(), bluetoothPermissionRequestCode)
+                }
+            }
+
+            "stopBtDiscovery" -> {
+                btSppManager?.stopDiscovery()
+                result.success(true)
             }
 
             "startGps" -> {
@@ -192,67 +179,6 @@ class MainActivity : FlutterActivity() {
             }
 
             else -> result.notImplemented()
-        }
-    }
-
-    private fun bindToCarWifiInternal(result: MethodChannel.Result) {
-        try {
-            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            if (cm == null) {
-                result.success(false)
-                return
-            }
-            if (networkCallback != null) {
-                // The callback may still be waiting for the hotspot. Keep the
-                // request alive and let the Wi-Fi event report the final state.
-                result.success(true)
-                if (activeWifiNetwork != null) {
-                    emitWifiEvent(true)
-                }
-                return
-            }
-
-            val request = NetworkRequest.Builder()
-                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                .build()
-
-            val cb = object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    super.onAvailable(network)
-                    activeWifiNetwork = network
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        cm.bindProcessToNetwork(network)
-                    }
-                    emitWifiEvent(true)
-                }
-
-                override fun onLost(network: Network) {
-                    super.onLost(network)
-                    if (activeWifiNetwork != network) {
-                        return
-                    }
-                    activeWifiNetwork = null
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        cm.bindProcessToNetwork(null)
-                    }
-                    emitWifiEvent(false)
-                }
-
-                override fun onUnavailable() {
-                    super.onUnavailable()
-                    if (activeWifiNetwork == null) {
-                        networkCallback = null
-                        emitWifiEvent(false)
-                    }
-                }
-            }
-            networkCallback = cb
-            cm.requestNetwork(request, cb)
-            result.success(true)
-        } catch (e: Exception) {
-            networkCallback = null
-            activeWifiNetwork = null
-            result.error("WIFI_ERROR", e.message, null)
         }
     }
 
@@ -315,19 +241,40 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         btSppManager?.disconnect()
         stopGpsInternal()
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-        networkCallback?.let { callback ->
-            try {
-                cm?.unregisterNetworkCallback(callback)
-            } catch (_: Exception) {}
-        }
-        networkCallback = null
-        activeWifiNetwork = null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            try {
-                cm?.bindProcessToNetwork(null)
-            } catch (_: Exception) {}
-        }
         super.onDestroy()
+    }
+
+    private fun requiredBluetoothDiscoveryPermissions(): Array<String> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT
+            )
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    private fun hasBluetoothDiscoveryPermissions(): Boolean {
+        return requiredBluetoothDiscoveryPermissions().all { permission ->
+            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != bluetoothPermissionRequestCode) return
+
+        val result = pendingDiscoveryResult ?: return
+        pendingDiscoveryResult = null
+        if (hasBluetoothDiscoveryPermissions()) {
+            result.success(btSppManager?.startDiscovery() ?: false)
+        } else {
+            result.error("BT_PERMISSION_DENIED", "Bluetooth discovery permission was denied", null)
+        }
     }
 }
