@@ -275,32 +275,65 @@ def ensure_bt_always_ready():
         pass
 
 def bt_heartbeat_worker():
-    """Background worker: keeps app connection marker fresh when Bluetooth clients are active and ensures channel stays open."""
+    """Background worker: sends periodic heartbeat & TPMS telemetry to connected Bluetooth clients."""
     tick = 0
     while True:
-        time.sleep(4)
+        time.sleep(2)
         tick += 1
         with bt_clients_lock:
             num_bt = len(connected_bt_clients)
         if num_bt > 0:
             touch_app_connected("Bluetooth")
+            tpms_data = read_tpms_telemetry()
             bt_broadcast({
-                "type": "heartbeat",
-                "status": "online",
-                "clients": num_bt,
-                "timestamp": int(time.time())
+                "type": "tpms",
+                "data": tpms_data
             })
+            if tick % 2 == 0:
+                bt_broadcast({
+                    "type": "heartbeat",
+                    "status": "online",
+                    "clients": num_bt,
+                    "timestamp": int(time.time())
+                })
 
         # Periodically ensure adapter never goes into sleep/non-discoverable mode
-        if tick % 5 == 0:
+        if tick % 10 == 0:
             ensure_bt_always_ready()
 
 PORT = 8080
-HTTP_PORT = 80
-CONFIG_PATH = "/opt/icarmeter/config.toml"
+def resolve_config_path():
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user:
+        return f"/home/{sudo_user}/.config/icarmeter/config.toml"
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg:
+        return os.path.join(xdg, "icarmeter", "config.toml")
+    if os.path.isdir("/home/pi"):
+        return "/home/pi/.config/icarmeter/config.toml"
+    home = os.environ.get("HOME")
+    if home and home != "/root":
+        return os.path.join(home, ".config", "icarmeter", "config.toml")
+    return os.path.expanduser("~/.config/icarmeter/config.toml")
+
+CONFIG_PATH = resolve_config_path()
 APP_CONN_MARKER = "/dev/shm/icarmeter_app_connected"
 WS_EVENT_MARKER = "/dev/shm/icarmeter_ws_event"
 PIN_MARKER = "/dev/shm/icarmeter_bt_pin"
+TPMS_TELEMETRY_MARKER = "/dev/shm/icarmeter_tpms_telemetry"
+
+def read_tpms_telemetry():
+    if os.path.exists(TPMS_TELEMETRY_MARKER):
+        try:
+            with open(TPMS_TELEMETRY_MARKER, "r", encoding="utf-8") as f:
+                return json.loads(f.read().strip())
+        except Exception:
+            pass
+    return {
+        "fl": 0.0, "fr": 0.0, "rl": 0.0, "rr": 0.0,
+        "fl_temp": 0.0, "fr_temp": 0.0, "rl_temp": 0.0, "rr_temp": 0.0,
+        "alert": 2.2, "high_temp_alert": 70.0
+    }
 
 _rfcomm_listening = False
 _bt_discovery_active = False
@@ -1024,6 +1057,10 @@ def handle_bt_command(msg_dict, reply_fn):
     if msg_type == "get_config":
         log_ws_event("Config Synced")
         reply_fn({"type": "config", "data": read_config()})
+        return
+
+    if msg_type == "get_tpms":
+        reply_fn({"type": "tpms", "data": read_tpms_telemetry()})
         return
 
     if msg_type == "set_config":

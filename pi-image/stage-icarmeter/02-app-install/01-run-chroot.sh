@@ -70,6 +70,9 @@ chmod 755 /opt/icarmeter/icarmeter-wifi-init.sh 2>/dev/null || true
 chmod 755 /opt/icarmeter/icarmeter-api.py 2>/dev/null || true
 chmod 755 /opt/icarmeter/icarmeter-bt-agent.py 2>/dev/null || true
 chmod 666 /opt/icarmeter/config.toml 2>/dev/null || true
+mkdir -p /home/${FIRST_USER_NAME}/.config/icarmeter 2>/dev/null || true
+chmod 777 /home/${FIRST_USER_NAME}/.config/icarmeter 2>/dev/null || true
+chmod 666 /home/${FIRST_USER_NAME}/.config/icarmeter/config.toml 2>/dev/null || true
 chmod 600 /etc/NetworkManager/system-connections/icarmeter-hotspot.nmconnection 2>/dev/null || true
 touch /var/log/icarmeter-bluetooth.log && chmod 666 /var/log/icarmeter-bluetooth.log 2>/dev/null || true
 

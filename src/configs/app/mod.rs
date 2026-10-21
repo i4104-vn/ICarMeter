@@ -1,7 +1,5 @@
 //! Application configuration model and public configuration API.
 
-mod loader;
-
 #[derive(Debug, Clone)]
 pub struct GpsConfig {
     pub device: String,
@@ -62,10 +60,14 @@ impl Default for AppConfig {
 
 impl AppConfig {
     pub fn load() -> Self {
-        loader::load()
+        crate::configs::config::load()
     }
 
     pub fn last_modified() -> Option<std::time::SystemTime> {
-        loader::get_config_mtime()
+        crate::configs::config::get_config_mtime()
+    }
+
+    pub fn path() -> &'static std::path::Path {
+        crate::configs::config::get_config_path()
     }
 }

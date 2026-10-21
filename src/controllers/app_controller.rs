@@ -12,8 +12,12 @@ pub struct AppController;
 
 impl AppController {
     pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-        // 1. Load hardware configuration from config.toml
+        // 1. Load hardware configuration from single config path
         let config = AppConfig::load();
+        eprintln!(
+            "[Config] Active configuration path: {}",
+            AppConfig::path().display()
+        );
 
         let mut state = VehicleState::new();
         state.tires.low_pressure_alert = config.tpms.low_pressure_alert;
@@ -36,6 +40,7 @@ impl AppController {
         let mut last_time = Instant::now();
         let mut last_config_check = Instant::now();
         let mut last_config_mtime = AppConfig::last_modified();
+        let mut last_tpms_shm_write = Instant::now();
 
         while backend.is_open() && is_app_running() {
             // Check and re-read config.toml dynamically in real time
@@ -77,6 +82,25 @@ impl AppController {
             // Update real vehicle telemetry from GPS and Bluetooth sensors
             telemetry.update(&mut state, dt);
             demo_speed.update(&mut state, dt);
+
+            // Expose real-time TPMS telemetry to shared memory for companion Bluetooth sync
+            if last_tpms_shm_write.elapsed() >= Duration::from_millis(250) {
+                last_tpms_shm_write = Instant::now();
+                let tpms_json = format!(
+                    "{{\"fl\":{:.2},\"fr\":{:.2},\"rl\":{:.2},\"rr\":{:.2},\"fl_temp\":{:.1},\"fr_temp\":{:.1},\"rl_temp\":{:.1},\"rr_temp\":{:.1},\"alert\":{:.2},\"high_temp_alert\":{:.1}}}",
+                    state.tires.fl,
+                    state.tires.fr,
+                    state.tires.rl,
+                    state.tires.rr,
+                    state.tires.fl_temp,
+                    state.tires.fr_temp,
+                    state.tires.rl_temp,
+                    state.tires.rr_temp,
+                    state.tires.low_pressure_alert,
+                    state.tires.high_temp_alert
+                );
+                let _ = std::fs::write("/dev/shm/icarmeter_tpms_telemetry", tpms_json);
+            }
 
             // Render frame to pixel buffer
             let buffer = renderer.render(&state, dt);
