@@ -1,31 +1,19 @@
 #!/usr/bin/env python3
 """
-ICarMeter Headless Wi-Fi Configuration API Service
-Listens for JSON API requests from the ICarMeter Mobile App over Wi-Fi Hotspot (192.168.4.1:8080)
-to read, write, and synchronize /opt/icarmeter/config.toml in real time.
+ICarMeter Bluetooth RFCOMM/SPP command service.
+Handles vehicle configuration, telemetry, pairing, and log commands over Bluetooth.
 """
-
-import base64
 import collections
 import datetime
-import hashlib
-import http.server
 import json
 import os
 import re
 import socket
-import struct
 import subprocess
 import sys
 import threading
 import time
-import urllib.parse
 
-WS_MAGIC_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-
-# Thread-safe WebSocket client registry
-connected_ws_clients = set()
-ws_clients_lock = threading.Lock()
 
 # Thread-safe Bluetooth RFCOMM client registry
 connected_bt_clients = set()
@@ -76,11 +64,6 @@ def log_bt(source, message):
     except Exception:
         pass
 
-    # Broadcast live entry to both WS and RFCOMM clients
-    try:
-        ws_broadcast({"type": "bt_log_entry", "line": line})
-    except Exception:
-        pass
     try:
         bt_broadcast({"type": "bt_log_entry", "line": line})
     except Exception:
@@ -172,80 +155,6 @@ def bluetoothctl_monitor_worker():
             log_bt("bluetoothctl", f"Monitor restart note: {e}")
         time.sleep(3)
 
-def encode_ws_frame(payload_bytes, opcode=0x1):
-    """Encodes server-to-client WebSocket frame (unmasked per RFC 6455)."""
-    length = len(payload_bytes)
-    b0 = 0x80 | (opcode & 0x0F)
-    if length < 126:
-        header = bytes([b0, length])
-    elif length <= 65535:
-        header = bytes([b0, 126]) + struct.pack("!H", length)
-    else:
-        header = bytes([b0, 127]) + struct.pack("!Q", length)
-    return header + payload_bytes
-
-def decode_ws_frame(sock):
-    """
-    Reads a masked frame from client socket.
-    Returns (opcode, payload_bytes) or (None, None) if socket closed/error.
-    """
-    b = sock.recv(2)
-    if not b or len(b) < 2:
-        return None, None
-    b0, b1 = b[0], b[1]
-    opcode = b0 & 0x0F
-    is_masked = (b1 & 0x80) != 0
-    payload_len = b1 & 0x7F
-
-    if payload_len == 126:
-        ext = sock.recv(2)
-        if len(ext) < 2:
-            return None, None
-        payload_len = struct.unpack("!H", ext)[0]
-    elif payload_len == 127:
-        ext = sock.recv(8)
-        if len(ext) < 8:
-            return None, None
-        payload_len = struct.unpack("!Q", ext)[0]
-
-    mask = sock.recv(4) if is_masked else None
-    if is_masked and (not mask or len(mask) < 4):
-        return None, None
-
-    chunks = []
-    received = 0
-    while received < payload_len:
-        chunk = sock.recv(min(payload_len - received, 65536))
-        if not chunk:
-            return None, None
-        chunks.append(chunk)
-        received += len(chunk)
-    raw = b"".join(chunks)
-
-    if is_masked and mask:
-        unmasked = bytearray(raw)
-        for i in range(len(unmasked)):
-            unmasked[i] ^= mask[i % 4]
-        return opcode, bytes(unmasked)
-    return opcode, raw
-
-def ws_broadcast(msg_dict):
-    """Broadcasts a JSON message to all connected WebSocket clients."""
-    try:
-        data = json.dumps(msg_dict).encode("utf-8")
-        frame = encode_ws_frame(data, opcode=0x1)
-        with ws_clients_lock:
-            dead = []
-            for sock in connected_ws_clients:
-                try:
-                    sock.sendall(frame)
-                except Exception:
-                    dead.append(sock)
-            for d in dead:
-                connected_ws_clients.discard(d)
-    except Exception as e:
-        print(f"[WS] Broadcast error: {e}", file=sys.stderr)
-
 def bt_broadcast(msg_dict):
     """Broadcasts a JSON line message to all connected Bluetooth RFCOMM clients."""
     try:
@@ -283,7 +192,7 @@ def bt_heartbeat_worker():
         with bt_clients_lock:
             num_bt = len(connected_bt_clients)
         if num_bt > 0:
-            touch_app_connected("Bluetooth")
+            touch_app_connected()
             tpms_data = read_tpms_telemetry()
             bt_broadcast({
                 "type": "tpms",
@@ -296,12 +205,13 @@ def bt_heartbeat_worker():
                     "clients": num_bt,
                     "timestamp": int(time.time())
                 })
+        else:
+            clear_app_connected()
 
         # Periodically ensure adapter never goes into sleep/non-discoverable mode
         if tick % 10 == 0:
             ensure_bt_always_ready()
 
-PORT = 8080
 def resolve_config_path():
     sudo_user = os.environ.get("SUDO_USER")
     if sudo_user:
@@ -317,10 +227,23 @@ def resolve_config_path():
     return os.path.expanduser("~/.config/icarmeter/config.toml")
 
 CONFIG_PATH = resolve_config_path()
-APP_CONN_MARKER = "/dev/shm/icarmeter_app_connected"
-WS_EVENT_MARKER = "/dev/shm/icarmeter_ws_event"
 PIN_MARKER = "/dev/shm/icarmeter_bt_pin"
 TPMS_TELEMETRY_MARKER = "/dev/shm/icarmeter_tpms_telemetry"
+APP_CONNECTED_MARKER = "/dev/shm/icarmeter_app_connected"
+
+def touch_app_connected(name="Phone Connected"):
+    try:
+        with open(APP_CONNECTED_MARKER, "w", encoding="utf-8") as f:
+            f.write(str(name).strip() if name else "Phone Connected")
+    except Exception:
+        pass
+
+def clear_app_connected():
+    try:
+        if os.path.exists(APP_CONNECTED_MARKER):
+            os.remove(APP_CONNECTED_MARKER)
+    except Exception:
+        pass
 
 def read_tpms_telemetry():
     if os.path.exists(TPMS_TELEMETRY_MARKER):
@@ -343,7 +266,7 @@ _scan_process = None
 _last_pin_timestamp = 0.0
 
 def pin_monitor_worker():
-    """Watches /dev/shm/icarmeter_bt_pin and broadcasts bt_pin_code to WiFi clients."""
+    """Watches /dev/shm/icarmeter_bt_pin and broadcasts bt_pin_code over RFCOMM."""
     global _last_pin_timestamp
     while True:
         try:
@@ -361,10 +284,11 @@ def pin_monitor_worker():
                             mac = str(data.get("mac", "")).strip()
                             if pin:
                                 log_bt("BTAgent-PIN", f"Passkey/PIN code required: {pin} for device {mac}")
-                                ws_broadcast({
+                                bt_broadcast({
                                     "type": "bt_pin_code",
                                     "pin": pin,
-                                    "mac": mac
+                                    "mac": mac,
+                                    "name": "ICarMeter"
                                 })
                 except Exception:
                     pass
@@ -380,152 +304,134 @@ def is_generic_mac_name(name, mac):
     clean_m = str(mac).strip().replace(":", "").replace("-", "").upper()
     if clean_n == clean_m:
         return True
-    if re.match(r"^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$", str(name).strip()):
+    if re.match(r"^[0-9A-F]{12}$", clean_n):
         return True
     return False
 
 def get_dbus_device_info(mac):
-    """Directly queries org.bluez.Device1 over SystemBus for resolved Name, Alias, and RSSI."""
+    """Retrieves device properties via BlueZ D-Bus interface."""
     try:
         import dbus
         bus = dbus.SystemBus()
-        manager = dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.ObjectManager")
-        objects = manager.GetManagedObjects()
-        suffix = "dev_" + mac.replace(":", "_").upper()
+        om = dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.ObjectManager")
+        objects = om.GetManagedObjects()
         for path, interfaces in objects.items():
-            if path.upper().endswith(suffix) and "org.bluez.Device1" in interfaces:
+            if "org.bluez.Device1" in interfaces:
                 props = interfaces["org.bluez.Device1"]
-                name = str(props.get("Name", "")).strip()
-                alias = str(props.get("Alias", "")).strip()
-                rssi = int(props.get("RSSI", 0))
-                return name, alias, rssi
+                addr = str(props.get("Address", "")).upper()
+                if addr == mac:
+                    alias = str(props.get("Alias", "")).strip()
+                    name = str(props.get("Name", "")).strip()
+                    paired = bool(props.get("Paired", False))
+                    trusted = bool(props.get("Trusted", False))
+                    connected = bool(props.get("Connected", False))
+                    return {
+                        "name": alias or name,
+                        "alias": alias,
+                        "raw_name": name,
+                        "paired": paired,
+                        "trusted": trusted,
+                        "connected": connected,
+                    }
     except Exception:
         pass
-    return None, None, 0
+    return None
 
 def get_bluetoothctl_device_info(mac):
-    """Queries bluetoothctl info for Name, Alias, and RSSI."""
+    """Extracts device information via `bluetoothctl info <mac>`."""
     try:
-        res = subprocess.run(["bluetoothctl", "info", mac], capture_output=True, text=True, timeout=2)
+        res = subprocess.run(["bluetoothctl", "info", mac], capture_output=True, text=True, timeout=3)
         if res.returncode == 0 and res.stdout:
-            name = ""
-            alias = ""
-            rssi = 0
+            info = {}
             for line in res.stdout.splitlines():
                 line = line.strip()
-                m_name = re.match(r"^Name:\s*(.+)$", line)
-                if m_name:
-                    name = m_name.group(1).strip()
-                m_alias = re.match(r"^Alias:\s*(.+)$", line)
-                if m_alias:
-                    alias = m_alias.group(1).strip()
-                m_rssi = re.match(r"^RSSI:\s*([-\d]+)", line)
-                if m_rssi:
-                    try:
-                        rssi = int(m_rssi.group(1))
-                    except ValueError:
-                        pass
-            return name, alias, rssi
+                if line.startswith("Name:"):
+                    info["name"] = line.replace("Name:", "").strip()
+                elif line.startswith("Alias:"):
+                    info["alias"] = line.replace("Alias:", "").strip()
+                elif line.startswith("Paired:"):
+                    info["paired"] = ("yes" in line.lower())
+                elif line.startswith("Trusted:"):
+                    info["trusted"] = ("yes" in line.lower())
+                elif line.startswith("Connected:"):
+                    info["connected"] = ("yes" in line.lower())
+            resolved = info.get("alias") or info.get("name") or ""
+            if resolved:
+                info["name"] = resolved
+            return info
     except Exception:
         pass
-    return None, None, 0
+    return None
 
 def resolve_device_name(mac, initial_name=""):
     """
-    Attempts to resolve the real user-facing device name (Name or Alias)
-    instead of leaving it as an unhelpful MAC address string.
+    Attempts to resolve friendly Bluetooth name via D-Bus and bluetoothctl info.
+    Falls back to a sanitized fallback if no name has been broadcasted yet.
     """
-    # 1. Check if initial_name is already a good real name
-    if initial_name and not is_generic_mac_name(initial_name, mac):
-        return initial_name.strip()
+    clean_init = str(initial_name).strip() if initial_name else ""
+    if clean_init and not is_generic_mac_name(clean_init, mac):
+        return clean_init
 
-    # 2. Try D-Bus query
-    db_name, db_alias, _ = get_dbus_device_info(mac)
-    if db_name and not is_generic_mac_name(db_name, mac):
-        return db_name
-    if db_alias and not is_generic_mac_name(db_alias, mac):
-        return db_alias
+    # 1. Try D-Bus query (fastest & most direct)
+    dbus_info = get_dbus_device_info(mac)
+    if dbus_info and dbus_info.get("name") and not is_generic_mac_name(dbus_info["name"], mac):
+        return dbus_info["name"]
 
-    # 3. Try bluetoothctl info
-    ctl_name, ctl_alias, _ = get_bluetoothctl_device_info(mac)
-    if ctl_name and not is_generic_mac_name(ctl_name, mac):
-        return ctl_name
-    if ctl_alias and not is_generic_mac_name(ctl_alias, mac):
-        return ctl_alias
+    # 2. Try bluetoothctl info
+    ctl_info = get_bluetoothctl_device_info(mac)
+    if ctl_info and ctl_info.get("name") and not is_generic_mac_name(ctl_info["name"], mac):
+        return ctl_info["name"]
 
-    # 4. Fallback: if we only had initial_name
-    if initial_name and str(initial_name).strip():
-        return str(initial_name).strip()
-    return f"Thiết bị Bluetooth ({mac[-5:]})"
+    # 3. Clean fallback
+    if clean_init:
+        return clean_init
+    suffix = mac[-5:].replace(":", "") if len(mac) >= 5 else mac
+    return f"Thiết bị ({suffix})"
 
 def get_pi_bluetooth_mac():
-    """Returns the Bluetooth controller MAC address of the Raspberry Pi."""
-    # 1. Standard Linux sysfs
-    for hci in ("hci0", "hci1"):
-        path = f"/sys/class/bluetooth/{hci}/address"
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    mac = f.read().strip().upper()
-                    if len(mac) == 17 and mac.count(":") == 5:
-                        return mac
-            except Exception:
-                pass
+    """Extracts Raspberry Pi's Bluetooth controller MAC address."""
+    for sys_path in ("/sys/class/bluetooth/hci0/address", "/sys/class/bluetooth/hci1/address"):
+        try:
+            if os.path.exists(sys_path):
+                with open(sys_path, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                if len(content) == 17 and ":" in content:
+                    return content.upper()
+        except Exception:
+            pass
 
-    # 2. bluetoothctl list
     try:
-        res = subprocess.run(["bluetoothctl", "list"], capture_output=True, text=True, timeout=2)
-        if res.returncode == 0:
+        res = subprocess.run(["bluetoothctl", "show"], capture_output=True, text=True, timeout=3)
+        if res.returncode == 0 and res.stdout:
             for line in res.stdout.splitlines():
                 m = re.search(r"Controller\s+([0-9A-Fa-f:]{17})", line)
                 if m:
                     return m.group(1).upper()
     except Exception:
         pass
-
-    # 3. btmgmt info
-    try:
-        res = subprocess.run(["btmgmt", "info"], capture_output=True, text=True, timeout=2)
-        if res.returncode == 0:
-            m = re.search(r"addr\s+([0-9A-Fa-f:]{17})", res.stdout)
-            if m:
-                return m.group(1).upper()
-    except Exception:
-        pass
-
-    # 4. hciconfig
-    try:
-        res = subprocess.run(["hciconfig", "hci0"], capture_output=True, text=True, timeout=2)
-        if res.returncode == 0:
-            m = re.search(r"BD Address:\s*([0-9A-Fa-f:]{17})", res.stdout)
-            if m:
-                return m.group(1).upper()
-    except Exception:
-        pass
-
     return ""
 
 def get_bluetooth_status():
-    """Query Bluetooth adapter status and paired devices list with resolved names."""
-    adapter_avail = os.path.exists("/sys/class/bluetooth/hci0")
+    """Returns status of Bluetooth controller, paired devices, and server states."""
     pi_mac = get_pi_bluetooth_mac()
     paired = []
     try:
-        res = run_bluetoothctl(["paired-devices"], timeout=5)
-        if res.returncode == 0:
+        res = subprocess.run(["bluetoothctl", "paired-devices"], capture_output=True, text=True, timeout=3)
+        if res.returncode == 0 and res.stdout:
             for line in res.stdout.strip().splitlines():
                 m = re.match(r"^Device\s+([0-9A-Fa-f:]{17})\s*(.*)$", line.strip())
                 if m:
                     mac = m.group(1).upper()
                     raw_name = m.group(2).strip()
                     name = resolve_device_name(mac, raw_name)
-                    paired.append({"mac": mac, "name": name})
-            adapter_avail = True
+                    paired.append({
+                        "mac": mac,
+                        "name": name
+                    })
     except Exception as e:
-        log_bt("BT", f"Error querying paired devices: {e}")
+        log_bt("BT", f"Error listing paired devices: {e}")
 
     return {
-        "adapter_available": adapter_avail,
         "pi_mac": pi_mac,
         "pi_name": "ICarMeter",
         "paired_devices": paired,
@@ -602,12 +508,6 @@ def _bt_discovery_worker():
                         if prev != real_name:
                             _bt_discovered_devices[mac] = real_name
                             log_bt("BT-Discovery", f"Found device: {real_name} ({mac})")
-                            ws_broadcast({
-                                "type": "bt_device_found",
-                                "mac": mac,
-                                "name": real_name,
-                                "rssi": 0
-                            })
                             bt_broadcast({
                                 "type": "bt_device_found",
                                 "mac": mac,
@@ -638,12 +538,6 @@ def _bt_discovery_worker():
                             if prev != real_name:
                                 _bt_discovered_devices[mac] = real_name
                                 log_bt("BT-Discovery", f"Discovered device: {real_name} ({mac})")
-                                ws_broadcast({
-                                    "type": "bt_device_found",
-                                    "mac": mac,
-                                    "name": real_name,
-                                    "rssi": 0
-                                })
                                 bt_broadcast({
                                     "type": "bt_device_found",
                                     "mac": mac,
@@ -665,12 +559,6 @@ def _bt_discovery_worker():
                     with _bt_discovery_lock:
                         _bt_discovered_devices[mac] = fresh_name
                     log_bt("BT-Discovery", f"Resolved device name: {fresh_name} ({mac})")
-                    ws_broadcast({
-                        "type": "bt_device_found",
-                        "mac": mac,
-                        "name": fresh_name,
-                        "rssi": 0
-                    })
                     bt_broadcast({
                         "type": "bt_device_found",
                         "mac": mac,
@@ -748,7 +636,6 @@ def pair_bluetooth_device(mac):
                 os.remove(PIN_MARKER)
             except Exception:
                 pass
-        ws_broadcast({"type": "bt_pin_code", "pin": ""})
         bt_broadcast({"type": "bt_pin_code", "pin": ""})
 
         out_lower = ((res.stdout or "") + " " + (res.stderr or "")).lower()
@@ -761,12 +648,10 @@ def pair_bluetooth_device(mac):
         log_bt("BT-Pair", f"Pairing with {mac} FAILED: {err_msg}")
         return False, err_msg
     except subprocess.TimeoutExpired:
-        ws_broadcast({"type": "bt_pin_code", "pin": ""})
         bt_broadcast({"type": "bt_pin_code", "pin": ""})
         log_bt("BT-Pair", f"Pairing with {mac} TIMED OUT")
         return False, "Pairing timed out"
     except Exception as e:
-        ws_broadcast({"type": "bt_pin_code", "pin": ""})
         bt_broadcast({"type": "bt_pin_code", "pin": ""})
         log_bt("BT-Pair", f"Pairing with {mac} ERROR: {e}")
         return False, str(e)
@@ -783,39 +668,6 @@ def unpair_bluetooth_device(mac):
         return False
     except Exception:
         return False
-
-_last_ws_event = None
-_last_ws_event_time = 0.0
-
-def log_ws_event(event_name):
-    """Writes a clean, short event name to /dev/shm/icarmeter_ws_event for dashboard slide-up display"""
-    global _last_ws_event, _last_ws_event_time
-    now = time.time()
-    event_name = event_name.strip()
-
-    # Priority hold: keep high-value events (Config Saved, Connected, Config Synced) visible for at least 2.5s before Telemetry replaces it
-    if event_name == "Telemetry" and _last_ws_event in ("Connected", "Config Saved", "Config Synced"):
-        if now - _last_ws_event_time < 2.5:
-            return
-
-    # Avoid redundant writes if event is unchanged and within 1s
-    if _last_ws_event == event_name and (now - _last_ws_event_time < 1.0):
-        return
-
-    _last_ws_event = event_name
-    _last_ws_event_time = now
-    try:
-        with open(WS_EVENT_MARKER, "w", encoding="utf-8") as f:
-            f.write(event_name + "\n")
-    except Exception:
-        pass
-
-def touch_app_connected(name="Mobile App"):
-    try:
-        with open(APP_CONN_MARKER, "w", encoding="utf-8") as f:
-            f.write(name)
-    except Exception:
-        pass
 
 def get_actual_config_path():
     return CONFIG_PATH
@@ -998,6 +850,7 @@ def write_config_to_path(path, payload):
             elif k == "baud_rate" and "baud_rate" in payload:
                 line = f'baud_rate = {int(payload["baud_rate"])}\n'
         elif in_section == "display" and "=" in line:
+
             k = line.split("=")[0].strip()
             updated_keys.add(k)
             if k == "target_fps" and "target_fps" in payload:
@@ -1035,8 +888,6 @@ def write_config(payload):
         os.sync()
     except (AttributeError, OSError):
         pass
-
-    touch_app_connected("Bluetooth Companion")
     print(f"[API] Synchronized, fsynced and flushed config to disk: {CONFIG_PATH}")
     if not success:
         raise IOError(f"Could not write configuration to {CONFIG_PATH}")
@@ -1047,7 +898,6 @@ def handle_bt_command(msg_dict, reply_fn):
     Dedicated command handler for all data & config operations.
     Exclusively permitted over Bluetooth RFCOMM/SPP.
     """
-    touch_app_connected("Bluetooth Companion")
     msg_type = msg_dict.get("type", "")
 
     if msg_type == "get_bt_logs":
@@ -1069,7 +919,6 @@ def handle_bt_command(msg_dict, reply_fn):
         return
 
     if msg_type == "get_config":
-        log_ws_event("Config Synced")
         reply_fn({"type": "config", "data": read_config()})
         return
 
@@ -1081,7 +930,6 @@ def handle_bt_command(msg_dict, reply_fn):
         payload = msg_dict.get("payload", {})
         try:
             write_config(payload)
-            log_ws_event("Config Saved")
             # Broadcast updated config strictly to connected Bluetooth clients
             bt_broadcast({
                 "type": "config",
@@ -1102,7 +950,6 @@ def handle_bt_command(msg_dict, reply_fn):
             heading = float(msg_dict.get("heading", msg_dict.get("bearing", 0.0)))
             with open("/dev/shm/icarmeter_phone_telemetry", "w", encoding="utf-8") as f:
                 f.write(f"spd={spd}\nlat={lat}\nlon={lon}\nalt={alt}\nheading={heading}\n")
-            log_ws_event("Telemetry")
         except Exception:
             pass
         return
@@ -1118,6 +965,18 @@ def handle_bt_command(msg_dict, reply_fn):
                 "clients": num_bt,
                 "timestamp": int(time.time())
             }
+        })
+        return
+
+    if msg_type in ("match_pi", "get_pi_info"):
+        ensure_bt_always_ready()
+        pi_mac = get_pi_bluetooth_mac()
+        reply_fn({
+            "type": "pi_matched",
+            "pi_mac": pi_mac,
+            "pi_name": "ICarMeter",
+            "rfcomm_channel": RFCOMM_PORT,
+            "timestamp": int(time.time())
         })
         return
 
@@ -1163,10 +1022,10 @@ def handle_bt_command(msg_dict, reply_fn):
 
 def rfcomm_client_handler(client_sock, client_info):
     client_sock.settimeout(60.0)
-    touch_app_connected("Bluetooth Companion")
-    log_ws_event("Connected")
     with bt_clients_lock:
         connected_bt_clients.add(client_sock)
+    peer_name = client_info[0] if isinstance(client_info, (list, tuple)) and client_info else "Phone Connected"
+    touch_app_connected(peer_name)
     log_bt("BT-RFCOMM", f"Client connected from {client_info}")
     print(f"[BT-RFCOMM] Client connected from {client_info}")
 
@@ -1175,7 +1034,9 @@ def rfcomm_client_handler(client_sock, client_info):
         "status": "online",
         "app_connected": True,
         "timestamp": int(time.time()),
-        "config": read_config()
+        "config": read_config(),
+        "pi_mac": get_pi_bluetooth_mac(),
+        "pi_name": "ICarMeter"
     }
     try:
         client_sock.sendall((json.dumps(welcome) + "\n").encode("utf-8"))
@@ -1198,6 +1059,7 @@ def rfcomm_client_handler(client_sock, client_info):
                 buffer += data.decode("utf-8", errors="ignore")
                 while "\n" in buffer:
                     line, buffer = buffer.split("\n", 1)
+
                     line = line.strip()
                     if not line:
                         continue
@@ -1219,11 +1081,12 @@ def rfcomm_client_handler(client_sock, client_info):
     finally:
         with bt_clients_lock:
             connected_bt_clients.discard(client_sock)
+            if not connected_bt_clients:
+                clear_app_connected()
         try:
             client_sock.close()
         except Exception:
             pass
-        log_ws_event("Disconnected")
         log_bt("BT-RFCOMM", f"Client disconnected from {client_info}")
         print(f"[BT-RFCOMM] Client disconnected from {client_info}")
 
@@ -1272,322 +1135,16 @@ def rfcomm_server_worker():
             time.sleep(3)
 
 
-class ApiHandler(http.server.BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        pass
-
-    def send_cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
-        self.send_header("Access-Control-Allow-Headers", "*")
-        self.send_header("Access-Control-Max-Age", "86400")
-
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_cors_headers()
-        self.send_header("Content-Length", "0")
-        self.end_headers()
-
-    def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-
-        # ─── WebSocket Upgrade Handling ───────────────────────────────────────
-        if self.headers.get("Upgrade", "").lower() == "websocket" or path in ("/ws", "/ws/"):
-            key = self.headers.get("Sec-WebSocket-Key")
-            if not key:
-                self.send_error(400, "Missing Sec-WebSocket-Key")
-                return
-            accept_token = base64.b64encode(hashlib.sha1((key.strip() + WS_MAGIC_GUID).encode("utf-8")).digest()).decode("utf-8")
-
-            # Send 101 Switching Protocols
-            self.send_response(101, "Switching Protocols")
-            self.send_header("Upgrade", "websocket")
-            self.send_header("Connection", "Upgrade")
-            self.send_header("Sec-WebSocket-Accept", accept_token)
-            self.end_headers()
-
-            # Take over socket for WebSocket protocol on this worker thread
-            self.handle_websocket()
-            return
-
-        # ─── Captive Portal Detection Endpoints ──────────────────────────────
-        # Android generate_204 probe
-        if path in ("/generate_204", "/gen_204"):
-            self.send_response(204)
-            self.send_cors_headers()
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
-
-        # Apple iOS hotspot-detect probe
-        if path in ("/hotspot-detect.html", "/canonical.html", "/success.html", "/library/test/success.html"):
-            body = b"<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(body)
-            return
-
-        # Microsoft NCSI / Connect Test probes
-        if path in ("/connecttest.txt",):
-            body = b"Microsoft Connect Test"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(body)
-            return
-
-        if path in ("/ncsi.txt",):
-            body = b"Microsoft NCSI"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(body)
-            return
-
-        # ─── API Info Endpoint for Mobile Companion ─────────────────────────
-        self.send_json(200, {
-            "service": "ICarMeter",
-            "status": "online",
-            "app_target": "ICarMeter Mobile Companion App",
-            "ws_endpoint": "/ws"
-        })
-
-    def handle_websocket(self):
-        sock = self.connection
-        sock.settimeout(60.0)
-        with ws_clients_lock:
-            connected_ws_clients.add(sock)
-
-        client_info = f"{self.client_address[0]}:{self.client_address[1]}"
-        print(f"[WS] Pairing setup client connected from {client_info}")
-
-        pi_mac = get_pi_bluetooth_mac()
-        welcome = {
-            "type": "welcome",
-            "status": "online",
-            "pi_mac": pi_mac,
-            "pi_name": "ICarMeter",
-            "app_connected": False,
-            "timestamp": int(time.time())
-        }
-        try:
-            sock.sendall(encode_ws_frame(json.dumps(welcome).encode("utf-8"), 0x1))
-        except Exception:
-            with ws_clients_lock:
-                connected_ws_clients.discard(sock)
-            return
-
-        try:
-            while True:
-                try:
-                    opcode, payload = decode_ws_frame(sock)
-                except socket.timeout:
-                    # Timeout reached — send ping to check client liveness
-                    try:
-                        sock.sendall(encode_ws_frame(b"ping", opcode=0x9))
-                        continue
-                    except Exception:
-                        break
-
-                if opcode is None or opcode == 0x8:  # Socket closed or Close frame
-                    try:
-                        sock.sendall(encode_ws_frame(b"", opcode=0x8))
-                    except Exception:
-                        pass
-                    break
-
-                if opcode == 0x9:  # Ping from client
-                    try:
-                        sock.sendall(encode_ws_frame(payload, opcode=0xA))
-                    except Exception:
-                        break
-                    continue
-
-                if opcode == 0xA:  # Pong from client
-                    continue
-
-                if opcode == 0x1:  # Text message
-                    text = payload.decode("utf-8", errors="ignore")
-                    self.process_ws_message(sock, text)
-        except Exception as e:
-            print(f"[WS] Connection error from {client_info}: {e}", file=sys.stderr)
-        finally:
-            with ws_clients_lock:
-                connected_ws_clients.discard(sock)
-            log_ws_event("Disconnected")
-            print(f"[WS] Client disconnected from {client_info}")
-
-    def process_ws_message(self, sock, text):
-        """
-        Processes Wi-Fi WebSocket messages.
-        Wi-Fi is strictly restricted to Bluetooth pairing/discovery setup.
-        Zero config or data operations are processed here.
-        """
-        try:
-            msg = json.loads(text)
-        except Exception:
-            return
-
-        msg_type = msg.get("type", "")
-
-        if msg_type == "ping":
-            reply = {"type": "pong", "timestamp": int(time.time())}
-            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
-            return
-
-        if msg_type == "get_bt_status":
-            status_data = get_bluetooth_status()
-            reply = {
-                "type": "bt_status",
-                "data": status_data,
-                "pi_mac": status_data.get("pi_mac", ""),
-                "pi_name": "ICarMeter"
-            }
-            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
-            return
-
-        if msg_type in ("match_pi", "get_pi_info"):
-            ensure_bt_always_ready()
-            pi_mac = get_pi_bluetooth_mac()
-            reply = {
-                "type": "pi_matched",
-                "pi_mac": pi_mac,
-                "pi_name": "ICarMeter",
-                "rfcomm_channel": RFCOMM_PORT,
-                "wifi_ip": "192.168.4.1",
-                "timestamp": int(time.time())
-            }
-            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
-            return
-
-        if msg_type == "bt_start_discovery":
-            start_bluetooth_discovery()
-            reply = {"type": "bt_discovery_started"}
-            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
-            return
-
-        if msg_type == "bt_stop_discovery":
-            stop_bluetooth_discovery()
-            reply = {"type": "bt_discovery_stopped"}
-            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
-            return
-
-        if msg_type == "bt_pair":
-            target_mac = msg.get("mac", "").strip().upper()
-            def do_pair_async():
-                success, msg_text = pair_bluetooth_device(target_mac)
-                ws_broadcast({
-                    "type": "bt_pair_result",
-                    "mac": target_mac,
-                    "success": success,
-                    "message": msg_text
-                })
-            threading.Thread(target=do_pair_async, daemon=True).start()
-            return
-
-        if msg_type == "bt_unpair":
-            target_mac = msg.get("mac", "").strip().upper()
-            success = unpair_bluetooth_device(target_mac)
-            reply = {"type": "bt_unpair_result", "mac": target_mac, "success": success}
-            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
-            return
-
-        if msg_type == "get_bt_logs":
-            with bt_logs_lock:
-                logs_list = list(bt_logs_buffer)
-            reply = {"type": "bt_logs", "logs": logs_list}
-            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
-            return
-
-        if msg_type == "clear_bt_logs":
-            clear_bt_logs()
-            reply = {"type": "bt_logs", "logs": []}
-            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
-            return
-
-        if msg_type == "get_status":
-            with ws_clients_lock:
-                num_clients = len(connected_ws_clients)
-            reply = {
-                "type": "status",
-                "data": {
-                    "status": "online",
-                    "app_connected": False,
-                    "clients": num_clients,
-                    "timestamp": int(time.time())
-                }
-            }
-            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
-            return
-
-    def do_POST(self):
-        # All HTTP POST endpoints removed - data operations are strictly over Bluetooth
-        self.send_error(404, "Not Found")
-
-    def send_json(self, code, obj):
-        body = json.dumps(obj).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_cors_headers()
-        self.end_headers()
-        self.wfile.write(body)
-
-
-def start_http_listener(port):
-    """Starts an HTTP server on the specified port. Runs in background thread."""
-    try:
-        httpd = http.server.ThreadingHTTPServer(("", port), ApiHandler)
-        print(f"[API] ICarMeter HTTP listener active on port {port}")
-        httpd.serve_forever()
-    except Exception as e:
-        print(f"[API] Note: port {port} listener not active ({e})", file=sys.stderr)
-
-
 def main():
-    # Initialize Bluetooth logs buffer from disk
     init_bt_logs_buffer()
-    log_bt("SYSTEM", "ICarMeter API service initializing...")
+    log_bt("SYSTEM", "ICarMeter Bluetooth RFCOMM service initializing...")
 
-    # Start bluetoothctl live event monitor worker
-    t_btmon = threading.Thread(target=bluetoothctl_monitor_worker, daemon=True)
-    t_btmon.start()
+    threading.Thread(target=bluetoothctl_monitor_worker, daemon=True).start()
+    threading.Thread(target=bt_heartbeat_worker, daemon=True).start()
+    threading.Thread(target=pin_monitor_worker, daemon=True).start()
 
-    # Start Bluetooth background heartbeat worker
-    t_hb = threading.Thread(target=bt_heartbeat_worker, daemon=True)
-    t_hb.start()
-
-    # Start PIN/passkey monitor worker
-    t_pin = threading.Thread(target=pin_monitor_worker, daemon=True)
-    t_pin.start()
-
-    # Start Bluetooth RFCOMM/SPP server worker
-    t_rfcomm = threading.Thread(target=rfcomm_server_worker, daemon=True)
-    t_rfcomm.start()
-
-    # Start port 80 listener in background thread (standard web & captive portal)
-    if HTTP_PORT != PORT:
-        t80 = threading.Thread(target=start_http_listener, args=(HTTP_PORT,), daemon=True)
-        t80.start()
-
-    # Primary listener on PORT 8080 (serves WebSocket at /ws + Companion API)
-    server_address = ("", PORT)
-    httpd = http.server.ThreadingHTTPServer(server_address, ApiHandler)
-    print(f"[API] ICarMeter primary WebSocket (/ws) & Companion API running on port {PORT}...")
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        httpd.server_close()
+    # Keep the foreground service alive on the Bluetooth RFCOMM listener.
+    rfcomm_server_worker()
 
 
 if __name__ == "__main__":
