@@ -55,8 +55,7 @@ impl DashboardRenderer {
         if state.tpms_enabled {
             self.car_panel.draw(&mut self.pixmap, &self.fonts, state);
         } else {
-            self.map_panel
-                .draw(&mut self.pixmap, &self.fonts, state, dt);
+            self.map_panel.draw(&mut self.pixmap, &self.fonts, state);
         }
 
         // 3. Render Center Panel (Speedometer or animated expression companion)

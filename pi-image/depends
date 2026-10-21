@@ -5,6 +5,7 @@ qemu-aarch64:qemu-user-binfmt
 debootstrap
 zerofree
 zip
+unzip
 mkdosfs:dosfstools
 mke2fs:e2fsprogs
 capsh:libcap2-bin

@@ -101,7 +101,7 @@ impl TelemetryService {
         }
     }
 
-    pub fn update(&mut self, state: &mut VehicleState, dt: f32) {
+    pub fn update(&mut self, state: &mut VehicleState) {
         // Poll hardware GPS first, then fall back to the companion app marker.
         if let Some(gps) = self.gps.as_mut() {
             if let Some(update) = gps.poll_update() {
@@ -142,8 +142,6 @@ impl TelemetryService {
 
         // Connection indicators are independent from sensor polling.
         connection::update_connection_state(state);
-        state.update_trip(dt);
-
         if let Some(ref mut sensors) = self.sensors {
             sensors.poll(state);
         }

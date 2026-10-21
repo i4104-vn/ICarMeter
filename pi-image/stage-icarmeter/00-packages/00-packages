@@ -9,3 +9,12 @@ iw
 iptables
 python3-dbus
 python3-gi
+libcurl4
+libegl1
+libgl1
+libicu72
+libjpeg62-turbo
+libpng16-16
+libssl3
+libuv1
+libwebp7

@@ -1,7 +1,7 @@
 // Main Application Controller managing state and render cycle on Raspberry Pi OS
 
 use crate::configs::AppConfig;
-use crate::controllers::demo::DemoSpeed;
+use crate::controllers::demo::DemoGps;
 use crate::models::VehicleState;
 use crate::render::DashboardRenderer;
 use crate::services::{FramebufferBackend, TelemetryService, is_app_running};
@@ -23,7 +23,7 @@ impl AppController {
         state.tpms_enabled = config.tpms.enabled;
         state.tires.low_pressure_alert = config.tpms.low_pressure_alert;
         state.tires.high_temp_alert = config.tpms.high_temp_alert;
-        let mut demo_speed = DemoSpeed::new();
+        let mut demo_gps = DemoGps::new();
 
         // 2. Initialize real telemetry service (GPS & Bluetooth sensors)
         let mut telemetry = TelemetryService::new(&config);
@@ -70,7 +70,7 @@ impl AppController {
 
             if let Some(key) = backend.poll_key() {
                 if key.eq_ignore_ascii_case(&b'a') {
-                    demo_speed.toggle(&mut state);
+                    demo_gps.toggle(&mut state);
                 } else if key.eq_ignore_ascii_case(&b'm') {
                     state.tpms_enabled = !state.tpms_enabled;
                     eprintln!(
@@ -88,8 +88,9 @@ impl AppController {
             last_time = now;
 
             // Update real vehicle telemetry from GPS and Bluetooth sensors
-            telemetry.update(&mut state, dt);
-            demo_speed.update(&mut state, dt);
+            telemetry.update(&mut state);
+            demo_gps.update(&mut state, dt);
+            state.update_trip(dt);
 
             // Expose real-time TPMS telemetry to shared memory for companion Bluetooth sync
             if last_tpms_shm_write.elapsed() >= Duration::from_millis(250) {
