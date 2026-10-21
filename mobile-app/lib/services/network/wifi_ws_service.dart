@@ -9,6 +9,7 @@ class WifiWsService {
   /// The target host and port (e.g. `192.168.4.1:8080`).
   String host;
   bool _isConnecting = false;
+  Future<bool>? _connectFuture;
   Timer? _reconnectTimer;
   bool _manualDisconnect = false;
 
@@ -32,8 +33,22 @@ class WifiWsService {
   /// Initiates an asynchronous connection to the WebSocket server.
   ///
   /// Automatically requests fresh Bluetooth status upon successful connection.
-  void connect() async {
-    if (isConnected || _isConnecting) return;
+  Future<bool> connect() {
+    if (isConnected) return Future<bool>.value(true);
+    final pending = _connectFuture;
+    if (pending != null) return pending;
+
+    final future = _connectInternal();
+    _connectFuture = future;
+    return future.whenComplete(() {
+      if (identical(_connectFuture, future)) {
+        _connectFuture = null;
+      }
+    });
+  }
+
+  Future<bool> _connectInternal() async {
+    if (_isConnecting) return false;
     _manualDisconnect = false;
     _isConnecting = true;
 
@@ -68,11 +83,13 @@ class WifiWsService {
       // Request BT status and match/identification info after connecting over Wi-Fi
       send({'type': 'get_bt_status'});
       send({'type': 'match_pi'});
+      return true;
     } catch (_) {
       _socket = null;
       _isConnecting = false;
       _connectionController.add(false);
       _scheduleReconnect();
+      return false;
     }
   }
 

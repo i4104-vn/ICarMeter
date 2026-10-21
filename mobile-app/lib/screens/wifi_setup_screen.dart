@@ -24,7 +24,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
 
     setState(() => _checking = true);
     await NativeBridge.bindToCarWifi();
-    widget.appState.wifiWs.connect();
+    await widget.appState.wifiWs.connect();
     await widget.appState.matchWithPi();
 
     // The WebSocket uses a four-second connection timeout. Allow it to finish

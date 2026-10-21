@@ -34,7 +34,8 @@ class AppState extends ChangeNotifier {
 
   late final IncomingMessageDispatcher _dispatcher;
 
-  bool _isWifiConnected = false;
+  bool _wifiNetworkAvailable = false;
+  bool _wifiSocketConnected = false;
   CarTelemetry _telemetry = const CarTelemetry();
   PiConfig _config = const PiConfig();
 
@@ -106,7 +107,7 @@ class AppState extends ChangeNotifier {
   String get connectedName => btCoordinator.connectedName;
 
   /// Indicates whether the local Wi-Fi hotspot connection is active.
-  bool get isWifiConnected => _isWifiConnected;
+  bool get isWifiConnected => _wifiNetworkAvailable || _wifiSocketConnected;
 
   /// Indicates whether Bluetooth device discovery scanning is currently running.
   bool get isDiscovering => btCoordinator.isDiscovering;
@@ -160,14 +161,14 @@ class AppState extends ChangeNotifier {
     _btEventSub = NativeBridge.btEvents.listen(_handleBtEvent);
     _locEventSub = NativeBridge.locationEvents.listen(_handleLocationEvent);
     _wifiEventSub = NativeBridge.wifiEvents.listen((e) {
-      _isWifiConnected = e['connected'] as bool? ?? false;
+      _wifiNetworkAvailable = e['connected'] as bool? ?? false;
       notifyListeners();
     });
 
     // Setup Wi-Fi WS listeners
     _wsMsgSub = wifiWs.messages.listen(_handleWsMessage);
     _wsConnSub = wifiWs.connectionState.listen((connected) {
-      _isWifiConnected = connected;
+      _wifiSocketConnected = connected;
       if (connected) {
         wifiWs.send({'type': 'get_bt_status'});
         wifiWs.send({'type': 'match_pi'});
@@ -190,7 +191,7 @@ class AppState extends ChangeNotifier {
     // internet. Bind to that Wi-Fi network before opening the WebSocket, and
     // keep the request active so a later Wi-Fi switch is picked up as well.
     await NativeBridge.bindToCarWifi();
-    wifiWs.connect();
+    await wifiWs.connect();
   }
 
   void _handleBtEvent(Map<String, dynamic> event) {

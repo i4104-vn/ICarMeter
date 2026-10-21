@@ -99,6 +99,12 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun emitWifiEvent(connected: Boolean) {
+        mainHandler.post {
+            wifiEventSink?.success(mapOf("connected" to connected))
+        }
+    }
+
     private fun handleMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "connectBtSpp" -> {
@@ -197,13 +203,17 @@ class MainActivity : FlutterActivity() {
                 return
             }
             if (networkCallback != null) {
+                // The callback may still be waiting for the hotspot. Keep the
+                // request alive and let the Wi-Fi event report the final state.
                 result.success(true)
+                if (activeWifiNetwork != null) {
+                    emitWifiEvent(true)
+                }
                 return
             }
 
             val request = NetworkRequest.Builder()
                 .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .build()
 
             val cb = object : ConnectivityManager.NetworkCallback() {
@@ -213,21 +223,26 @@ class MainActivity : FlutterActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         cm.bindProcessToNetwork(network)
                     }
-                    mainHandler.post {
-                        wifiEventSink?.success(mapOf("connected" to true))
-                    }
+                    emitWifiEvent(true)
                 }
 
                 override fun onLost(network: Network) {
                     super.onLost(network)
-                    if (activeWifiNetwork == network) {
-                        activeWifiNetwork = null
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            cm.bindProcessToNetwork(null)
-                        }
+                    if (activeWifiNetwork != network) {
+                        return
                     }
-                    mainHandler.post {
-                        wifiEventSink?.success(mapOf("connected" to false))
+                    activeWifiNetwork = null
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        cm.bindProcessToNetwork(null)
+                    }
+                    emitWifiEvent(false)
+                }
+
+                override fun onUnavailable() {
+                    super.onUnavailable()
+                    if (activeWifiNetwork == null) {
+                        networkCallback = null
+                        emitWifiEvent(false)
                     }
                 }
             }
@@ -235,6 +250,8 @@ class MainActivity : FlutterActivity() {
             cm.requestNetwork(request, cb)
             result.success(true)
         } catch (e: Exception) {
+            networkCallback = null
+            activeWifiNetwork = null
             result.error("WIFI_ERROR", e.message, null)
         }
     }
@@ -298,6 +315,19 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         btSppManager?.disconnect()
         stopGpsInternal()
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        networkCallback?.let { callback ->
+            try {
+                cm?.unregisterNetworkCallback(callback)
+            } catch (_: Exception) {}
+        }
+        networkCallback = null
+        activeWifiNetwork = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                cm?.bindProcessToNetwork(null)
+            } catch (_: Exception) {}
+        }
         super.onDestroy()
     }
 }

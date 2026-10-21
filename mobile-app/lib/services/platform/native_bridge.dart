@@ -83,11 +83,28 @@ class NativeBridge {
 
   /// Instructs Android OS to route app network traffic through the vehicle's Wi-Fi hotspot.
   static Future<bool> bindToCarWifi() async {
+    StreamSubscription<Map<String, dynamic>>? subscription;
     try {
-      final ok = await _channel.invokeMethod<bool>('bindToCarWifi');
-      return ok ?? false;
+      final connected = Completer<bool>();
+      subscription = wifiEvents.listen((event) {
+        if (event['connected'] as bool? == true && !connected.isCompleted) {
+          connected.complete(true);
+        }
+      });
+
+      final accepted = await _channel.invokeMethod<bool>('bindToCarWifi');
+      if (accepted != true) return false;
+
+      // The native call only registers the request. Wait until Android has
+      // actually selected and bound the Wi-Fi network before opening WS.
+      return await connected.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => false,
+      );
     } catch (_) {
       return false;
+    } finally {
+      await subscription?.cancel();
     }
   }
 
