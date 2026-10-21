@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/app_state.dart';
@@ -5,12 +6,10 @@ import '../services/native_bridge.dart';
 
 class WifiSetupScreen extends StatefulWidget {
   final AppState appState;
-  final VoidCallback onNavigateToBt;
 
   const WifiSetupScreen({
     super.key,
     required this.appState,
-    required this.onNavigateToBt,
   });
 
   @override
@@ -18,57 +17,51 @@ class WifiSetupScreen extends StatefulWidget {
 }
 
 class _WifiSetupScreenState extends State<WifiSetupScreen> {
-  late TextEditingController _hostCtrl;
+  bool _checking = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _hostCtrl = TextEditingController(text: widget.appState.wifiWs.host);
-  }
+  Future<void> _checkConnection() async {
+    if (_checking) return;
 
-  @override
-  void dispose() {
-    _hostCtrl.dispose();
-    super.dispose();
-  }
+    setState(() => _checking = true);
+    await NativeBridge.bindToCarWifi();
+    widget.appState.wifiWs.connect();
 
-  void _bindWifi() async {
-    final ok = await NativeBridge.bindToCarWifi();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+    // The WebSocket uses a four-second connection timeout. Allow it to finish
+    // before showing the result of this manual check.
+    await Future<void>.delayed(const Duration(seconds: 4, milliseconds: 300));
+    if (!mounted) return;
+
+    final connected = widget.appState.isWifiConnected;
+    setState(() => _checking = false);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
         SnackBar(
-          content: Text(ok
-              ? 'Đã ưu tiên định tuyến gói tin qua Wi-Fi của xe!'
-              : 'Không thể định tuyến qua Wi-Fi, hãy kiểm tra kết nối.'),
-          backgroundColor: ok ? AppColors.success : AppColors.danger,
+          content: Text(connected
+              ? 'Đã kết nối với Wi-Fi của xe.'
+              : 'Chưa kết nối được. Hãy kiểm tra Wi-Fi đang chọn là ICarMeter rồi thử lại.'),
+          backgroundColor: connected ? AppColors.success : AppColors.danger,
         ),
       );
-    }
-  }
-
-  void _reconnectWs() {
-    widget.appState.wifiWs.host = _hostCtrl.text.trim();
-    widget.appState.wifiWs.disconnect();
-    widget.appState.wifiWs.connect();
   }
 
   Widget _buildStep(int number, String title, String description) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 20),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 28,
-            height: 28,
+            width: 30,
+            height: 30,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.15),
+              color: AppColors.primary.withOpacity(0.14),
               shape: BoxShape.circle,
-              border: Border.all(color: AppColors.primary, width: 1.2),
+              border: Border.all(color: AppColors.primary.withOpacity(0.5)),
             ),
             child: Text(
-              number.toString(),
+              '$number',
               style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
@@ -83,12 +76,20 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.text),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.text,
+                  ),
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: 4),
                 Text(
                   description,
-                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                    height: 1.45,
+                  ),
                 ),
               ],
             ),
@@ -100,185 +101,152 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isWifiConnected = widget.appState.isWifiConnected;
+    return AnimatedBuilder(
+      animation: widget.appState,
+      builder: (context, _) {
+        final isWifiConnected = widget.appState.isWifiConnected;
 
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Wi-Fi WebSocket Status Banner
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isWifiConnected ? AppColors.info.withOpacity(0.5) : AppColors.border,
-                width: 1.2,
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: (isWifiConnected ? AppColors.info : AppColors.textMuted).withOpacity(0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    isWifiConnected ? Icons.wifi : Icons.wifi_off,
-                    color: isWifiConnected ? AppColors.info : AppColors.textMuted,
-                    size: 24,
+        return SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isWifiConnected
+                        ? AppColors.success.withOpacity(0.55)
+                        : AppColors.border,
+                    width: 1.2,
                   ),
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        isWifiConnected ? 'Đã kết nối Wi-Fi' : 'Chưa kết nối Wi-Fi thiết bị',
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.text),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        isWifiConnected
-                            ? 'Kênh Wi-Fi sẵn sàng hỗ trợ ghép nối Bluetooth.'
-                            : 'Hãy vào Cài đặt Wi-Fi điện thoại và chọn mạng của xe.',
-                        style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Host input
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.border, width: 1),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Địa chỉ kết nối của thiết bị trên xe',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
-                ),
-                const SizedBox(height: 8),
-                Row(
+                child: Row(
                   children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _hostCtrl,
-                        style: const TextStyle(fontSize: 13, color: AppColors.text, fontFamily: 'monospace'),
-                        decoration: InputDecoration(
-                          hintText: '192.168.4.1:8080',
-                          isDense: true,
-                          filled: true,
-                          fillColor: AppColors.background,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(color: AppColors.border),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(color: AppColors.border),
-                          ),
-                        ),
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: (isWifiConnected
+                                ? AppColors.success
+                                : AppColors.textMuted)
+                            .withOpacity(0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        isWifiConnected ? Icons.wifi : Icons.wifi_off,
+                        color: isWifiConnected
+                            ? AppColors.success
+                            : AppColors.textMuted,
+                        size: 24,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    ElevatedButton(
-                      onPressed: _reconnectWs,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.info,
-                        foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isWifiConnected
+                                ? 'Đã kết nối Wi-Fi xe'
+                                : 'Chưa kết nối Wi-Fi xe',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.text,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            isWifiConnected
+                                ? 'Kết nối đang hoạt động.'
+                                : 'Kết nối Wi-Fi để ghép nối và đồng bộ với xe.',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
                       ),
-                      child: const Text('Thử lại', style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: _bindWifi,
-                    icon: const Icon(Icons.link, size: 16, color: AppColors.info),
-                    label: const Text('Buộc kết nối dữ liệu qua Wi-Fi xe (Bypass 4G/LTE)', style: TextStyle(fontSize: 12, color: AppColors.info)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.info),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.fromLTRB(18, 20, 18, 4),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Kết nối Wi-Fi của xe',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.text,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _buildStep(
+                      1,
+                      'Mở cài đặt Wi-Fi',
+                      'Mở danh sách mạng Wi-Fi trên điện thoại.',
+                    ),
+                    _buildStep(
+                      2,
+                      'Chọn mạng ICarMeter',
+                      'Nếu điện thoại báo mạng không có Internet, hãy chọn tiếp tục kết nối với mạng này.',
+                    ),
+                    _buildStep(
+                      3,
+                      'Quay lại ứng dụng',
+                      'Nhấn nút bên dưới để kiểm tra kết nối. Khi Wi-Fi đã hoạt động, bạn có thể ghép nối Bluetooth.',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 50,
+                child: ElevatedButton.icon(
+                  onPressed: _checking ? null : _checkConnection,
+                  icon: _checking
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
+                        )
+                      : const Icon(Icons.wifi_find, size: 19),
+                  label: Text(
+                    _checking ? 'Đang kiểm tra...' : 'Kiểm tra lại kết nối',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    disabledBackgroundColor: AppColors.primary.withOpacity(0.65),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(13),
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-
-          const SizedBox(height: 20),
-
-          // Steps Guide
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border, width: 1),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Quy trình thiết lập lần đầu',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.text),
-                ),
-                const SizedBox(height: 16),
-                _buildStep(
-                  1,
-                  'Kết nối Wi-Fi phát từ xe',
-                  'Mở cài đặt Wi-Fi trên điện thoại và chọn mạng "ICarMeter-Setup" (hoặc mạng do thiết bị phát).',
-                ),
-                _buildStep(
-                  2,
-                  'Kích hoạt ghép nối Bluetooth',
-                  'Sau khi Wi-Fi kết nối thành công, nhấn "Ghép nối Bluetooth" để hệ thống tự động đưa thiết bị vào chế độ chờ kết nối.',
-                ),
-                _buildStep(
-                  3,
-                  'Sử dụng hoàn toàn qua Bluetooth',
-                  'Khi Bluetooth SPP đã kết nối, bạn có thể tắt Wi-Fi. Toàn bộ thông số xe, áp suất lốp và điều khiển sẽ truyền trực tiếp qua Bluetooth.',
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: ElevatedButton(
-                    onPressed: widget.onNavigateToBt,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text('Chuyển sang màn hình Bluetooth', style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

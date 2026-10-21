@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ICarMeter Headless Wi-Fi Configuration API Service
-Listens for JSON API requests from the ICarMeter Mobile App over Wi-Fi Hotspot (192.168.4.1:8080)
+Listens for JSON API requests from the ICarMeter Mobile App over Wi-Fi Hotspot (192.169.204.145:8080)
 to read, write, and synchronize /opt/icarmeter/config.toml in real time.
 """
 

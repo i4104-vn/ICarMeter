@@ -14,7 +14,7 @@ class WifiWsService {
   final StreamController<bool> _connectionController =
       StreamController<bool>.broadcast();
 
-  WifiWsService({this.host = '192.168.4.1:8080'});
+  WifiWsService({this.host = '192.169.204.145:8080'});
 
   Stream<Map<String, dynamic>> get messages => _messageController.stream;
   Stream<bool> get connectionState => _connectionController.stream;

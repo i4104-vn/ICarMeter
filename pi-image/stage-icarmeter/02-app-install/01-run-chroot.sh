@@ -109,6 +109,10 @@ wifi.powersave=2
 dhcp=internal
 EOF
 
+# Do not let a dispatcher callback race the hotspot watchdog during radio
+# bring-up or recovery. The hotspot service is the single activation owner.
+rm -f /etc/NetworkManager/dispatcher.d/99-icarmeter-hotspot
+
 # Boot flow: Plymouth -> tty1 autologin -> /etc/profile.d dashboard launcher.
 # Keep getty enabled; it also restarts the dashboard session after a crash.
 systemctl unmask getty@tty1.service 2>/dev/null || true

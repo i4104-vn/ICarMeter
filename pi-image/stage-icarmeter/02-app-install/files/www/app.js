@@ -1,7 +1,7 @@
 /**
  * ICarMeter Companion App - Wi-Fi Architecture
  * Single Source of Truth: All configs are stored on Raspberry Pi.
- * Mobile communicates over Wi-Fi Hotspot (192.168.4.1:8080) to read, sync,
+ * Mobile communicates over Wi-Fi Hotspot (192.169.204.145:8080) to read, sync,
  * and sync TPMS / GPS configurations in real time.
  *
  * Connection reliability: aggressive auto-reconnect with exponential backoff,
@@ -10,7 +10,7 @@
 
 const defaultHost = (typeof window !== 'undefined' && window.location && window.location.host && !window.location.protocol.startsWith('file'))
     ? window.location.host
-    : '192.168.4.1:8080';
+    : '192.169.204.145:8080';
 
 // App State
 const state = {
@@ -388,7 +388,7 @@ function initWifiCompanionUI() {
 function savePiHost() {
     const hostInput = document.getElementById('inputPiHost');
     if (hostInput) {
-        state.piHost = hostInput.value.trim() || '192.168.4.1:8080';
+        state.piHost = hostInput.value.trim() || '192.169.204.145:8080';
         localStorage.setItem('icarmeter_pi_host', state.piHost);
         connMgr.forceReconnect();
     }

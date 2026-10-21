@@ -14,23 +14,33 @@ log_bt() {
 log_bt "Initializing Bluetooth adapter for TPMS sensor scanning..."
 rfkill unblock bluetooth 2>/dev/null || true
 
+# Give the shared onboard radio time to establish the Wi-Fi AP first. If Wi-Fi
+# is unavailable, continue anyway so Bluetooth TPMS/SPP can still work.
+for i in $(seq 1 60); do
+    [ -e /dev/shm/icarmeter_hotspot_active ] && break
+    sleep 1
+done
+
 controller_found=0
-for i in $(seq 1 45); do
+uart_restart_attempted=0
+for i in $(seq 1 60); do
     if /usr/bin/bluetoothctl list 2>/dev/null | grep -q "Controller" || \
        /usr/bin/btmgmt info 2>/dev/null | grep -Eq "hci[0-9]+:"; then
         controller_found=1
         break
     fi
-    # If controller hasn't appeared yet, poke rfkill and hciuart to trigger driver attachment
-    if [ "$i" -eq 4 ] || [ "$i" -eq 12 ] || [ "$i" -eq 25 ]; then
+    # Restart hciuart only once. Repeated resets can keep the shared radio
+    # unavailable while Wi-Fi is also bringing up its access point.
+    if [ "$i" -eq 15 ] && [ "$uart_restart_attempted" -eq 0 ]; then
         rfkill unblock bluetooth 2>/dev/null || true
         systemctl restart hciuart.service 2>/dev/null || true
+        uart_restart_attempted=1
     fi
     sleep 1
 done
 
 if [ "${controller_found}" != "1" ]; then
-    log_bt "Warning: No Bluetooth controller appeared after 45s." >&2
+    log_bt "Warning: No Bluetooth controller appeared after 60s." >&2
     exit 0
 fi
 
@@ -38,11 +48,10 @@ log_bt "Bluetooth controller detected. Powering on..."
 
 # Power on the controller so the raw HCI socket in car_dashboard can capture TPMS LE advertisements
 rfkill unblock bluetooth 2>/dev/null || true
-hciconfig hci0 up 2>/dev/null || true
-if [ -x /usr/bin/btmgmt ]; then
-    /usr/bin/btmgmt power on || true
-fi
-/usr/bin/bluetoothctl power on || true
+for attempt in $(seq 1 5); do
+    /usr/bin/bluetoothctl power on >/dev/null 2>&1 && break
+    sleep 2
+done
 
 # Set system Bluetooth alias and controller name to ICarMeter
 /usr/bin/bluetoothctl system-alias "ICarMeter" 2>/dev/null || true

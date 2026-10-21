@@ -85,8 +85,8 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     });
     _pageController.animateToPage(
       index,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeInOutCubic,
     );
   }
 
@@ -115,10 +115,6 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
           ),
           body: WifiSetupScreen(
             appState: widget.appState,
-            onNavigateToBt: () {
-              Navigator.of(ctx).pop();
-              _openBluetoothModal();
-            },
           ),
         ),
       ),

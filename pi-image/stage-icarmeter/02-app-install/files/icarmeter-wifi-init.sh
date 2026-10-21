@@ -4,14 +4,14 @@
 # Runs as the main process of icarmeter-hotspot.service (Type=simple).
 #
 # This script guarantees the AP hotspot stays alive so the mobile companion
-# app can connect at any time.  Three layers of protection:
-#   Layer 1 — systemd Restart=always (service level)
-#   Layer 2 — This foreground watchdog loop (script level, every 8s)
-#   Layer 3 — NM dispatcher auto-reactivate (event-driven, instant)
+# app can connect at any time. This script owns activation and recovery so
+# NetworkManager callbacks do not issue competing connection-up requests.
 # ==============================================================================
 set -u
 
 CONN_NAME="ICarMeter-Hotspot"
+WIFI_IFACE="wlan0"
+HOTSPOT_IP="192.169.204.145"
 MARKER="/dev/shm/icarmeter_hotspot_active"
 API_PORT=8080
 
@@ -25,8 +25,17 @@ ensure_wifi_unblocked() {
 }
 
 ensure_power_save_off() {
-    iw dev wlan0 set power_save off 2>/dev/null || true
-    iwconfig wlan0 power off        2>/dev/null || true
+    iw dev "$WIFI_IFACE" set power_save off 2>/dev/null || true
+}
+
+wait_for_wifi() {
+    local attempt
+    for attempt in $(seq 1 60); do
+        [ -e "/sys/class/net/$WIFI_IFACE" ] && return 0
+        sleep 1
+    done
+    log "WARNING: $WIFI_IFACE did not appear after 60s."
+    return 1
 }
 
 ensure_iptables_open() {
@@ -55,14 +64,15 @@ ensure_iptables_open() {
 }
 
 activate_hotspot() {
-    local attempt max_retries=5
+    local attempt delay max_retries=8
     for attempt in $(seq 1 $max_retries); do
-        if nmcli connection show --active 2>/dev/null | grep -q "$CONN_NAME"; then
+        if nmcli -t -f NAME connection show --active 2>/dev/null | grep -Fxq "$CONN_NAME"; then
             return 0
         fi
         log "Activating $CONN_NAME (attempt $attempt/$max_retries)..."
-        nmcli connection up "$CONN_NAME" 2>/dev/null && return 0
-        sleep 2
+        nmcli --wait 20 connection up "$CONN_NAME" ifname "$WIFI_IFACE" 2>/dev/null && return 0
+        delay=$((attempt < 5 ? attempt * 2 : 10))
+        sleep "$delay"
     done
     log "WARNING: Failed to activate $CONN_NAME after $max_retries attempts."
     return 1
@@ -72,15 +82,15 @@ activate_hotspot() {
 verify_ip_assigned() {
     local attempt
     for attempt in $(seq 1 5); do
-        if ip addr show wlan0 2>/dev/null | grep -q "192.168.4.1"; then
+        if ip -4 -o addr show dev "$WIFI_IFACE" 2>/dev/null | grep -Fq "$HOTSPOT_IP/24"; then
             return 0
         fi
         sleep 1
     done
-    log "WARNING: wlan0 missing 192.168.4.1 after 5s — forcing hotspot restart..."
-    nmcli connection down "$CONN_NAME" 2>/dev/null || true
+    log "WARNING: wlan0 missing $HOTSPOT_IP/24 after 5s — forcing hotspot restart..."
+    nmcli --wait 10 connection down "$CONN_NAME" 2>/dev/null || true
     sleep 2
-    nmcli connection up "$CONN_NAME"   2>/dev/null || true
+    nmcli --wait 20 connection up "$CONN_NAME" ifname "$WIFI_IFACE" 2>/dev/null || true
 }
 
 # ─── Clean shutdown ──────────────────────────────────────────────────────────
@@ -90,6 +100,7 @@ trap 'rm -f "$MARKER" 2>/dev/null; log "Service stopping."; exit 0' TERM INT
 log "Starting Wi-Fi Hotspot always-on service..."
 
 ensure_wifi_unblocked
+wait_for_wifi || true
 
 # Wait for NetworkManager to become available (up to 30s)
 for _ in $(seq 1 30); do
@@ -120,13 +131,15 @@ log "Hotspot is UP. Entering always-alive watchdog loop..."
 # IMPORTANT: Never call power_save or rfkill repeatedly while hotspot is active,
 # as Broadcom chip resets drop connected clients.
 while true; do
-    sleep 8
+    sleep 5
 
     # Check if hotspot is still active
-    if ! nmcli connection show --active 2>/dev/null | grep -q "$CONN_NAME"; then
+    if ! nmcli -t -f NAME connection show --active 2>/dev/null | grep -Fxq "$CONN_NAME" \
+       || ! ip -4 -o addr show dev "$WIFI_IFACE" 2>/dev/null | grep -Fq "$HOTSPOT_IP/24"; then
         log "Hotspot DOWN detected — re-activating..."
         ensure_wifi_unblocked
         ensure_power_save_off
+        wait_for_wifi || true
         activate_hotspot
         ensure_iptables_open
         verify_ip_assigned

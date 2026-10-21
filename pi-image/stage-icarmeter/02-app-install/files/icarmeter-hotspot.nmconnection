@@ -16,7 +16,7 @@ powersave=2
 hidden=false
 
 [ipv4]
-address1=192.168.4.1/24
+address1=192.169.204.145/24
 method=shared
 dns-priority=-100
 
