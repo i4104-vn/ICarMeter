@@ -44,6 +44,12 @@ if [ -x /usr/bin/btmgmt ]; then
 fi
 /usr/bin/bluetoothctl power on || true
 
+# Set system Bluetooth alias and controller name to ICarMeter
+/usr/bin/bluetoothctl system-alias "ICarMeter" 2>/dev/null || true
+if [ -x /usr/bin/btmgmt ]; then
+    /usr/bin/btmgmt name "ICarMeter" "ICarMeter" 2>/dev/null || true
+fi
+
 # Controller is permanently discoverable and pairable (RFCOMM/SPP)
 # Never times out, channel is always ready for phone connection
 /usr/bin/bluetoothctl discoverable-timeout 0 2>/dev/null || true
@@ -52,6 +58,7 @@ fi
 /usr/bin/bluetoothctl pairable on 2>/dev/null || true
 
 # Register Serial Port Profile (SPP) in BlueZ SDP
+chmod 777 /var/run/sdp 2>/dev/null || true
 sdptool add SP 2>/dev/null || true
 
-log_bt "Controller powered and permanently listening for RFCOMM SPP connections."
+log_bt "Controller powered, named ICarMeter, and permanently listening for RFCOMM SPP connections."

@@ -7,3 +7,5 @@ dnsmasq-base
 wireless-regdb
 iw
 iptables
+python3-dbus
+python3-gi

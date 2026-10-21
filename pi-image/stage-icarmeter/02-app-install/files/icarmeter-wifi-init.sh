@@ -30,6 +30,9 @@ ensure_power_save_off() {
 }
 
 ensure_iptables_open() {
+    # Allow ICMP ping (essential for mobile devices to verify gateway health instantly)
+    iptables -C INPUT -i wlan0 -p icmp -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT -i wlan0 -p icmp -j ACCEPT 2>/dev/null || true
     # Allow port 8080 (API)
     iptables -C INPUT -i wlan0 -p tcp --dport "$API_PORT" -j ACCEPT 2>/dev/null \
         || iptables -I INPUT -i wlan0 -p tcp --dport "$API_PORT" -j ACCEPT 2>/dev/null || true
@@ -114,16 +117,16 @@ log "Hotspot is UP. Entering always-alive watchdog loop..."
 
 # ─── Phase 2: Always-Alive Watchdog Loop ─────────────────────────────────────
 # Runs every 8 seconds in foreground. systemd manages this process lifecycle.
+# IMPORTANT: Never call power_save or rfkill repeatedly while hotspot is active,
+# as Broadcom chip resets drop connected clients.
 while true; do
     sleep 8
-
-    # Re-apply all protections every cycle
-    ensure_wifi_unblocked
-    ensure_power_save_off
 
     # Check if hotspot is still active
     if ! nmcli connection show --active 2>/dev/null | grep -q "$CONN_NAME"; then
         log "Hotspot DOWN detected — re-activating..."
+        ensure_wifi_unblocked
+        ensure_power_save_off
         activate_hotspot
         ensure_iptables_open
         verify_ip_assigned

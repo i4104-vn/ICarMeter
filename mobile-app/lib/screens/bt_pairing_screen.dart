@@ -28,10 +28,12 @@ class _BtPairingScreenState extends State<BtPairingScreen> {
   }
 
   Widget _buildDeviceItem(BtDeviceInfo device, {required bool isPaired}) {
-    final displayName = device.name.trim().isNotEmpty &&
-            device.name.toUpperCase() != device.mac.toUpperCase()
-        ? device.name
-        : 'Thiết bị không tên';
+    final cleanN = device.name.replaceAll(':', '').replaceAll('-', '').trim().toUpperCase();
+    final cleanM = device.mac.replaceAll(':', '').replaceAll('-', '').trim().toUpperCase();
+    final isMacLike = cleanN == cleanM || RegExp(r'^[0-9A-F]{12}$').hasMatch(cleanN);
+    final displayName = device.name.trim().isNotEmpty && !isMacLike
+        ? device.name.trim()
+        : 'Thiết bị Bluetooth (${device.mac.length >= 5 ? device.mac.substring(device.mac.length - 5) : device.mac})';
     final isConnected = widget.appState.isBtConnected &&
         widget.appState.connectedMac.toUpperCase() == device.mac.toUpperCase();
 

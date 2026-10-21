@@ -174,15 +174,24 @@ class AppState extends ChangeNotifier {
       _handleBtStatusMessage(msg);
     } else if (type == 'bt_device_found') {
       final mac = (msg['mac'] as String? ?? '').toUpperCase();
-      final name = msg['name'] as String? ?? mac;
+      final name = (msg['name'] as String? ?? '').trim();
       final rssi = (msg['rssi'] as num?)?.toInt() ?? 0;
       if (mac.isNotEmpty) {
         final existing = _discoveredDevices[mac];
-        final cleanName = (name.isNotEmpty && name != mac)
-            ? name
-            : (existing != null && existing.name.isNotEmpty && existing.name != mac
-                ? existing.name
-                : (name.isNotEmpty ? name : mac));
+        String cleanName;
+        if (!_isMacLikeName(name, mac)) {
+          // If we receive a genuine friendly name, always use it!
+          cleanName = name;
+        } else if (existing != null && !_isMacLikeName(existing.name, mac)) {
+          // Retain already resolved friendly name
+          cleanName = existing.name;
+        } else if (name.isNotEmpty && !_isMacLikeName(name, mac)) {
+          cleanName = name;
+        } else {
+          final shortSuffix = mac.length >= 5 ? mac.substring(mac.length - 5) : mac;
+          cleanName = 'Thiết bị ($shortSuffix)';
+        }
+
         _discoveredDevices[mac] = BtDeviceInfo(
           mac: mac,
           name: cleanName,
@@ -216,13 +225,26 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  bool _isMacLikeName(String? name, String mac) {
+    if (name == null || name.trim().isEmpty) return true;
+    final cleanN = name.replaceAll(':', '').replaceAll('-', '').trim().toUpperCase();
+    final cleanM = mac.replaceAll(':', '').replaceAll('-', '').trim().toUpperCase();
+    if (cleanN == cleanM) return true;
+    if (RegExp(r'^[0-9A-F]{12}$').hasMatch(cleanN)) return true;
+    return false;
+  }
+
   void _handleBtStatusMessage(Map<String, dynamic> msg) {
     final data = (msg['data'] as Map<String, dynamic>?) ?? msg;
     final paired = (data['paired_devices'] as List<dynamic>?) ?? [];
     _pairedDevices = paired.map((item) {
       final m = Map<String, dynamic>.from(item as Map);
       final mac = (m['mac'] as String? ?? '').toUpperCase();
-      final name = m['name'] as String? ?? mac;
+      final rawName = (m['name'] as String? ?? '').trim();
+      final shortSuffix = mac.length >= 5 ? mac.substring(mac.length - 5) : mac;
+      final name = !_isMacLikeName(rawName, mac)
+          ? rawName
+          : 'Thiết bị Bluetooth ($shortSuffix)';
       return BtDeviceInfo(mac: mac, name: name, isBonded: true);
     }).toList();
     _addLog('[BT] Đã nhận danh sách ${_pairedDevices.length} thiết bị ghép nối');

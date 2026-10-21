@@ -263,9 +263,10 @@ def bt_broadcast(msg_dict):
         print(f"[BT] Broadcast error: {e}", file=sys.stderr)
 
 def ensure_bt_always_ready():
-    """Keeps Bluetooth adapter powered, discoverable, and pairable at all times."""
+    """Keeps Bluetooth adapter powered, named ICarMeter, discoverable, and pairable at all times."""
     try:
         subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=2)
+        subprocess.run(["bluetoothctl", "system-alias", "ICarMeter"], capture_output=True, timeout=2)
         subprocess.run(["bluetoothctl", "discoverable-timeout", "0"], capture_output=True, timeout=2)
         subprocess.run(["bluetoothctl", "pairable-timeout", "0"], capture_output=True, timeout=2)
         subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=2)
@@ -305,6 +306,7 @@ _rfcomm_listening = False
 _bt_discovery_active = False
 _bt_discovery_lock = threading.Lock()
 _bt_discovered_devices = {}
+_scan_process = None
 _last_pin_timestamp = 0.0
 
 def pin_monitor_worker():
@@ -337,8 +339,94 @@ def pin_monitor_worker():
             pass
         time.sleep(0.5)
 
+def is_generic_mac_name(name, mac):
+    """Checks if name is empty, identical to MAC, or a MAC-like address (e.g. 74-D2-1D-A3-BB-CC)."""
+    if not name or not str(name).strip():
+        return True
+    clean_n = str(name).strip().replace(":", "").replace("-", "").upper()
+    clean_m = str(mac).strip().replace(":", "").replace("-", "").upper()
+    if clean_n == clean_m:
+        return True
+    if re.match(r"^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$", str(name).strip()):
+        return True
+    return False
+
+def get_dbus_device_info(mac):
+    """Directly queries org.bluez.Device1 over SystemBus for resolved Name, Alias, and RSSI."""
+    try:
+        import dbus
+        bus = dbus.SystemBus()
+        manager = dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.ObjectManager")
+        objects = manager.GetManagedObjects()
+        suffix = "dev_" + mac.replace(":", "_").upper()
+        for path, interfaces in objects.items():
+            if path.upper().endswith(suffix) and "org.bluez.Device1" in interfaces:
+                props = interfaces["org.bluez.Device1"]
+                name = str(props.get("Name", "")).strip()
+                alias = str(props.get("Alias", "")).strip()
+                rssi = int(props.get("RSSI", 0))
+                return name, alias, rssi
+    except Exception:
+        pass
+    return None, None, 0
+
+def get_bluetoothctl_device_info(mac):
+    """Queries bluetoothctl info for Name, Alias, and RSSI."""
+    try:
+        res = subprocess.run(["bluetoothctl", "info", mac], capture_output=True, text=True, timeout=2)
+        if res.returncode == 0 and res.stdout:
+            name = ""
+            alias = ""
+            rssi = 0
+            for line in res.stdout.splitlines():
+                line = line.strip()
+                m_name = re.match(r"^Name:\s*(.+)$", line)
+                if m_name:
+                    name = m_name.group(1).strip()
+                m_alias = re.match(r"^Alias:\s*(.+)$", line)
+                if m_alias:
+                    alias = m_alias.group(1).strip()
+                m_rssi = re.match(r"^RSSI:\s*([-\d]+)", line)
+                if m_rssi:
+                    try:
+                        rssi = int(m_rssi.group(1))
+                    except ValueError:
+                        pass
+            return name, alias, rssi
+    except Exception:
+        pass
+    return None, None, 0
+
+def resolve_device_name(mac, initial_name=""):
+    """
+    Attempts to resolve the real user-facing device name (Name or Alias)
+    instead of leaving it as an unhelpful MAC address string.
+    """
+    # 1. Check if initial_name is already a good real name
+    if initial_name and not is_generic_mac_name(initial_name, mac):
+        return initial_name.strip()
+
+    # 2. Try D-Bus query
+    db_name, db_alias, _ = get_dbus_device_info(mac)
+    if db_name and not is_generic_mac_name(db_name, mac):
+        return db_name
+    if db_alias and not is_generic_mac_name(db_alias, mac):
+        return db_alias
+
+    # 3. Try bluetoothctl info
+    ctl_name, ctl_alias, _ = get_bluetoothctl_device_info(mac)
+    if ctl_name and not is_generic_mac_name(ctl_name, mac):
+        return ctl_name
+    if ctl_alias and not is_generic_mac_name(ctl_alias, mac):
+        return ctl_alias
+
+    # 4. Fallback: if we only had initial_name
+    if initial_name and str(initial_name).strip():
+        return str(initial_name).strip()
+    return f"Thiết bị Bluetooth ({mac[-5:]})"
+
 def get_bluetooth_status():
-    """Query Bluetooth adapter status and paired devices list."""
+    """Query Bluetooth adapter status and paired devices list with resolved names."""
     adapter_avail = os.path.exists("/sys/class/bluetooth/hci0")
     paired = []
     try:
@@ -348,7 +436,8 @@ def get_bluetooth_status():
                 m = re.match(r"^Device\s+([0-9A-Fa-f:]{17})\s*(.*)$", line.strip())
                 if m:
                     mac = m.group(1).upper()
-                    name = m.group(2).strip() or mac
+                    raw_name = m.group(2).strip()
+                    name = resolve_device_name(mac, raw_name)
                     paired.append({"mac": mac, "name": name})
             adapter_avail = True
     except Exception as e:
@@ -361,66 +450,167 @@ def get_bluetooth_status():
     }
 
 def _bt_discovery_worker():
-    global _bt_discovery_active
-    log_bt("BT", "Starting Bluetooth scan & discovery...")
+    global _bt_discovery_active, _scan_process
+    log_bt("BT", "Starting comprehensive Bluetooth discovery across Classic BR/EDR and BLE...")
 
-    # Check if a controller is available, attempt recovery if missing
-    controller_ready = False
+    # Ensure controller is unblocked, powered, and named ICarMeter
     try:
-        check = subprocess.run(["bluetoothctl", "list"], capture_output=True, text=True, timeout=3)
-        if "Controller" in (check.stdout or ""):
-            controller_ready = True
-        else:
-            subprocess.run(["rfkill", "unblock", "bluetooth"], capture_output=True, timeout=2)
-            subprocess.run(["systemctl", "restart", "hciuart.service"], capture_output=True, timeout=5)
-            time.sleep(1)
-            check2 = subprocess.run(["bluetoothctl", "list"], capture_output=True, text=True, timeout=3)
-            if "Controller" in (check2.stdout or ""):
-                controller_ready = True
+        subprocess.run(["rfkill", "unblock", "bluetooth"], capture_output=True, timeout=2)
+        subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=2)
+        subprocess.run(["bluetoothctl", "system-alias", "ICarMeter"], capture_output=True, timeout=2)
     except Exception:
         pass
 
-    if not controller_ready:
-        log_bt("BT", "Warning: No Bluetooth controller available (check hardware / miniuart-bt overlay)")
-
+    # Start a persistent interactive bluetoothctl session
+    # A persistent session guarantees BlueZ discovery NEVER stops unexpectedly
+    p = None
     try:
-        run_bluetoothctl(["discoverable", "on"], timeout=3)
-        run_bluetoothctl(["scan", "on"], timeout=3)
-    except Exception:
-        pass
+        p = subprocess.Popen(
+            ["bluetoothctl"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        _scan_process = p
+        # Configure discovery filter for all transports (Classic + LE) and start continuous scan
+        init_cmds = (
+            "menu scan\n"
+            "clear\n"
+            "transport auto\n"
+            "duplicate-data on\n"
+            "back\n"
+            "discoverable on\n"
+            "scan on\n"
+        )
+        p.stdin.write(init_cmds)
+        p.stdin.flush()
+    except Exception as e:
+        log_bt("BT", f"Failed to start interactive bluetoothctl scan: {e}")
 
-    fail_count = 0
+    # Reader thread for real-time [NEW] and [CHG] discovery events from bluetoothctl stdout
+    def live_event_reader(proc):
+        while _bt_discovery_active and proc and proc.poll() is None:
+            try:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                line_str = line.strip()
+                # Match [NEW] or [CHG] Device MAC [Name/details]
+                m_dev = re.search(r"\[(NEW|CHG)\]\s+Device\s+([0-9A-Fa-f:]{17})\s*(.*)", line_str)
+                if m_dev:
+                    mac = m_dev.group(2).upper()
+                    detail = m_dev.group(3).strip()
+
+                    name_candidate = ""
+                    if detail.startswith("Name:"):
+                        name_candidate = detail.replace("Name:", "").strip()
+                    elif detail.startswith("Alias:"):
+                        name_candidate = detail.replace("Alias:", "").strip()
+                    elif not detail.startswith("RSSI:") and not detail.startswith("Connected:") and not detail.startswith("TxPower:") and not detail.startswith("ManufacturerData"):
+                        name_candidate = detail
+
+                    # Resolve real friendly name
+                    real_name = resolve_device_name(mac, name_candidate)
+
+                    with _bt_discovery_lock:
+                        prev = _bt_discovered_devices.get(mac)
+                        if prev != real_name:
+                            _bt_discovered_devices[mac] = real_name
+                            log_bt("BT-Discovery", f"Found device: {real_name} ({mac})")
+                            ws_broadcast({
+                                "type": "bt_device_found",
+                                "mac": mac,
+                                "name": real_name,
+                                "rssi": 0
+                            })
+                            bt_broadcast({
+                                "type": "bt_device_found",
+                                "mac": mac,
+                                "name": real_name,
+                                "rssi": 0
+                            })
+            except Exception:
+                pass
+
+    if p:
+        reader_t = threading.Thread(target=live_event_reader, args=(p,), daemon=True)
+        reader_t.start()
+
+    # Background cycle: periodically sweep devices list and resolve names for cached devices
     while _bt_discovery_active:
         try:
-            res = run_bluetoothctl(["devices"], timeout=4)
-            out = (res.stdout or "") + " " + (res.stderr or "")
-            if res.returncode == 0 and "No default controller available" not in out:
-                fail_count = 0
+            # 1. Sweep devices via bluetoothctl
+            res = subprocess.run(["bluetoothctl", "devices"], capture_output=True, text=True, timeout=3)
+            if res.returncode == 0 and res.stdout:
                 for line in res.stdout.strip().splitlines():
                     m = re.match(r"^Device\s+([0-9A-Fa-f:]{17})\s*(.*)$", line.strip())
                     if m:
                         mac = m.group(1).upper()
-                        name = m.group(2).strip() or mac
+                        raw_name = m.group(2).strip()
+                        real_name = resolve_device_name(mac, raw_name)
                         with _bt_discovery_lock:
-                            previous_name = _bt_discovered_devices.get(mac)
-                            # BlueZ may report the address before the advertising name.
-                            # Broadcast again when a useful name appears or changes.
-                            if previous_name != name:
-                                _bt_discovered_devices[mac] = name
-                                log_bt("BT-Discovery", f"Found device: {name} ({mac})")
+                            prev = _bt_discovered_devices.get(mac)
+                            if prev != real_name:
+                                _bt_discovered_devices[mac] = real_name
+                                log_bt("BT-Discovery", f"Discovered device: {real_name} ({mac})")
                                 ws_broadcast({
                                     "type": "bt_device_found",
                                     "mac": mac,
-                                    "name": name,
+                                    "name": real_name,
                                     "rssi": 0
                                 })
-            else:
-                fail_count += 1
-                if fail_count >= 5:
-                    time.sleep(4)
+                                bt_broadcast({
+                                    "type": "bt_device_found",
+                                    "mac": mac,
+                                    "name": real_name,
+                                    "rssi": 0
+                                })
+
+            # 2. Check any devices that still have generic MAC names and resolve them
+            with _bt_discovery_lock:
+                devices_to_resolve = [
+                    (m, n) for m, n in _bt_discovered_devices.items()
+                    if is_generic_mac_name(n, m)
+                ]
+            for mac, _ in devices_to_resolve:
+                if not _bt_discovery_active:
+                    break
+                fresh_name = resolve_device_name(mac)
+                if not is_generic_mac_name(fresh_name, mac):
+                    with _bt_discovery_lock:
+                        _bt_discovered_devices[mac] = fresh_name
+                    log_bt("BT-Discovery", f"Resolved device name: {fresh_name} ({mac})")
+                    ws_broadcast({
+                        "type": "bt_device_found",
+                        "mac": mac,
+                        "name": fresh_name,
+                        "rssi": 0
+                    })
+                    bt_broadcast({
+                        "type": "bt_device_found",
+                        "mac": mac,
+                        "name": fresh_name,
+                        "rssi": 0
+                    })
         except Exception:
             pass
-        time.sleep(2)
+        time.sleep(2.5)
+
+    # Clean shutdown of interactive session
+    if p:
+        try:
+            p.stdin.write("scan off\nquit\n")
+            p.stdin.flush()
+            p.terminate()
+            p.wait(timeout=2)
+        except Exception:
+            try:
+                p.kill()
+            except Exception:
+                pass
+        _scan_process = None
 
 def start_bluetooth_discovery():
     global _bt_discovery_active, _bt_discovered_devices
@@ -433,13 +623,21 @@ def start_bluetooth_discovery():
         t.start()
 
 def stop_bluetooth_discovery():
-    global _bt_discovery_active
+    global _bt_discovery_active, _scan_process
     with _bt_discovery_lock:
         _bt_discovery_active = False
     log_bt("BT", "Stopping Bluetooth scan...")
+    if _scan_process:
+        try:
+            _scan_process.stdin.write("scan off\nquit\n")
+            _scan_process.stdin.flush()
+            _scan_process.terminate()
+        except Exception:
+            pass
+        _scan_process = None
     try:
-        run_bluetoothctl(["scan", "off"], timeout=3)
-        run_bluetoothctl(["discoverable", "on"], timeout=3)
+        subprocess.run(["bluetoothctl", "scan", "off"], capture_output=True, timeout=2)
+        subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=2)
     except Exception:
         pass
 
@@ -452,8 +650,15 @@ def pair_bluetooth_device(mac):
             except Exception:
                 pass
 
+        # Make sure controller is discoverable and pairable
+        subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=2)
+        subprocess.run(["bluetoothctl", "pairable", "on"], capture_output=True, timeout=2)
+
+        # Pre-trust device
         run_bluetoothctl(["trust", mac], timeout=5)
-        res = run_bluetoothctl(["pair", mac], timeout=30)
+
+        # Pair with 25s timeout
+        res = run_bluetoothctl(["pair", mac], timeout=25)
 
         if os.path.exists(PIN_MARKER):
             try:
@@ -461,8 +666,12 @@ def pair_bluetooth_device(mac):
             except Exception:
                 pass
         ws_broadcast({"type": "bt_pin_code", "pin": ""})
+        bt_broadcast({"type": "bt_pin_code", "pin": ""})
 
-        if res.returncode == 0 or "successful" in res.stdout.lower():
+        out_lower = ((res.stdout or "") + " " + (res.stderr or "")).lower()
+        if res.returncode == 0 or "successful" in out_lower or "already paired" in out_lower:
+            # Re-ensure trusted
+            run_bluetoothctl(["trust", mac], timeout=3)
             log_bt("BT-Pair", f"Pairing with {mac} SUCCESSFUL")
             return True, "Paired successfully"
         err_msg = res.stderr.strip() or res.stdout.strip() or "Pairing failed"
@@ -470,10 +679,12 @@ def pair_bluetooth_device(mac):
         return False, err_msg
     except subprocess.TimeoutExpired:
         ws_broadcast({"type": "bt_pin_code", "pin": ""})
+        bt_broadcast({"type": "bt_pin_code", "pin": ""})
         log_bt("BT-Pair", f"Pairing with {mac} TIMED OUT")
         return False, "Pairing timed out"
     except Exception as e:
         ws_broadcast({"type": "bt_pin_code", "pin": ""})
+        bt_broadcast({"type": "bt_pin_code", "pin": ""})
         log_bt("BT-Pair", f"Pairing with {mac} ERROR: {e}")
         return False, str(e)
 

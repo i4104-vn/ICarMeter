@@ -30,13 +30,39 @@ PairableTimeout = 0
 AlwaysPairable = true
 AutoEnable = true
 ControllerMode = dual
+JustWorksRepairing = always
 
 [Policy]
 AutoEnable = true
 EOF
 
+# BlueZ Compat Mode Drop-in: enables SDP server socket for SPP profile and grants permissions
+BT_DAEMON="/usr/libexec/bluetooth/bluetoothd"
+if [ ! -f "$BT_DAEMON" ] && [ -f "/usr/lib/bluetooth/bluetoothd" ]; then
+    BT_DAEMON="/usr/lib/bluetooth/bluetoothd"
+fi
+mkdir -p /etc/systemd/system/bluetooth.service.d
+cat << EOF > /etc/systemd/system/bluetooth.service.d/icarmeter-compat.conf
+[Service]
+ExecStart=
+ExecStart=${BT_DAEMON} --compat
+ExecStartPost=-/bin/chmod 777 /var/run/sdp
+EOF
+
 # Set system machine-info pretty hostname
 echo 'PRETTY_HOSTNAME="ICarMeter"' > /etc/machine-info
+
+# Hardware Wi-Fi stability: disable power saving and roaming in Broadcom driver
+mkdir -p /etc/modprobe.d
+cat << 'EOF' > /etc/modprobe.d/brcmfmac.conf
+options brcmfmac roamoff=1 feature_disable=0x82000
+EOF
+
+# Udev rule: immediately turn off power management on wlan interfaces
+mkdir -p /etc/udev/rules.d
+cat << 'EOF' > /etc/udev/rules.d/80-wifi-powersave.rules
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan*", RUN+="/sbin/iw dev %k set power_save off"
+EOF
 
 # Ensure scripts and NetworkManager hotspot connection have proper permissions
 chmod 755 /opt/icarmeter/icarmeter-bt-init.sh 2>/dev/null || true
@@ -68,17 +94,18 @@ systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
 systemctl disable dnsmasq.service 2>/dev/null || true
 systemctl mask dnsmasq.service 2>/dev/null || true
 
-# Configure NetworkManager: disable background wifi scanning (it can
-# momentarily take wlan0 out of AP mode) and lock wlan0 to AP-only.
+# Configure NetworkManager: disable background wifi scanning and force powersave off
 mkdir -p /etc/NetworkManager/conf.d
 cat << 'EOF' > /etc/NetworkManager/conf.d/10-icarmeter-hotspot.conf
 [device]
 # Prevent NM from auto-scanning for station-mode wifi networks on wlan0.
-# wlan0 is dedicated to the ICarMeter AP hotspot.
 wifi.scan-rand-mac-address=no
 
+[connection]
+wifi.powersave=2
+
 [main]
-# Use internal DHCP client (not dhclient) for reliability
+# Use internal DHCP client for reliability
 dhcp=internal
 EOF
 
