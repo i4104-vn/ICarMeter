@@ -203,6 +203,26 @@ jobs:
       - name: Install cross-compilation linker
         run: |
           sudo dpkg --add-architecture arm64
+
+          # Ubuntu's arm64 packages are published on ports.ubuntu.com. Keep
+          # the runner's default archive sources on amd64 to avoid 404s for
+          # arm64 indexes on archive.ubuntu.com/security.ubuntu.com.
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+            if [ -f "$source" ]; then
+              sudo sed -i -E '/ubuntu\.com/ { /^[[:space:]]*deb(-src)?[[:space:]]/ s/^([[:space:]]*deb(-src)?[[:space:]]+)/\1[arch=amd64] /; }' "$source"
+            fi
+          done
+          for source in /etc/apt/sources.list.d/*.sources; do
+            if [ -f "$source" ] && grep -Eq '^URIs:.*ubuntu\.com' "$source"; then
+              sudo sed -i -E '/^Architectures:/d; /^Types:/a Architectures: amd64' "$source"
+            fi
+          done
+          sudo tee /etc/apt/sources.list.d/arm64-ports.list >/dev/null <<'EOF'
+          deb [arch=arm64] https://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
+          deb [arch=arm64] https://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
+          deb [arch=arm64] https://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse
+          deb [arch=arm64] https://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse
+          EOF
           sudo apt-get update
           sudo apt-get install -y \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config \
