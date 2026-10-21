@@ -1,80 +1,147 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../models/telemetry.dart';
 import '../models/config.dart';
 import '../models/trip.dart';
 import '../models/bluetooth_device.dart';
-import 'storage_service.dart';
-import 'native_bridge.dart';
-import 'wifi_ws_service.dart';
+import 'storage/storage_service.dart';
+import 'platform/native_bridge.dart';
+import 'network/wifi_ws_service.dart';
+import 'network/incoming_message_dispatcher.dart';
+import 'bluetooth/bt_log_service.dart';
+import 'bluetooth/bluetooth_coordinator.dart';
+import 'trips/trip_tracker.dart';
 
+/// Central state coordinator for the companion app.
+///
+/// Composes modular sub-services for storage, networking, Bluetooth coordination,
+/// trip tracking, and logging, exposing a unified reactive interface for UI widgets.
 class AppState extends ChangeNotifier {
+  /// Local persistence service for settings and historical trips.
   final StorageService storage;
+
+  /// Fallback WebSocket service for Wi-Fi hotspot communication.
   final WifiWsService wifiWs = WifiWsService();
 
-  // Connection
-  bool _isBtConnected = false;
-  bool _isBtConnecting = false;
-  String _connectedMac = '';
-  String _connectedName = '';
+  /// Logging service capturing Bluetooth daemon and connection events.
+  late final BtLogService logService;
+
+  /// Tracking service for calculating trip distance, speed, and idle timeouts.
+  late final TripTracker tripTracker;
+
+  /// Coordinator managing Bluetooth SPP connection lifecycle and device discovery.
+  late final BluetoothCoordinator btCoordinator;
+
+  late final IncomingMessageDispatcher _dispatcher;
+
   bool _isWifiConnected = false;
-
-  // Bluetooth Scanning & Pairing
-  bool _isDiscovering = false;
-  final Map<String, BtDeviceInfo> _discoveredDevices = {};
-  List<BtDeviceInfo> _pairedDevices = [];
-
-  // Pairing PIN
-  String? _pendingPinCode;
-  String? _pendingPinDeviceMac;
-  String? _pendingPinDeviceName;
-
-  // Data
   CarTelemetry _telemetry = const CarTelemetry();
   PiConfig _config = const PiConfig();
-  final List<String> _btLogs = [];
 
-  // Trips
-  List<TripRecord> _trips = [];
-  TripRecord? _activeTrip;
-  Timer? _tripIdleTimer;
-
-  // Auto reconnect
-  Timer? _reconnectTimer;
   StreamSubscription? _btEventSub;
   StreamSubscription? _locEventSub;
   StreamSubscription? _wifiEventSub;
   StreamSubscription? _wsMsgSub;
   StreamSubscription? _wsConnSub;
 
+  /// Creates an [AppState] coordinator backed by the provided [storage].
   AppState(this.storage) {
+    logService = BtLogService()..addListener(notifyListeners);
+    tripTracker = TripTracker(storage)..addListener(notifyListeners);
+    btCoordinator = BluetoothCoordinator(
+      storage: storage,
+      wifiWs: wifiWs,
+      logService: logService,
+    )..addListener(notifyListeners);
+
+    _dispatcher = IncomingMessageDispatcher(
+      onTpms: (tpms) {
+        _telemetry = _telemetry.copyWith(tpms: tpms);
+        notifyListeners();
+      },
+      onTelemetry: (t) {
+        _telemetry = t;
+        tripTracker.updateSpeed(_telemetry.speed);
+        notifyListeners();
+      },
+      onConfig: (cfg) {
+        _config = cfg;
+        storage.setFlId(cfg.flSensorId);
+        storage.setFrId(cfg.frSensorId);
+        storage.setRlId(cfg.rlSensorId);
+        storage.setRrId(cfg.rrSensorId);
+        storage.setAlertPressure(cfg.pressureAlert);
+        storage.setAlertTemp(cfg.highTempAlert);
+        notifyListeners();
+      },
+      onBtStatus: btCoordinator.handleBtStatusMessage,
+      onBtDeviceFound: btCoordinator.handleDeviceFound,
+      onBtPairResult: (msg) {
+        final mac = msg['mac'] as String? ?? '';
+        final success = msg['success'] as bool? ?? false;
+        final message = msg['message'] as String? ?? '';
+        logService.addLog('[BT-PAIR] Ghép nối với $mac: ${success ? "Thành công" : "Thất bại ($message)"}');
+        btCoordinator.loadPairedDevices();
+      },
+      onBtLogs: logService.addLogs,
+      onBtLogEntry: (line) => logService.addLog('[HUB-LOG] $line'),
+      onLog: logService.addLog,
+    );
+
     _init();
   }
 
-  bool get isBtConnected => _isBtConnected;
-  bool get isBtConnecting => _isBtConnecting;
-  String get connectedMac => _connectedMac;
-  String get connectedName => _connectedName;
+  // --- Getters ---
+
+  /// Indicates whether the RFCOMM Bluetooth SPP connection is actively open.
+  bool get isBtConnected => btCoordinator.isConnected;
+
+  /// Indicates whether a Bluetooth connection attempt is currently in progress.
+  bool get isBtConnecting => btCoordinator.isConnecting;
+
+  /// The MAC address of the connected vehicle Bluetooth peer.
+  String get connectedMac => btCoordinator.connectedMac;
+
+  /// The friendly name of the connected vehicle Bluetooth peer.
+  String get connectedName => btCoordinator.connectedName;
+
+  /// Indicates whether the local Wi-Fi hotspot connection is active.
   bool get isWifiConnected => _isWifiConnected;
 
-  bool get isDiscovering => _isDiscovering;
-  List<BtDeviceInfo> get discoveredDevices => _discoveredDevices.values.toList();
-  List<BtDeviceInfo> get pairedDevices => _pairedDevices;
+  /// Indicates whether Bluetooth device discovery scanning is currently running.
+  bool get isDiscovering => btCoordinator.isDiscovering;
 
-  String? get pendingPinCode => _pendingPinCode;
-  String? get pendingPinDeviceMac => _pendingPinDeviceMac;
-  String? get pendingPinDeviceName => _pendingPinDeviceName;
+  /// List of newly discovered nearby Bluetooth devices.
+  List<BtDeviceInfo> get discoveredDevices => btCoordinator.discoveredDevices;
 
+  /// List of devices currently paired and bonded with the vehicle hub.
+  List<BtDeviceInfo> get pairedDevices => btCoordinator.pairedDevices;
+
+  /// The generated PIN code awaiting user confirmation, or `null`.
+  String? get pendingPinCode => btCoordinator.pendingPinCode;
+
+  /// The MAC address of the device requesting PIN confirmation, or `null`.
+  String? get pendingPinDeviceMac => btCoordinator.pendingPinDeviceMac;
+
+  /// The name of the device requesting PIN confirmation, or `null`.
+  String? get pendingPinDeviceName => btCoordinator.pendingPinDeviceName;
+
+  /// The current vehicle telemetry including speed, RPM, and TPMS data.
   CarTelemetry get telemetry => _telemetry;
-  PiConfig get config => _config;
-  List<String> get btLogs => List.unmodifiable(_btLogs);
 
-  List<TripRecord> get trips => List.unmodifiable(_trips);
-  TripRecord? get activeTrip => _activeTrip;
+  /// The active sensor ID and threshold alert configuration.
+  PiConfig get config => _config;
+
+  /// An unmodifiable view of all recorded Bluetooth daemon logs.
+  List<String> get btLogs => logService.logs;
+
+  /// An unmodifiable view of all completed trip journeys.
+  List<TripRecord> get trips => tripTracker.trips;
+
+  /// The currently active in-progress trip, or `null` if the vehicle is idle.
+  TripRecord? get activeTrip => tripTracker.activeTrip;
 
   void _init() async {
-    _trips = storage.getTrips();
     _config = PiConfig(
       flSensorId: storage.flId,
       frSensorId: storage.frId,
@@ -85,10 +152,13 @@ class AppState extends ChangeNotifier {
       gpsEnabled: storage.gpsForeground,
     );
 
-    // Setup native event listeners
+    // Setup native bridge event listeners
     _btEventSub = NativeBridge.btEvents.listen(_handleBtEvent);
     _locEventSub = NativeBridge.locationEvents.listen(_handleLocationEvent);
-    _wifiEventSub = NativeBridge.wifiEvents.listen(_handleWifiState);
+    _wifiEventSub = NativeBridge.wifiEvents.listen((e) {
+      _isWifiConnected = e['connected'] as bool? ?? false;
+      notifyListeners();
+    });
 
     // Setup Wi-Fi WS listeners
     _wsMsgSub = wifiWs.messages.listen(_handleWsMessage);
@@ -97,20 +167,17 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     });
 
-    // Start background services if enabled
     if (storage.gpsForeground) {
       await NativeBridge.startForegroundService();
       await NativeBridge.startGps(rateHz: 2);
     }
 
-    await loadPairedDevices();
+    await btCoordinator.loadPairedDevices();
 
-    // Auto connect to saved device MAC if present
     if (storage.autoReconnect && storage.piMac.isNotEmpty) {
-      connectToPi(storage.piMac);
+      btCoordinator.connectToPi(storage.piMac);
     }
 
-    // Connect to Wi-Fi fallback WebSocket
     wifiWs.connect();
   }
 
@@ -119,29 +186,15 @@ class AppState extends ChangeNotifier {
     switch (type) {
       case 'connection':
         final connected = event['connected'] as bool? ?? false;
-        _isBtConnected = connected;
-        _isBtConnecting = false;
-        if (connected) {
-          _connectedMac = event['mac'] as String? ?? '';
-          _connectedName = event['name'] as String? ?? 'Thiết bị trên xe';
-          _addLog('[BT-SPP] Đã kết nối với $_connectedName ($_connectedMac)');
-          // Request configuration over Bluetooth SPP
-          sendBtCommand({'type': 'get_config'});
-          sendBtCommand({'type': 'get_bt_logs'});
-        } else {
-          _addLog('[BT-SPP] Đã ngắt kết nối Bluetooth SPP');
-          _connectedMac = '';
-          _connectedName = '';
-          _scheduleAutoReconnect();
-        }
-        notifyListeners();
+        final mac = event['mac'] as String? ?? '';
+        final name = event['name'] as String? ?? '';
+        btCoordinator.handleBtConnectionEvent(connected, mac, name);
         break;
 
       case 'message':
         final raw = event['message'] as String? ?? '';
-        _processIncomingMessage(raw, 'BT');
+        _dispatcher.process(raw, 'BT');
         break;
-
     }
   }
 
@@ -149,263 +202,98 @@ class AppState extends ChangeNotifier {
     final speedMs = (loc['speed'] as num?)?.toDouble() ?? 0.0;
     final speedKmh = (speedMs * 3.6).clamp(0.0, 300.0);
 
-    // If OBD telemetry is not streaming speed, use GPS speed
-    if (_telemetry.speed == 0.0 || !_isBtConnected) {
+    if (_telemetry.speed == 0.0 || !isBtConnected) {
       _telemetry = _telemetry.copyWith(speed: speedKmh);
-      _updateTripTracking(speedKmh);
+      tripTracker.updateSpeed(speedKmh);
       notifyListeners();
     }
-  }
-
-  void _handleWifiState(Map<String, dynamic> event) {
-    _isWifiConnected = event['connected'] as bool? ?? false;
-    notifyListeners();
   }
 
   void _handleWsMessage(Map<String, dynamic> msg) {
     final type = msg['type'] as String?;
-    if (type == 'bt_pin_code') {
-      _pendingPinCode = msg['pin'] as String? ?? '';
-      _pendingPinDeviceMac = msg['mac'] as String? ?? '';
-      _pendingPinDeviceName = msg['name'] as String? ?? '';
-      _addLog('[WS-PAIR] Yêu cầu mã xác nhận ghép nối PIN: $_pendingPinCode');
-      notifyListeners();
-    } else if (type == 'bt_status' || msg.containsKey('paired_devices')) {
-      _handleBtStatusMessage(msg);
-    } else if (type == 'bt_device_found') {
-      final mac = (msg['mac'] as String? ?? '').toUpperCase();
-      final name = (msg['name'] as String? ?? '').trim();
-      final rssi = (msg['rssi'] as num?)?.toInt() ?? 0;
-      if (mac.isNotEmpty) {
-        final existing = _discoveredDevices[mac];
-        String cleanName;
-        if (!_isMacLikeName(name, mac)) {
-          // If we receive a genuine friendly name, always use it!
-          cleanName = name;
-        } else if (existing != null && !_isMacLikeName(existing.name, mac)) {
-          // Retain already resolved friendly name
-          cleanName = existing.name;
-        } else if (name.isNotEmpty && !_isMacLikeName(name, mac)) {
-          cleanName = name;
-        } else {
-          final shortSuffix = mac.length >= 5 ? mac.substring(mac.length - 5) : mac;
-          cleanName = 'Thiết bị ($shortSuffix)';
-        }
-
-        _discoveredDevices[mac] = BtDeviceInfo(
-          mac: mac,
-          name: cleanName,
-          rssi: rssi,
-          isBonded: _pairedDevices.any((d) => d.mac.toUpperCase() == mac),
+    switch (type) {
+      case 'bt_pin_code':
+        btCoordinator.handlePinRequest(
+          msg['pin'] as String? ?? '',
+          msg['mac'] as String? ?? '',
+          msg['name'] as String? ?? '',
         );
-        notifyListeners();
-      }
-    } else if (type == 'bt_discovery_started') {
-      _isDiscovering = true;
-      notifyListeners();
-    } else if (type == 'bt_discovery_stopped') {
-      _isDiscovering = false;
-      notifyListeners();
-    } else if (type == 'bt_pair_result') {
-      final mac = msg['mac'] as String? ?? '';
-      final success = msg['success'] as bool? ?? false;
-      final message = msg['message'] as String? ?? '';
-      _addLog('[BT-PAIR] Ghép nối với $mac: ${success ? "Thành công" : "Thất bại ($message)"}');
-      loadPiBluetoothStatus();
-      notifyListeners();
-    } else if (type == 'bt_logs' && msg['logs'] is List) {
-      final logs = List<String>.from(msg['logs'] as List);
-      for (final l in logs) {
-        _addLog('[HUB-LOG] $l');
-      }
-      notifyListeners();
-    } else if (type == 'bt_log_entry' && msg['line'] != null) {
-      _addLog('[HUB-LOG] ${msg['line']}');
-      notifyListeners();
-    }
-  }
-
-  bool _isMacLikeName(String? name, String mac) {
-    if (name == null || name.trim().isEmpty) return true;
-    final cleanN = name.replaceAll(':', '').replaceAll('-', '').trim().toUpperCase();
-    final cleanM = mac.replaceAll(':', '').replaceAll('-', '').trim().toUpperCase();
-    if (cleanN == cleanM) return true;
-    if (RegExp(r'^[0-9A-F]{12}$').hasMatch(cleanN)) return true;
-    return false;
-  }
-
-  void _handleBtStatusMessage(Map<String, dynamic> msg) {
-    final data = (msg['data'] as Map<String, dynamic>?) ?? msg;
-    final paired = (data['paired_devices'] as List<dynamic>?) ?? [];
-    _pairedDevices = paired.map((item) {
-      final m = Map<String, dynamic>.from(item as Map);
-      final mac = (m['mac'] as String? ?? '').toUpperCase();
-      final rawName = (m['name'] as String? ?? '').trim();
-      final shortSuffix = mac.length >= 5 ? mac.substring(mac.length - 5) : mac;
-      final name = !_isMacLikeName(rawName, mac)
-          ? rawName
-          : 'Thiết bị Bluetooth ($shortSuffix)';
-      return BtDeviceInfo(mac: mac, name: name, isBonded: true);
-    }).toList();
-    _addLog('[BT] Đã nhận danh sách ${_pairedDevices.length} thiết bị ghép nối');
-    notifyListeners();
-  }
-
-  void _processIncomingMessage(String rawJson, String source) {
-    try {
-      final map = jsonDecode(rawJson) as Map<String, dynamic>;
-      final type = map['type'] as String?;
-
-      if (type == 'telemetry' || map.containsKey('speed') || map.containsKey('rpm')) {
-        _telemetry = CarTelemetry.fromJson(map);
-        _updateTripTracking(_telemetry.speed);
-        notifyListeners();
-      } else if (source == 'WS' && (type == 'bt_status' || map.containsKey('paired_devices'))) {
-        _handleBtStatusMessage(map);
-      } else if (source == 'WS' && type == 'bt_device_found') {
-        _handleWsMessage(map);
-      } else if (type == 'bt_pair_result') {
-        _handleWsMessage(map);
-      } else if (type == 'config' || map.containsKey('fl')) {
-        _config = PiConfig.fromJson(map);
-        storage.setFlId(_config.flSensorId);
-        storage.setFrId(_config.frSensorId);
-        storage.setRlId(_config.rlSensorId);
-        storage.setRrId(_config.rrSensorId);
-        storage.setAlertPressure(_config.pressureAlert);
-        storage.setAlertTemp(_config.highTempAlert);
-        notifyListeners();
-      } else if (type == 'bt_logs' && map['logs'] is List) {
-        final logs = List<String>.from(map['logs'] as List);
-        for (final l in logs) {
-          _addLog('[HUB-LOG] $l');
+        break;
+      case 'bt_status':
+        btCoordinator.handleBtStatusMessage(msg);
+        break;
+      case 'bt_device_found':
+        btCoordinator.handleDeviceFound(msg);
+        break;
+      case 'bt_discovery_started':
+        btCoordinator.setDiscoveryState(true);
+        break;
+      case 'bt_discovery_stopped':
+        btCoordinator.setDiscoveryState(false);
+        break;
+      case 'bt_pair_result':
+        final mac = msg['mac'] as String? ?? '';
+        final success = msg['success'] as bool? ?? false;
+        final message = msg['message'] as String? ?? '';
+        logService.addLog('[BT-PAIR] Ghép nối với $mac: ${success ? "Thành công" : "Thất bại ($message)"}');
+        btCoordinator.loadPairedDevices();
+        break;
+      case 'bt_logs':
+        if (msg['logs'] is List) {
+          logService.addLogs(List<String>.from(msg['logs'] as List));
         }
-        notifyListeners();
-      } else if (type == 'bt_log_entry' && map['line'] != null) {
-        _addLog('[HUB-LOG] ${map['line']}');
-        notifyListeners();
-      } else {
-        _addLog('[$source] $rawJson');
-      }
-    } catch (_) {
-      _addLog('[$source] $rawJson');
+        break;
+      case 'bt_log_entry':
+        if (msg['line'] != null) {
+          logService.addLog('[HUB-LOG] ${msg['line']}');
+        }
+        break;
+      default:
+        if (msg.containsKey('paired_devices')) {
+          btCoordinator.handleBtStatusMessage(msg);
+        }
+        break;
     }
   }
 
-  void _addLog(String line) {
-    final time = DateTime.now().toIso8601String().substring(11, 19);
-    _btLogs.add('[$time] $line');
-    if (_btLogs.length > 500) {
-      _btLogs.removeAt(0);
-    }
-  }
+  // --- Bluetooth Actions ---
 
-  void clearLogs() {
-    _btLogs.clear();
-    notifyListeners();
-  }
+  /// Requests the hub daemon to return the latest list of paired Bluetooth devices.
+  Future<void> loadPairedDevices() => btCoordinator.loadPairedDevices();
 
-  void dismissPinDialog() {
-    _pendingPinCode = null;
-    _pendingPinDeviceMac = null;
-    _pendingPinDeviceName = null;
-    notifyListeners();
-  }
+  /// Starts scanning for nearby Bluetooth devices.
+  Future<void> startDiscovery() => btCoordinator.startDiscovery();
 
-  // --- Bluetooth Actions (Pi Hub Orchestrated) ---
+  /// Stops scanning for nearby Bluetooth devices.
+  Future<void> stopDiscovery() => btCoordinator.stopDiscovery();
 
-  Future<void> loadPairedDevices() async {
-    await loadPiBluetoothStatus();
-  }
+  /// Initiates a Bluetooth pairing request with the target [mac].
+  Future<void> pairDevice(String mac) => btCoordinator.pairDevice(mac);
 
-  Future<void> loadPiBluetoothStatus() async {
-    final cmd = {'type': 'get_bt_status'};
-    if (_isBtConnected) {
-      sendBtCommand(cmd);
-    }
-    wifiWs.send(cmd);
-  }
+  /// Unpairs and removes the bond with the target [mac].
+  Future<void> unpairDevice(String mac) => btCoordinator.unpairDevice(mac);
 
-  Future<void> startDiscovery() async {
-    _discoveredDevices.clear();
-    _isDiscovering = true;
-    notifyListeners();
-    _addLog('[BT] Bắt đầu quét thiết bị Bluetooth...');
-    final cmd = {'type': 'bt_start_discovery'};
-    if (_isBtConnected) sendBtCommand(cmd);
-    wifiWs.send(cmd);
-  }
+  /// Connects to the Raspberry Pi Bluetooth SPP service using [mac].
+  Future<void> connectToPi(String mac) => btCoordinator.connectToPi(mac);
 
-  Future<void> stopDiscovery() async {
-    final cmd = {'type': 'bt_stop_discovery'};
-    if (_isBtConnected) sendBtCommand(cmd);
-    wifiWs.send(cmd);
-    _isDiscovering = false;
-    notifyListeners();
-    _addLog('[BT] Dừng quét thiết bị Bluetooth');
-  }
+  /// Disconnects the active Bluetooth SPP connection with the vehicle.
+  void disconnectPi() => btCoordinator.disconnectPi();
 
-  Future<void> pairDevice(String mac) async {
-    _addLog('[BT] Yêu cầu ghép nối thiết bị: $mac');
-    final cmd = {'type': 'bt_pair', 'mac': mac};
-    if (_isBtConnected) sendBtCommand(cmd);
-    wifiWs.send(cmd);
-  }
+  /// Transmits a JSON [cmd] across the active Bluetooth SPP socket.
+  bool sendBtCommand(Map<String, dynamic> cmd) => btCoordinator.sendBtCommand(cmd);
 
-  Future<void> unpairDevice(String mac) async {
-    _addLog('[BT] Yêu cầu hủy ghép nối thiết bị: $mac');
-    final cmd = {'type': 'bt_unpair', 'mac': mac};
-    if (_isBtConnected) sendBtCommand(cmd);
-    wifiWs.send(cmd);
-    await loadPiBluetoothStatus();
-  }
+  /// Requests fresh TPMS configuration and telemetry readings over Bluetooth.
+  void syncTpmsFromPi() => btCoordinator.syncTpms();
 
-  Future<void> connectToPi(String mac) async {
-    if (mac.isEmpty) return;
-    _reconnectTimer?.cancel();
-    _isBtConnecting = true;
-    notifyListeners();
+  /// Dismisses the pairing PIN confirmation overlay dialog.
+  void dismissPinDialog() => btCoordinator.dismissPinDialog();
 
-    _addLog('[BT-SPP] Đang kết nối tới $mac...');
-    storage.setPiMac(mac);
+  /// Empties the in-memory Bluetooth daemon log buffer.
+  void clearLogs() => logService.clear();
 
-    final ok = await NativeBridge.connectBtSpp(mac);
-    if (!ok) {
-      _isBtConnecting = false;
-      _scheduleAutoReconnect();
-      notifyListeners();
-    }
-  }
+  // --- Config Actions ---
 
-  void disconnectPi() {
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
-    NativeBridge.disconnectBtSpp();
-    _isBtConnected = false;
-    _isBtConnecting = false;
-    _connectedMac = '';
-    _connectedName = '';
-    notifyListeners();
-  }
-
-  bool sendBtCommand(Map<String, dynamic> cmd) {
-    if (!_isBtConnected) return false;
-    final jsonStr = jsonEncode(cmd);
-    return NativeBridge.btSend(jsonStr) as dynamic ?? false;
-  }
-
-  void _scheduleAutoReconnect() {
-    if (!storage.autoReconnect || storage.piMac.isEmpty) return;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 5), () {
-      if (!_isBtConnected && !_isBtConnecting && storage.piMac.isNotEmpty) {
-        connectToPi(storage.piMac);
-      }
-    });
-  }
-
-  // --- Configuration ---
-
+  /// Persists [newCfg] locally and transmits the update over Bluetooth SPP.
   Future<void> saveConfig(PiConfig newCfg) async {
     _config = newCfg;
     await storage.setFlId(newCfg.flSensorId);
@@ -415,8 +303,7 @@ class AppState extends ChangeNotifier {
     await storage.setAlertPressure(newCfg.pressureAlert);
     await storage.setAlertTemp(newCfg.highTempAlert);
 
-    // ONLY send configuration over Bluetooth SPP as per user requirements!
-    if (_isBtConnected) {
+    if (isBtConnected) {
       sendBtCommand({
         'type': 'set_config',
         'payload': {
@@ -434,70 +321,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // --- Trip Tracking ---
+  // --- Trip Actions ---
 
-  void _updateTripTracking(double speedKmh) {
-    if (speedKmh > 5.0) {
-      _tripIdleTimer?.cancel();
-      _tripIdleTimer = null;
+  /// Finishes the active trip, writes it to storage, and resets active tracking.
+  void finishActiveTrip() => tripTracker.finishActiveTrip();
 
-      if (_activeTrip == null) {
-        _activeTrip = TripRecord(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          startTime: DateTime.now(),
-        );
-      } else {
-        final now = DateTime.now();
-        final durationSec = now.difference(_activeTrip!.startTime).inSeconds;
-        final maxSpeed = speedKmh > _activeTrip!.maxSpeedKmh ? speedKmh : _activeTrip!.maxSpeedKmh;
-        // Approximate distance: speed * time (1 sec)
-        final distanceDelta = (speedKmh / 3600.0);
-        final newDistance = _activeTrip!.distanceKm + distanceDelta;
-        final avgSpeed = durationSec > 0 ? (newDistance / (durationSec / 3600.0)) : speedKmh;
+  /// Clears all stored trips and resets historical records.
+  void clearTrips() => tripTracker.clearTrips();
 
-        _activeTrip = _activeTrip!.copyWith(
-          durationSeconds: durationSec,
-          distanceKm: newDistance,
-          maxSpeedKmh: maxSpeed,
-          avgSpeedKmh: avgSpeed,
-        );
-      }
-    } else if (_activeTrip != null) {
-      // Stopped
-      _tripIdleTimer ??= Timer(const Duration(minutes: 3), () {
-        finishActiveTrip();
-      });
-    }
-  }
-
-  void finishActiveTrip() {
-    if (_activeTrip == null) return;
-    final finished = _activeTrip!.copyWith(endTime: DateTime.now());
-    if (finished.distanceKm > 0.1) {
-      _trips.insert(0, finished);
-      storage.saveTrips(_trips);
-    }
-    _activeTrip = null;
-    _tripIdleTimer?.cancel();
-    _tripIdleTimer = null;
-    notifyListeners();
-  }
-
-  void clearTrips() {
-    _trips.clear();
-    storage.saveTrips([]);
-    notifyListeners();
-  }
-
+  /// Releases subscriptions, timers, and sub-services.
   @override
   void dispose() {
-    _reconnectTimer?.cancel();
-    _tripIdleTimer?.cancel();
     _btEventSub?.cancel();
     _locEventSub?.cancel();
     _wifiEventSub?.cancel();
     _wsMsgSub?.cancel();
     _wsConnSub?.cancel();
+    btCoordinator.dispose();
+    tripTracker.dispose();
     wifiWs.dispose();
     super.dispose();
   }
