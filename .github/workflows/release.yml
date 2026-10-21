@@ -246,7 +246,6 @@ jobs:
         run: |
           mkdir -p dist_bin
           cp target/aarch64-unknown-linux-gnu/release/car_dashboard dist_bin/
-          cp config.toml dist_bin/
           ls -lah dist_bin/
 
       - name: Upload compiled binary artifact
@@ -290,7 +289,6 @@ jobs:
         run: |
           mkdir -p pi-image/stage-icarmeter/02-app-install/files
           find bin_artifact -type f -name "car_dashboard" -exec cp -v {} pi-image/stage-icarmeter/02-app-install/files/car_dashboard \;
-          find bin_artifact -type f -name "config.toml" -exec cp -v {} pi-image/stage-icarmeter/02-app-install/files/config.toml \;
           chmod +x pi-image/stage-icarmeter/02-app-install/files/car_dashboard
           ls -lah pi-image/stage-icarmeter/02-app-install/files/
 
