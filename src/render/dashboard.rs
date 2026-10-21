@@ -1,7 +1,7 @@
 // Main Dashboard UI Renderer orchestrating panels and converting to pixel buffer
 
 use super::components::{
-    CarPanel, CardContainer, FooterRenderer, MapPanel, SpeedometerPanel, StatsPanel,
+    BtLogPanel, CarPanel, CardContainer, FooterRenderer, MapPanel, SpeedometerPanel, StatsPanel,
 };
 use super::core::FontRenderer;
 use super::pixel_buffer::PixelBuffer;
@@ -18,6 +18,7 @@ pub struct DashboardRenderer {
     car_panel: CarPanel,
     map_panel: MapPanel,
     speed_panel: SpeedometerPanel,
+    bt_log_panel: BtLogPanel,
     stats_panel: StatsPanel,
     footer_panel: FooterRenderer,
     startup_elapsed: f32,
@@ -31,6 +32,7 @@ impl DashboardRenderer {
         let car_panel = CarPanel::new();
         let map_panel = MapPanel::new();
         let speed_panel = SpeedometerPanel::new();
+        let bt_log_panel = BtLogPanel::new();
         let stats_panel = StatsPanel::new();
         let footer_panel = FooterRenderer::new();
 
@@ -41,6 +43,7 @@ impl DashboardRenderer {
             car_panel,
             map_panel,
             speed_panel,
+            bt_log_panel,
             stats_panel,
             footer_panel,
             startup_elapsed: 0.0,
@@ -58,9 +61,14 @@ impl DashboardRenderer {
             self.map_panel.draw(&mut self.pixmap, &self.fonts, state);
         }
 
-        // 3. Render Center Panel (Speedometer or animated expression companion)
-        self.speed_panel
-            .draw(&mut self.pixmap, &self.fonts, state, dt, state.current_emo);
+        // 3. Render Center Panel (Speedometer / Emo Companion OR Bluetooth Log Viewer)
+        if state.show_bt_log {
+            self.bt_log_panel
+                .draw(&mut self.pixmap, &self.fonts, state, dt);
+        } else {
+            self.speed_panel
+                .draw(&mut self.pixmap, &self.fonts, state, dt, state.current_emo);
+        }
 
         // 4. Render Right Panel (Trip Statistics)
         self.stats_panel.draw(&mut self.pixmap, &self.fonts, state);

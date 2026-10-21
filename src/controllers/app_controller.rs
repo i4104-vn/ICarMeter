@@ -77,6 +77,12 @@ impl AppController {
                         "[Display] Mode switched manually: TPMS enabled = {}",
                         state.tpms_enabled
                     );
+                } else if key.eq_ignore_ascii_case(&b'b') {
+                    state.show_bt_log = !state.show_bt_log;
+                    eprintln!(
+                        "[Display] Bluetooth log view toggled: show_bt_log = {}",
+                        state.show_bt_log
+                    );
                 }
             }
             if !backend.is_open() {

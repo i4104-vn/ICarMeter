@@ -3,6 +3,7 @@
 use super::decoder::{decode_tpms_pressure, decode_tpms_temperature, matches_sensor_id};
 use super::hci_socket::{EVT_LE_ADVERTISING_REPORT, EVT_LE_META_EVENT, HCI_EVENT_PKT, HciSocket};
 use crate::configs::app::BleTpmsConfig;
+use crate::services::telemetry::bt_log::log_bt;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -37,19 +38,20 @@ pub fn run_ble_scanner_loop(
         let socket = match HciSocket::open(&adapter) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!(
-                    "[TPMS-BLE] Could not open raw Bluetooth socket on {}: {} (retrying in 5s)",
+                let err_msg = format!(
+                    "Could not open raw Bluetooth socket on {}: {} (retrying in 5s)",
                     adapter, e
                 );
+                eprintln!("[TPMS-BLE] {}", err_msg);
+                log_bt("TPMS-BLE", &err_msg);
                 thread::sleep(Duration::from_secs(5));
                 continue;
             }
         };
 
-        eprintln!(
-            "[TPMS-BLE] Bluetooth LE scanner actively listening on {}...",
-            adapter
-        );
+        let ready_msg = format!("Bluetooth LE scanner actively listening on {}...", adapter);
+        eprintln!("[TPMS-BLE] {}", ready_msg);
+        log_bt("TPMS-BLE", &ready_msg);
 
         let mut read_buf = [0u8; 1024];
 
@@ -130,10 +132,12 @@ pub fn run_ble_scanner_loop(
 
                     // Discovery notification for unmatched sensors (helps user find their sensor MACs)
                     if !matched && discovered_sensors.insert(mac_str.clone()) {
-                        eprintln!(
-                            "[TPMS-BLE] Discovered sensor MAC: {} (Pressure: {:.1} bar, Temp: {:.0}°C)",
+                        let disc_msg = format!(
+                            "Discovered sensor MAC: {} (Pressure: {:.1} bar, Temp: {:.0}°C)",
                             mac_str, pressure, temp
                         );
+                        eprintln!("[TPMS-BLE] {}", disc_msg);
+                        log_bt("TPMS-BLE", &disc_msg);
                     }
                 }
 

@@ -1,5 +1,6 @@
 // Telemetry service coordinator for GPS and Bluetooth sensors
 
+pub mod bt_log;
 mod connection;
 pub mod gps;
 pub mod tpms;
@@ -7,12 +8,14 @@ pub mod tpms;
 use crate::configs::AppConfig;
 use crate::models::VehicleState;
 
+pub use bt_log::{BtLogReader, log_bt, read_recent_bt_logs};
 pub use gps::GpsReceiver;
 pub use tpms::BleTpmsReceiver;
 
 pub struct TelemetryService {
     gps: Option<GpsReceiver>,
     sensors: Option<BleTpmsReceiver>,
+    bt_log_reader: BtLogReader,
 }
 
 const PHONE_TELEMETRY_MARKER: &str = "/dev/shm/icarmeter_phone_telemetry";
@@ -76,7 +79,11 @@ impl TelemetryService {
             None
         };
 
-        Self { gps, sensors }
+        Self {
+            gps,
+            sensors,
+            bt_log_reader: BtLogReader::new(),
+        }
     }
 
     pub fn reload_config(&mut self, config: &AppConfig) {
@@ -144,6 +151,11 @@ impl TelemetryService {
         connection::update_connection_state(state);
         if let Some(ref mut sensors) = self.sensors {
             sensors.poll(state);
+        }
+
+        // Poll Bluetooth logs when view is enabled
+        if state.show_bt_log {
+            state.bt_logs = self.bt_log_reader.poll(30).to_vec();
         }
     }
 }

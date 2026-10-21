@@ -4,13 +4,22 @@
 # ==============================================================================
 set -u
 
+BT_LOG_FILE="/var/log/icarmeter-bluetooth.log"
+BT_LOG_FALLBACK="/dev/shm/icarmeter-bluetooth.log"
+
+# Clear old logs on each system boot / service initialization
+: > "${BT_LOG_FILE}" 2>/dev/null || true
+: > "${BT_LOG_FALLBACK}" 2>/dev/null || true
+chmod 666 "${BT_LOG_FILE}" "${BT_LOG_FALLBACK}" 2>/dev/null || true
+
 log_bt() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [Bluetooth-Init] $1"
     echo "${msg}"
-    echo "${msg}" >> /var/log/icarmeter-bluetooth.log 2>/dev/null || true
+    echo "${msg}" >> "${BT_LOG_FILE}" 2>/dev/null || echo "${msg}" >> "${BT_LOG_FALLBACK}" 2>/dev/null || true
 }
 
-log_bt "Initializing Bluetooth adapter for TPMS sensor scanning..."
+log_bt "System start: Bluetooth subsystem initializing..."
+log_bt "Initializing Bluetooth adapter for TPMS sensor scanning and SPP..."
 rfkill unblock bluetooth 2>/dev/null || true
 
 controller_found=0
