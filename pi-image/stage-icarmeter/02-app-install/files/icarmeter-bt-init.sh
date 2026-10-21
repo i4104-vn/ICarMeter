@@ -46,7 +46,7 @@ fi
 
 log_bt "Bluetooth controller detected. Powering on..."
 
-# Power on the controller so the raw HCI socket in car_dashboard can capture TPMS LE advertisements
+# Power on the controller so the raw HCI socket in icarmeter can capture TPMS LE advertisements
 rfkill unblock bluetooth 2>/dev/null || true
 for attempt in $(seq 1 5); do
     /usr/bin/bluetoothctl power on >/dev/null 2>&1 && break

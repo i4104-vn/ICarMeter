@@ -1,5 +1,5 @@
 [package]
-name = "car_dashboard"
+name = "icarmeter"
 # CI replaces this bootstrap value with the version selected for each build.
 version = "0.0.0"
 edition = "2024"

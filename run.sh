@@ -33,7 +33,7 @@ fi
 echo -e "${YELLOW}[1/2] Đang biên dịch release...${NC}"
 cargo build --release
 
-BIN_PATH="$SCRIPT_DIR/target/release/car_dashboard"
+BIN_PATH="$SCRIPT_DIR/target/release/icarmeter"
 if [[ ! -f "$BIN_PATH" ]]; then
     echo -e "\033[0;31mKhông tìm thấy file thực thi: $BIN_PATH\033[0m"
     exit 1

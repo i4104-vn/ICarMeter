@@ -268,19 +268,19 @@ jobs:
 
       - name: Verify compiled binary
         run: |
-          ls -lah target/aarch64-unknown-linux-gnu/release/car_dashboard
-          file target/aarch64-unknown-linux-gnu/release/car_dashboard
+          ls -lah target/aarch64-unknown-linux-gnu/release/icarmeter
+          file target/aarch64-unknown-linux-gnu/release/icarmeter
 
       - name: Stage binary artifact
         run: |
           mkdir -p dist_bin
-          cp target/aarch64-unknown-linux-gnu/release/car_dashboard dist_bin/
+          cp target/aarch64-unknown-linux-gnu/release/icarmeter dist_bin/
           ls -lah dist_bin/
 
       - name: Upload compiled binary artifact
         uses: actions/upload-artifact@v6
         with:
-          name: car_dashboard-bin
+          name: icarmeter-bin
           path: dist_bin/
           retention-days: 7
 
@@ -311,14 +311,14 @@ jobs:
       - name: Download compiled binary artifact
         uses: actions/download-artifact@v6
         with:
-          name: car_dashboard-bin
+          name: icarmeter-bin
           path: bin_artifact/
 
       - name: Inject binary into stage-icarmeter files
         run: |
           mkdir -p pi-image/stage-icarmeter/02-app-install/files
-          find bin_artifact -type f -name "car_dashboard" -exec cp -v {} pi-image/stage-icarmeter/02-app-install/files/car_dashboard \;
-          chmod +x pi-image/stage-icarmeter/02-app-install/files/car_dashboard
+          find bin_artifact -type f -name "icarmeter" -exec cp -v {} pi-image/stage-icarmeter/02-app-install/files/icarmeter \;
+          chmod +x pi-image/stage-icarmeter/02-app-install/files/icarmeter
           ls -lah pi-image/stage-icarmeter/02-app-install/files/
 
       - name: Setup QEMU and binfmt

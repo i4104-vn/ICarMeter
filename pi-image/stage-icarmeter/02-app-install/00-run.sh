@@ -72,12 +72,12 @@ database.close()
 PY
 install -m 644 "${MAP_TEMP_DIR}/vietnam.mbtiles" "${APP_DIR}/maps/vietnam.mbtiles"
 
-if [ -f files/car_dashboard ]; then
-    echo "Found pre-compiled car_dashboard binary. Installing into rootfs..."
-    install -m 755 files/car_dashboard "${APP_DIR}/car_dashboard"
+if [ -f files/icarmeter ]; then
+    echo "Found pre-compiled icarmeter binary. Installing into rootfs..."
+    install -m 755 files/icarmeter "${APP_DIR}/icarmeter"
 else
-    echo "ERROR: Pre-compiled binary 'files/car_dashboard' not found!" >&2
+    echo "ERROR: Pre-compiled binary 'files/icarmeter' not found!" >&2
     echo "Please build the Rust binary first (e.g. via cargo build --release --target aarch64-unknown-linux-gnu)" >&2
-    echo "and place it at 'stage-icarmeter/02-app-install/files/car_dashboard' before building the OS image." >&2
+    echo "and place it at 'stage-icarmeter/02-app-install/files/icarmeter' before building the OS image." >&2
     exit 1
 fi
