@@ -1,16 +1,13 @@
-import 'dart:async';
 import 'package:flutter/services.dart';
 
-/// Platform channel bridge to Android/iOS native layer for Bluetooth SPP, Wi-Fi binding, and GPS service.
+/// Platform channel bridge to the native Bluetooth SPP and GPS services.
 class NativeBridge {
   static const MethodChannel _channel = MethodChannel('com.icarmeter.companion/bridge');
   static const EventChannel _btEventChannel = EventChannel('com.icarmeter.companion/bt_events');
   static const EventChannel _locationEventChannel = EventChannel('com.icarmeter.companion/location_events');
-  static const EventChannel _wifiEventChannel = EventChannel('com.icarmeter.companion/wifi_events');
 
   static Stream<Map<String, dynamic>>? _btEventStream;
   static Stream<Map<String, dynamic>>? _locationEventStream;
-  static Stream<Map<String, dynamic>>? _wifiEventStream;
 
   /// Broadcast stream of Bluetooth connection events, state changes, and received raw messages.
   static Stream<Map<String, dynamic>> get btEvents {
@@ -26,14 +23,6 @@ class NativeBridge {
         .receiveBroadcastStream()
         .map((event) => Map<String, dynamic>.from(event as Map));
     return _locationEventStream!;
-  }
-
-  /// Broadcast stream of system Wi-Fi connectivity and hotspot status changes.
-  static Stream<Map<String, dynamic>> get wifiEvents {
-    _wifiEventStream ??= _wifiEventChannel
-        .receiveBroadcastStream()
-        .map((event) => Map<String, dynamic>.from(event as Map));
-    return _wifiEventStream!;
   }
 
   /// Connects to a target Bluetooth device with [mac] address via RFCOMM / SPP.
@@ -81,30 +70,23 @@ class NativeBridge {
     }
   }
 
-  /// Instructs Android OS to route app network traffic through the vehicle's Wi-Fi hotspot.
-  static Future<bool> bindToCarWifi() async {
-    StreamSubscription<Map<String, dynamic>>? subscription;
+  /// Starts the native Bluetooth discovery scan.
+  static Future<bool> startBtDiscovery() async {
     try {
-      final connected = Completer<bool>();
-      subscription = wifiEvents.listen((event) {
-        if (event['connected'] as bool? == true && !connected.isCompleted) {
-          connected.complete(true);
-        }
-      });
-
-      final accepted = await _channel.invokeMethod<bool>('bindToCarWifi');
-      if (accepted != true) return false;
-
-      // The native call only registers the request. Wait until Android has
-      // actually selected and bound the Wi-Fi network before opening WS.
-      return await connected.future.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => false,
-      );
+      final ok = await _channel.invokeMethod<bool>('startBtDiscovery');
+      return ok ?? false;
     } catch (_) {
       return false;
-    } finally {
-      await subscription?.cancel();
+    }
+  }
+
+  /// Stops the native Bluetooth discovery scan.
+  static Future<bool> stopBtDiscovery() async {
+    try {
+      final ok = await _channel.invokeMethod<bool>('stopBtDiscovery');
+      return ok ?? false;
+    } catch (_) {
+      return false;
     }
   }
 

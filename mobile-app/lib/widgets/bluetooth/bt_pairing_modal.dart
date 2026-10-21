@@ -4,24 +4,22 @@ import '../../services/app_state.dart';
 import 'bt_devices_tab.dart';
 import 'bt_logs_tab.dart';
 
-void showBluetoothModal(BuildContext context, AppState appState, {VoidCallback? onOpenWifi}) {
+void showBluetoothModal(BuildContext context, AppState appState) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (ctx) => BtPairingModal(appState: appState, onOpenWifi: onOpenWifi),
+    builder: (ctx) => BtPairingModal(appState: appState),
   );
 }
 
 /// Modal bottom sheet for Bluetooth management: connections and live diagnostic logs.
 class BtPairingModal extends StatefulWidget {
   final AppState appState;
-  final VoidCallback? onOpenWifi;
 
   const BtPairingModal({
     super.key,
     required this.appState,
-    this.onOpenWifi,
   });
 
   @override
@@ -34,7 +32,7 @@ class _BtPairingModalState extends State<BtPairingModal> {
   @override
   void initState() {
     super.initState();
-    if (widget.appState.isWifiConnected) {
+    if (widget.appState.isBtConnected) {
       widget.appState.loadPairedDevices();
       _requestBluetoothLogs();
     }
@@ -45,7 +43,6 @@ class _BtPairingModalState extends State<BtPairingModal> {
     if (widget.appState.isBtConnected) {
       widget.appState.sendBtCommand(cmd);
     }
-    widget.appState.wifiWs.send(cmd);
   }
 
   @override
@@ -99,19 +96,6 @@ class _BtPairingModalState extends State<BtPairingModal> {
                             ),
                           ],
                         ),
-                        if (widget.onOpenWifi != null)
-                          TextButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).pop();
-                              widget.onOpenWifi!();
-                            },
-                            icon: const Icon(Icons.wifi, size: 16),
-                            label: const Text('Wi-Fi Xe', style: TextStyle(fontSize: 12)),
-                            style: TextButton.styleFrom(
-                              foregroundColor: AppColors.secondary,
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            ),
-                          ),
                       ],
                     ),
                     const SizedBox(height: 12),

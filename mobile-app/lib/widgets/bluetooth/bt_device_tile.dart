@@ -62,11 +62,8 @@ class BtDeviceTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           onTap: () {
             if (isConnected || isConnectingThis) return;
-            if (isPaired) {
-              appState.connectToPi(device.mac);
-            } else {
-              appState.pairDevice(device.mac);
-            }
+            // RFCOMM connection also triggers the normal Bluetooth bond flow.
+            appState.connectToPi(device.mac);
           },
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -164,7 +161,7 @@ class BtDeviceTile extends StatelessWidget {
                       child: const Text('Kết nối', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                     ),
                   (false, false, false) => ElevatedButton(
-                      onPressed: () => appState.pairDevice(device.mac),
+                      onPressed: () => appState.connectToPi(device.mac),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.secondary,
                         foregroundColor: Colors.white,
@@ -172,7 +169,7 @@ class BtDeviceTile extends StatelessWidget {
                         minimumSize: const Size(0, 36),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
-                      child: const Text('Ghép nối', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      child: const Text('Kết nối', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                     ),
                 },
               ],

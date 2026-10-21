@@ -4,7 +4,7 @@ import '../../models/bluetooth_device.dart';
 import '../../services/app_state.dart';
 import 'bt_device_tile.dart';
 
-/// Tab displaying connected status, paired devices, and wireless discovery scanner.
+/// Tab displaying connected status, paired devices, and Bluetooth discovery.
 class BtDevicesTab extends StatelessWidget {
   final AppState state;
 
@@ -92,8 +92,7 @@ class BtDevicesTab extends StatelessWidget {
                   ),
                 ],
               ),
-              if (state.isWifiConnected)
-                IconButton(
+              IconButton(
                   onPressed: () => state.matchWithPi(),
                   icon: const Icon(Icons.sync, size: 20, color: AppColors.secondary),
                   tooltip: 'Khớp nối lại với xe',

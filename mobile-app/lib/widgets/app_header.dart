@@ -1,18 +1,17 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
+
 import '../services/app_state.dart';
+import '../theme/app_theme.dart';
 
 class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   final AppState appState;
   final VoidCallback? onOpenBluetooth;
-  final VoidCallback? onOpenWifi;
   final VoidCallback? onOpenSettings;
 
   const AppHeader({
     super.key,
     required this.appState,
     this.onOpenBluetooth,
-    this.onOpenWifi,
     this.onOpenSettings,
   });
 
@@ -21,6 +20,9 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final connected = appState.isBtConnected;
+    final connecting = appState.isBtConnecting;
+
     return Container(
       padding: EdgeInsets.only(
         top: MediaQuery.of(context).padding.top + 8,
@@ -30,9 +32,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
       ),
       decoration: const BoxDecoration(
         color: AppColors.background,
-        border: Border(
-          bottom: BorderSide(color: AppColors.border, width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -74,20 +74,18 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                         ),
                       ),
                       Text(
-                        appState.isBtConnected
+                        connected
                             ? (appState.connectedName.isNotEmpty
                                 ? appState.connectedName
-                                : 'Đã kết nối Bluetooth')
-                            : (appState.isBtConnecting
-                                ? 'Đang kết nối...'
-                                : 'Chưa kết nối'),
+                                : 'Bluetooth connected')
+                            : (connecting ? 'Connecting...' : 'Not connected'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11,
-                          color: appState.isBtConnected
+                          color: connected
                               ? AppColors.success
-                              : (appState.isBtConnecting ? AppColors.primary : AppColors.textMuted),
+                              : (connecting ? AppColors.primary : AppColors.textMuted),
                         ),
                       ),
                     ],
@@ -100,69 +98,29 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Wi-Fi Status Badge
-              InkWell(
-                onTap: onOpenWifi,
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: appState.isWifiConnected
-                        ? AppColors.info.withOpacity(0.15)
-                        : AppColors.surface,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: appState.isWifiConnected
-                          ? AppColors.info.withOpacity(0.6)
-                          : AppColors.border,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.wifi,
-                        size: 14,
-                        color: appState.isWifiConnected ? AppColors.info : AppColors.textMuted,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        appState.isWifiConnected ? 'Wi-Fi' : 'Offline',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: appState.isWifiConnected ? AppColors.info : AppColors.textMuted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-
-              // Bluetooth Status Badge
               InkWell(
                 onTap: onOpenBluetooth,
                 borderRadius: BorderRadius.circular(20),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: appState.isBtConnected
+                    color: connected
                         ? AppColors.success.withOpacity(0.15)
-                        : (appState.isBtConnecting
+                        : (connecting
                             ? AppColors.primary.withOpacity(0.15)
                             : AppColors.surface),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: appState.isBtConnected
+                      color: connected
                           ? AppColors.success.withOpacity(0.6)
-                          : (appState.isBtConnecting
+                          : (connecting
                               ? AppColors.primary.withOpacity(0.6)
                               : AppColors.border),
                     ),
                   ),
                   child: Row(
                     children: [
-                      if (appState.isBtConnecting)
+                      if (connecting)
                         const SizedBox(
                           width: 12,
                           height: 12,
@@ -175,21 +133,17 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                         Icon(
                           Icons.bluetooth,
                           size: 14,
-                          color: appState.isBtConnected
-                              ? AppColors.success
-                              : AppColors.textMuted,
+                          color: connected ? AppColors.success : AppColors.textMuted,
                         ),
                       const SizedBox(width: 4),
                       Text(
-                        appState.isBtConnected ? 'BT SPP' : 'Chưa nối',
+                        connected ? 'BT SPP' : 'Bluetooth',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: appState.isBtConnected
+                          color: connected
                               ? AppColors.success
-                              : (appState.isBtConnecting
-                                  ? AppColors.primary
-                                  : AppColors.textMuted),
+                              : (connecting ? AppColors.primary : AppColors.textMuted),
                         ),
                       ),
                     ],
@@ -197,8 +151,6 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
                 ),
               ),
               const SizedBox(width: 8),
-
-              // Settings Icon Button
               InkWell(
                 onTap: onOpenSettings,
                 borderRadius: BorderRadius.circular(20),

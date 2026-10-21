@@ -4,16 +4,12 @@ import 'package:flutter/foundation.dart';
 import '../../models/bluetooth_device.dart';
 import '../storage/storage_service.dart';
 import '../platform/native_bridge.dart';
-import '../network/wifi_ws_service.dart';
 import 'bt_log_service.dart';
 
 /// Coordinator for Bluetooth state, discovery, pairing, and SPP socket communications.
 class BluetoothCoordinator extends ChangeNotifier {
   /// Local persistence service for caching device MAC and reconnect settings.
   final StorageService storage;
-
-  /// Fallback WebSocket service for communicating with the Pi over Wi-Fi.
-  final WifiWsService wifiWs;
 
   /// Logging service for capturing Bluetooth daemon events.
   final BtLogService logService;
@@ -40,7 +36,6 @@ class BluetoothCoordinator extends ChangeNotifier {
   /// Creates a [BluetoothCoordinator] with required dependencies.
   BluetoothCoordinator({
     required this.storage,
-    required this.wifiWs,
     required this.logService,
   });
 
@@ -135,7 +130,7 @@ class BluetoothCoordinator extends ChangeNotifier {
     return false;
   }
 
-  /// Handles discovery of the Raspberry Pi vehicle hub over Wi-Fi/WS.
+  /// Handles discovery of the Raspberry Pi vehicle hub over Bluetooth.
   void handlePiDiscovered(String mac, String name) {
     if (mac.isEmpty) return;
     final cleanMac = mac.trim().toUpperCase();
@@ -221,7 +216,7 @@ class BluetoothCoordinator extends ChangeNotifier {
     _pendingPinCode = pin;
     _pendingPinDeviceMac = mac;
     _pendingPinDeviceName = name;
-    logService.addLog('[WS-PAIR] Yêu cầu mã xác nhận ghép nối PIN: $_pendingPinCode');
+    logService.addLog('[BT-PAIR] PIN/passkey requested: $_pendingPinCode');
     notifyListeners();
   }
 
@@ -234,38 +229,38 @@ class BluetoothCoordinator extends ChangeNotifier {
   /// Sends a command to fetch the latest paired devices list from the hub daemon.
   Future<void> loadPairedDevices() async {
     final cmd = {'type': 'get_bt_status'};
-    if (_isConnected) sendBtCommand(cmd);
-    wifiWs.send(cmd);
-    wifiWs.send({'type': 'match_pi'});
+    if (_isConnected) await sendBtCommand(cmd);
   }
 
   /// Sends a matching command to identify and pair with the Raspberry Pi.
   Future<void> matchWithPi() async {
-    logService.addLog('[MATCH] Bắt đầu nhận diện & ghép nối với Pi qua Wi-Fi...');
-    wifiWs.send({'type': 'match_pi'});
-    wifiWs.send({'type': 'get_bt_status'});
+    logService.addLog('[MATCH] Connecting to the vehicle over Bluetooth...');
     final mac = piMac;
     if (mac.isNotEmpty && !_isConnected && !_isConnecting) {
       await connectToPi(mac);
+    } else if (_isConnected) {
+      await sendBtCommand({'type': 'get_bt_status'});
+      await sendBtCommand({'type': 'match_pi'});
     }
   }
 
-  /// Starts Bluetooth discovery scan to search for nearby wireless devices.
+  /// Starts the phone's native Bluetooth discovery scan and, when connected,
+  /// also asks the vehicle hub to scan its local Bluetooth environment.
   Future<void> startDiscovery() async {
     _discoveredDevices.clear();
     _isDiscovering = true;
     notifyListeners();
     logService.addLog('[BT] Bắt đầu quét thiết bị Bluetooth...');
+    await NativeBridge.startBtDiscovery();
     final cmd = {'type': 'bt_start_discovery'};
-    if (_isConnected) sendBtCommand(cmd);
-    wifiWs.send(cmd);
+    if (_isConnected) await sendBtCommand(cmd);
   }
 
   /// Halts the active Bluetooth discovery scan.
   Future<void> stopDiscovery() async {
+    await NativeBridge.stopBtDiscovery();
     final cmd = {'type': 'bt_stop_discovery'};
-    if (_isConnected) sendBtCommand(cmd);
-    wifiWs.send(cmd);
+    if (_isConnected) await sendBtCommand(cmd);
     _isDiscovering = false;
     notifyListeners();
     logService.addLog('[BT] Dừng quét thiết bị Bluetooth');
@@ -275,16 +270,14 @@ class BluetoothCoordinator extends ChangeNotifier {
   Future<void> pairDevice(String mac) async {
     logService.addLog('[BT] Yêu cầu ghép nối thiết bị: $mac');
     final cmd = {'type': 'bt_pair', 'mac': mac};
-    if (_isConnected) sendBtCommand(cmd);
-    wifiWs.send(cmd);
+    if (_isConnected) await sendBtCommand(cmd);
   }
 
   /// Dispatches an unpair request to remove the bond with [mac].
   Future<void> unpairDevice(String mac) async {
     logService.addLog('[BT] Yêu cầu hủy ghép nối thiết bị: $mac');
     final cmd = {'type': 'bt_unpair', 'mac': mac};
-    if (_isConnected) sendBtCommand(cmd);
-    wifiWs.send(cmd);
+    if (_isConnected) await sendBtCommand(cmd);
     await loadPairedDevices();
   }
 
@@ -323,10 +316,10 @@ class BluetoothCoordinator extends ChangeNotifier {
   /// Sends a JSON [cmd] across the active Bluetooth SPP socket.
   ///
   /// Returns `true` if transmission succeeded, or `false` otherwise.
-  bool sendBtCommand(Map<String, dynamic> cmd) {
+  Future<bool> sendBtCommand(Map<String, dynamic> cmd) async {
     if (!_isConnected) return false;
     final jsonStr = jsonEncode(cmd);
-    return NativeBridge.btSend(jsonStr) as dynamic ?? false;
+    return NativeBridge.btSend(jsonStr);
   }
 
   /// Requests the latest TPMS sensor configuration and readings over Bluetooth.
