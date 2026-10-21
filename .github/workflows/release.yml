@@ -202,27 +202,25 @@ jobs:
 
       - name: Install cross-compilation linker
         run: |
-          sudo dpkg --add-architecture arm64
-
-          # Ubuntu's arm64 packages are published on ports.ubuntu.com. Keep
-          # the runner's default archive sources on amd64 to avoid 404s for
-          # arm64 indexes on archive.ubuntu.com/security.ubuntu.com.
-          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
-            if [ -f "$source" ]; then
-              sudo sed -i -E '/ubuntu\.com/ { /^[[:space:]]*deb(-src)?[[:space:]]/ s/^([[:space:]]*deb(-src)?[[:space:]]+)/\1[arch=amd64] /; }' "$source"
-            fi
-          done
-          for source in /etc/apt/sources.list.d/*.sources; do
-            if [ -f "$source" ] && grep -Eq '^URIs:.*ubuntu\.com' "$source"; then
-              sudo sed -i -E '/^Architectures:/d; /^Types:/a Architectures: amd64' "$source"
-            fi
-          done
-          sudo tee /etc/apt/sources.list.d/arm64-ports.list >/dev/null <<'EOF'
-          deb [arch=arm64] https://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
-          deb [arch=arm64] https://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
-          deb [arch=arm64] https://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse
-          deb [arch=arm64] https://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse
+          # 1. Restructure sources to strictly separate amd64 and arm64 repositories
+          sudo tee /etc/apt/sources.list <<'EOF'
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-backports main restricted universe multiverse
+          deb [arch=amd64] http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
           EOF
+
+          sudo tee /etc/apt/sources.list.d/arm64-ports.list <<'EOF'
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-backports main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe multiverse
+          EOF
+
+          # Remove conflicting DEB822 sources or mirror overrides in sources.list.d if any
+          sudo rm -f /etc/apt/sources.list.d/*.sources || true
+
+          sudo dpkg --add-architecture arm64
           sudo apt-get update
           sudo apt-get install -y \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config \
@@ -268,13 +266,20 @@ jobs:
 
       - name: Verify compiled binary
         run: |
-          ls -lah target/aarch64-unknown-linux-gnu/release/icarmeter
-          file target/aarch64-unknown-linux-gnu/release/icarmeter
+          BIN_PATH=$(find target/aarch64-unknown-linux-gnu/release -maxdepth 1 -type f \( -name "icarmeter" -o -name "car_dashboard" \) | head -n 1)
+          if [ -z "$BIN_PATH" ]; then
+            echo "ERROR: Compiled binary not found in target/aarch64-unknown-linux-gnu/release" >&2
+            exit 1
+          fi
+          ls -lah "$BIN_PATH"
+          file "$BIN_PATH"
 
       - name: Stage binary artifact
         run: |
           mkdir -p dist_bin
-          cp target/aarch64-unknown-linux-gnu/release/icarmeter dist_bin/
+          BIN_PATH=$(find target/aarch64-unknown-linux-gnu/release -maxdepth 1 -type f \( -name "icarmeter" -o -name "car_dashboard" \) | head -n 1)
+          cp -v "$BIN_PATH" dist_bin/icarmeter
+          cp -v "$BIN_PATH" dist_bin/car_dashboard
           ls -lah dist_bin/
 
       - name: Upload compiled binary artifact
