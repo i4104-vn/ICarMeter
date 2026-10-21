@@ -1,6 +1,7 @@
 [package]
 name = "car_dashboard"
-version = "0.1.0"
+# CI replaces this bootstrap value with the version selected for each build.
+version = "0.0.0"
 edition = "2024"
 
 [dependencies]

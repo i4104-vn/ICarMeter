@@ -6,6 +6,10 @@ on:
       - "v*"
   workflow_dispatch:
     inputs:
+      version:
+        description: "Application version (e.g. 1.2.3 or 1.2.3-rc.1)"
+        required: true
+        type: string
       tag_name:
         description: "Release Tag (e.g. v1.0.0)"
         required: false
@@ -31,11 +35,66 @@ permissions:
   contents: write
 
 jobs:
+  # Resolve one version for Flutter, Cargo, and the release tag.
+  resolve-version:
+    name: Resolve build version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Resolve and validate version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_TAG_NAME: ${{ inputs.tag_name }}
+          GIT_REF: ${{ github.ref }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="${INPUT_VERSION#v}"
+          elif [ -n "$INPUT_TAG_NAME" ]; then
+            VERSION="${INPUT_TAG_NAME#v}"
+          elif [[ "$GIT_REF" == refs/tags/* ]]; then
+            VERSION="${GIT_REF#refs/tags/}"
+            VERSION="${VERSION#v}"
+          else
+            echo "Enter a version in the workflow's version input (for example 1.2.3)." >&2
+            exit 1
+          fi
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version '$VERSION'. Use semantic versioning, for example 1.2.3 or 1.2.3-rc.1." >&2
+            exit 1
+          fi
+
+          if [ -n "$INPUT_TAG_NAME" ]; then
+            TAG_VERSION="${INPUT_TAG_NAME#v}"
+            if [ "$TAG_VERSION" != "$VERSION" ]; then
+              echo "Release tag '$INPUT_TAG_NAME' does not match version '$VERSION'." >&2
+              exit 1
+            fi
+            TAG="$INPUT_TAG_NAME"
+          elif [[ "$GIT_REF" == refs/tags/* ]]; then
+            TAG="${GIT_REF#refs/tags/}"
+            TAG_VERSION="${TAG#v}"
+            if [ "$TAG_VERSION" != "$VERSION" ]; then
+              echo "Git tag '$TAG' does not match version '$VERSION'." >&2
+              exit 1
+            fi
+          else
+            TAG="v${VERSION}"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION (release tag $TAG)"
+
   # ==============================================================================
   # Job 1: Build Android Companion APK (Flutter - Universal x32 & x64)
   # ==============================================================================
   build-apk:
     name: Build Android Companion APK (Flutter)
+    needs: [resolve-version]
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -56,13 +115,38 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Set Flutter app version
+        working-directory: mobile-app
+        env:
+          APP_VERSION: ${{ needs.resolve-version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+
+          pubspec = Path("pubspec.yaml")
+          contents = pubspec.read_text()
+          version_line = f"version: {os.environ['APP_VERSION']}+{os.environ['BUILD_NUMBER']}"
+          if re.search(r"(?m)^version:\s*", contents):
+              contents = re.sub(r"(?m)^version:\s*.*$", version_line, contents, count=1)
+          else:
+              contents = re.sub(r"(?m)^environment:", version_line + "\n\nenvironment:", contents, count=1)
+          pubspec.write_text(contents)
+          print(f"Building Flutter app version {version_line.removeprefix('version: ')}")
+          PY
+
       - name: Get Flutter Dependencies
         working-directory: mobile-app
         run: flutter pub get
 
       - name: Release APK
         working-directory: mobile-app
-        run: flutter build apk --release --split-per-abi
+        env:
+          APP_VERSION: ${{ needs.resolve-version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: flutter build apk --release --split-per-abi --build-name "$APP_VERSION" --build-number "$BUILD_NUMBER"
 
       - name: Package Release APKs
         run: |
@@ -102,6 +186,7 @@ jobs:
   # ==============================================================================
   build-binary:
     name: Build Cargo Binary (aarch64)
+    needs: [resolve-version]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -123,7 +208,33 @@ jobs:
       - name: Build ICarMeter for aarch64
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          APP_VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+
+          manifest = Path("Cargo.toml")
+          contents = manifest.read_text()
+          package_section = re.search(r"(?ms)^\[package\]\s*(.*?)(?=^\[|\Z)", contents)
+          if package_section is None:
+              raise SystemExit("Cargo.toml has no [package] section")
+
+          section = package_section.group(1)
+          section, replacements = re.subn(
+              r'(?m)^version\s*=\s*"[^"]+"\s*$',
+              f'version = "{os.environ["APP_VERSION"]}"',
+              section,
+              count=1,
+          )
+          if replacements != 1:
+              raise SystemExit("Could not set [package].version in Cargo.toml")
+
+          start, end = package_section.span(1)
+          manifest.write_text(contents[:start] + section + contents[end:])
+          print(f"Building Rust package version {os.environ['APP_VERSION']}")
+          PY
           cargo build --release --target aarch64-unknown-linux-gnu
 
       - name: Verify compiled binary
@@ -229,7 +340,7 @@ jobs:
   # ==============================================================================
   publish-release:
     name: Publish GitHub Release (OS Image & APK)
-    needs: [build-apk, build-binary, build-image]
+    needs: [resolve-version, build-apk, build-binary, build-image]
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -261,22 +372,17 @@ jobs:
 
       - name: Resolve Release Tag & Name
         id: rel_meta
+        env:
+          RESOLVED_TAG: ${{ needs.resolve-version.outputs.tag }}
+          INPUT_RELEASE_NAME: ${{ github.event.inputs.release_name }}
         run: |
-          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
-            TAG="${{ github.event.inputs.tag_name }}"
-          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            TAG="${GITHUB_REF#refs/tags/}"
+          if [ -n "$INPUT_RELEASE_NAME" ]; then
+            TITLE="$INPUT_RELEASE_NAME"
           else
-            TAG="v1.0.0-build.${{ github.run_number }}"
+            TITLE="ICarMeter ${RESOLVED_TAG}"
           fi
 
-          if [ -n "${{ github.event.inputs.release_name }}" ]; then
-            TITLE="${{ github.event.inputs.release_name }}"
-          else
-            TITLE="ICarMeter ${TAG}"
-          fi
-
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "tag=${RESOLVED_TAG}" >> $GITHUB_OUTPUT
           echo "title=${TITLE}" >> $GITHUB_OUTPUT
 
       - name: Publish to GitHub Releases
