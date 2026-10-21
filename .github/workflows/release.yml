@@ -187,7 +187,7 @@ jobs:
   build-binary:
     name: Build Cargo Binary (aarch64)
     needs: [resolve-version]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -200,41 +200,44 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Install cross-compilation linker
+      - name: Install build dependencies
         run: |
-          # 1. Restructure sources to strictly separate amd64 and arm64 repositories
-          sudo tee /etc/apt/sources.list <<'EOF'
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-backports main restricted universe multiverse
-          deb [arch=amd64] http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
-          EOF
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "aarch64" ]; then
+            sudo apt-get update
+            sudo apt-get install -y \
+              gcc g++ pkg-config \
+              libcurl4-openssl-dev libegl1-mesa-dev libgl-dev \
+              libicu-dev libjpeg-turbo8-dev libpng-dev \
+              libssl-dev libuv1-dev libwebp-dev zlib1g-dev
+          else
+            # x86_64 fallback: configure multiarch sources
+            sudo tee /etc/apt/sources.list <<'EOF'
+            deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse
+            deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse
+            deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-backports main restricted universe multiverse
+            deb [arch=amd64] http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
+            EOF
 
-          sudo tee /etc/apt/sources.list.d/arm64-ports.list <<'EOF'
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-backports main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe multiverse
-          EOF
+            sudo tee /etc/apt/sources.list.d/arm64-ports.list <<'EOF'
+            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe multiverse
+            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe multiverse
+            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-backports main restricted universe multiverse
+            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe multiverse
+            EOF
 
-          # Remove conflicting DEB822 sources or mirror overrides in sources.list.d if any
-          sudo rm -f /etc/apt/sources.list.d/*.sources || true
-
-          sudo dpkg --add-architecture arm64
-          sudo apt-get update
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config \
-            libcurl4-openssl-dev:arm64 libegl1-mesa-dev:arm64 libgl-dev:arm64 \
-            libicu-dev:arm64 libjpeg-turbo8-dev:arm64 libpng-dev:arm64 \
-            libssl-dev:arm64 libuv1-dev:arm64 libwebp-dev:arm64 zlib1g-dev:arm64
+            sudo rm -f /etc/apt/sources.list.d/*.sources || true
+            sudo dpkg --add-architecture arm64
+            sudo apt-get update
+            sudo apt-get install -y \
+              gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config \
+              libcurl4-openssl-dev:arm64 libegl1-mesa-dev:arm64 libgl-dev:arm64 \
+              libicu-dev:arm64 libjpeg-turbo8-dev:arm64 libpng-dev:arm64 \
+              libssl-dev:arm64 libuv1-dev:arm64 libwebp-dev:arm64 zlib1g-dev:arm64
+          fi
 
       - name: Build ICarMeter for aarch64
         env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
-          PKG_CONFIG_ALLOW_CROSS: "1"
-          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
           APP_VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           python3 - <<'PY'
