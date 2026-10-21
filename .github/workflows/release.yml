@@ -177,7 +177,7 @@ jobs:
           retention-days: 7
 
   # ==============================================================================
-  # Job 2: Build Rust Binary for Raspberry Pi (Native ARM64 Runner)
+  # Job 2: Build Rust Binary for Raspberry Pi (Debian Bookworm ARM64)
   # ==============================================================================
   build-binary:
     name: Build Cargo Binary (aarch64)
@@ -186,23 +186,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-unknown-linux-gnu
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            gcc g++ pkg-config \
-            libcurl4-openssl-dev libegl1-mesa-dev libgl-dev \
-            libicu-dev libjpeg-turbo8-dev libpng-dev \
-            libssl-dev libuv1-dev libwebp-dev zlib1g-dev
 
       - name: Build ICarMeter binary
         env:
@@ -230,7 +213,23 @@ jobs:
           print(f"Updated Cargo.toml version -> {os.environ['APP_VERSION']}")
           PY
 
-          cargo build --release --target aarch64-unknown-linux-gnu
+          # Build inside Debian Bookworm arm64, the same userspace family as
+          # the Raspberry Pi rootfs. Building on ubuntu-24.04-arm directly
+          # produces binaries requiring newer GLIBC/GLIBCXX symbols than the
+          # image can provide.
+          docker run --rm --platform linux/arm64 \
+            -v "$GITHUB_WORKSPACE:/src" \
+            -w /src \
+            rust:bookworm \
+            bash -euo pipefail -c '
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                ca-certificates cmake gcc g++ pkg-config python3 \
+                libcurl4-openssl-dev libegl1-mesa-dev libgl-dev \
+                libicu-dev libjpeg62-turbo-dev libpng-dev \
+                libssl-dev libuv1-dev libwebp-dev zlib1g-dev
+              cargo build --release --target aarch64-unknown-linux-gnu
+            '
 
       - name: Stage compiled binary
         run: |
