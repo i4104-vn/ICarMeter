@@ -314,7 +314,6 @@ jobs:
           echo "Found image: ${IMG_FILE}"
           ZIP_NAME="ICarMeter-RaspberryPiOS-arm64.zip"
 
-          # Package ONLY the .img file into the zip archive so BalenaEtcher/Pi Imager can flash directly
           zip -6 -j "../../image_dist/${ZIP_NAME}" "${IMG_FILE}"
           cp -v *.info ../../image_dist/image_build.info 2>/dev/null || true
           ls -lah ../../image_dist/
