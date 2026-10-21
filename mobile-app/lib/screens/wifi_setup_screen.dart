@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/app_state.dart';
-import '../services/native_bridge.dart';
+import '../services/platform/native_bridge.dart';
 
 class WifiSetupScreen extends StatefulWidget {
   final AppState appState;

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/app_state.dart';
-import '../widgets/car_tpms_diagram.dart';
+import '../widgets/tpms/car_tpms_diagram.dart';
+import '../widgets/tpms/tpms_status_banner.dart';
+import '../widgets/tpms/tpms_config_card.dart';
 
+/// Screen displaying interactive vehicle TPMS diagnostics and Bluetooth sensor configuration.
 class TpmsScreen extends StatefulWidget {
   final AppState appState;
 
@@ -19,6 +22,12 @@ class _TpmsScreenState extends State<TpmsScreen> {
   late TextEditingController _rrCtrl;
   late double _pressureAlert;
   late double _tempAlert;
+  String? _selectedTire = 'fl';
+
+  final FocusNode _flFocus = FocusNode();
+  final FocusNode _frFocus = FocusNode();
+  final FocusNode _rlFocus = FocusNode();
+  final FocusNode _rrFocus = FocusNode();
 
   @override
   void initState() {
@@ -30,18 +39,75 @@ class _TpmsScreenState extends State<TpmsScreen> {
     _rrCtrl = TextEditingController(text: cfg.rrSensorId);
     _pressureAlert = cfg.pressureAlert;
     _tempAlert = cfg.highTempAlert;
+
+    widget.appState.addListener(_onAppStateChanged);
+  }
+
+  void _onAppStateChanged() {
+    if (!mounted) return;
+    final cfg = widget.appState.config;
+    if (!_flFocus.hasFocus && _flCtrl.text != cfg.flSensorId && cfg.flSensorId.isNotEmpty) {
+      _flCtrl.text = cfg.flSensorId;
+    }
+    if (!_frFocus.hasFocus && _frCtrl.text != cfg.frSensorId && cfg.frSensorId.isNotEmpty) {
+      _frCtrl.text = cfg.frSensorId;
+    }
+    if (!_rlFocus.hasFocus && _rlCtrl.text != cfg.rlSensorId && cfg.rlSensorId.isNotEmpty) {
+      _rlCtrl.text = cfg.rlSensorId;
+    }
+    if (!_rrFocus.hasFocus && _rrCtrl.text != cfg.rrSensorId && cfg.rrSensorId.isNotEmpty) {
+      _rrCtrl.text = cfg.rrSensorId;
+    }
+    if (_pressureAlert != cfg.pressureAlert && cfg.pressureAlert > 0.0) {
+      setState(() => _pressureAlert = cfg.pressureAlert);
+    }
+    if (_tempAlert != cfg.highTempAlert && cfg.highTempAlert > 0.0) {
+      setState(() => _tempAlert = cfg.highTempAlert);
+    }
   }
 
   @override
   void dispose() {
+    widget.appState.removeListener(_onAppStateChanged);
     _flCtrl.dispose();
     _frCtrl.dispose();
     _rlCtrl.dispose();
     _rrCtrl.dispose();
+    _flFocus.dispose();
+    _frFocus.dispose();
+    _rlFocus.dispose();
+    _rrFocus.dispose();
     super.dispose();
   }
 
+  void _selectTire(String pos) {
+    setState(() => _selectedTire = pos);
+    switch (pos) {
+      case 'fl':
+        _flFocus.requestFocus();
+        break;
+      case 'fr':
+        _frFocus.requestFocus();
+        break;
+      case 'rl':
+        _rlFocus.requestFocus();
+        break;
+      case 'rr':
+        _rrFocus.requestFocus();
+        break;
+    }
+  }
+
   void _saveSettings() {
+    if (!widget.appState.isBtConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Chưa kết nối Bluetooth với xe! Cấu hình sẽ chỉ được lưu cục bộ.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+    }
+
     final newCfg = widget.appState.config.copyWith(
       flSensorId: _flCtrl.text.trim(),
       frSensorId: _frCtrl.text.trim(),
@@ -54,169 +120,70 @@ class _TpmsScreenState extends State<TpmsScreen> {
     widget.appState.saveConfig(newCfg);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Đã lưu cấu hình cảm biến áp suất lốp!'),
+        content: Text('Đã gửi cấu hình cảm biến áp suất lốp qua Bluetooth SPP!'),
         backgroundColor: AppColors.success,
       ),
     );
   }
 
-  Widget _buildSensorInput(String label, TextEditingController ctrl) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
-        ),
-        const SizedBox(height: 4),
-        TextField(
-          controller: ctrl,
-          style: const TextStyle(fontSize: 13, color: AppColors.text, fontFamily: 'monospace'),
-          decoration: InputDecoration(
-            isDense: true,
-            filled: true,
-            fillColor: AppColors.surface,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: AppColors.border),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: AppColors.border),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: AppColors.primary),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final tpms = widget.appState.telemetry.tpms;
-    final pressureUnit = widget.appState.storage.pressureUnit;
-    final tempUnit = widget.appState.storage.tempUnit;
+    return AnimatedBuilder(
+      animation: widget.appState,
+      builder: (context, _) {
+        final tpms = widget.appState.telemetry.tpms;
+        final isConnected = widget.appState.isBtConnected;
+        final pressureUnit = widget.appState.storage.pressureUnit;
+        final tempUnit = widget.appState.storage.tempUnit;
 
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // 4-Wheel Graphical Diagram
-          CarTpmsDiagram(
-            tpms: tpms,
-            pressureAlert: _pressureAlert,
-            tempAlert: _tempAlert,
-            pressureUnit: pressureUnit,
-            tempUnit: tempUnit,
+        return SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Bluetooth Telemetry Live Indicator
+              TpmsStatusBanner(
+                isConnected: isConnected,
+                onSync: widget.appState.syncTpmsFromPi,
+              ),
+
+              // 4-Wheel Graphical Diagram
+              CarTpmsDiagram(
+                tpms: tpms,
+                pressureAlert: _pressureAlert,
+                tempAlert: _tempAlert,
+                pressureUnit: pressureUnit,
+                tempUnit: tempUnit,
+                selectedTire: _selectedTire,
+                onTireTap: _selectTire,
+              ),
+
+              const SizedBox(height: 18),
+
+              // Sensor ID Settings Card
+              TpmsConfigCard(
+                flCtrl: _flCtrl,
+                frCtrl: _frCtrl,
+                rlCtrl: _rlCtrl,
+                rrCtrl: _rrCtrl,
+                flFocus: _flFocus,
+                frFocus: _frFocus,
+                rlFocus: _rlFocus,
+                rrFocus: _rrFocus,
+                selectedTire: _selectedTire,
+                onSelectTire: _selectTire,
+                pressureAlert: _pressureAlert,
+                onPressureAlertChanged: (v) => setState(() => _pressureAlert = v),
+                tempAlert: _tempAlert,
+                onTempAlertChanged: (v) => setState(() => _tempAlert = v),
+                onReload: widget.appState.syncTpmsFromPi,
+                onSave: _saveSettings,
+              ),
+            ],
           ),
-
-          const SizedBox(height: 20),
-
-          // Sensor ID Settings Card
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border, width: 1),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Row(
-                  children: [
-                    Icon(Icons.qr_code, color: AppColors.primary, size: 20),
-                    SizedBox(width: 8),
-                    Text(
-                      'Gán mã cảm biến (MAC Address / Hex)',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.text,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(child: _buildSensorInput('Trước Trái (FL)', _flCtrl)),
-                    const SizedBox(width: 12),
-                    Expanded(child: _buildSensorInput('Trước Phải (FR)', _frCtrl)),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(child: _buildSensorInput('Sau Trái (RL)', _rlCtrl)),
-                    const SizedBox(width: 12),
-                    Expanded(child: _buildSensorInput('Sau Phải (RR)', _rrCtrl)),
-                  ],
-                ),
-                const SizedBox(height: 18),
-
-                // Pressure Threshold Slider
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Cảnh báo áp suất thấp:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                    Text('${_pressureAlert.toStringAsFixed(1)} bar', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.primary)),
-                  ],
-                ),
-                Slider(
-                  value: _pressureAlert,
-                  min: 1.4,
-                  max: 2.6,
-                  divisions: 12,
-                  activeColor: AppColors.primary,
-                  inactiveColor: AppColors.border,
-                  onChanged: (v) => setState(() => _pressureAlert = v),
-                ),
-
-                // Temp Threshold Slider
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Cảnh báo nhiệt độ cao:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                    Text('${_tempAlert.toStringAsFixed(0)}°C', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.danger)),
-                  ],
-                ),
-                Slider(
-                  value: _tempAlert,
-                  min: 50.0,
-                  max: 90.0,
-                  divisions: 8,
-                  activeColor: AppColors.danger,
-                  inactiveColor: AppColors.border,
-                  onChanged: (v) => setState(() => _tempAlert = v),
-                ),
-
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  height: 46,
-                  child: ElevatedButton(
-                    onPressed: _saveSettings,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text('Lưu cấu hình cảm biến', style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-        ],
-      ),
+        );
+      },
     );
   }
 }

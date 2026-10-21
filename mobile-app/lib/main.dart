@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'theme/app_theme.dart';
-import 'services/storage_service.dart';
+import 'services/storage/storage_service.dart';
 import 'services/app_state.dart';
 import 'widgets/app_header.dart';
 import 'widgets/pill_nav_bar.dart';
-import 'widgets/bt_pairing_modal.dart';
-import 'widgets/settings_modal.dart';
-import 'widgets/pairing_pin_dialog.dart';
+import 'widgets/bluetooth/bt_pairing_modal.dart';
+import 'widgets/settings/settings_modal.dart';
+import 'widgets/bluetooth/pairing_pin_dialog.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/tpms_screen.dart';
 import 'screens/trips_screen.dart';

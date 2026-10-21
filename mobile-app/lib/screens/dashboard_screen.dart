@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/app_state.dart';
-import '../widgets/speedometer_gauge.dart';
+import '../widgets/dashboard/speedometer_gauge.dart';
 
 class DashboardScreen extends StatelessWidget {
   final AppState appState;
