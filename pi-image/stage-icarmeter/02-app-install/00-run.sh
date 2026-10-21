@@ -25,11 +25,6 @@ install -m 600 files/icarmeter-hotspot.nmconnection "${ROOTFS_DIR}/etc/NetworkMa
 install -d -m 755 "${ROOTFS_DIR}/etc/NetworkManager/dnsmasq-shared.d"
 install -m 644 files/icarmeter-dnsmasq.conf "${ROOTFS_DIR}/etc/NetworkManager/dnsmasq-shared.d/icarmeter.conf"
 
-# Install Mobile Companion Web Application into /opt/icarmeter/www
-install -d -m 755 "${APP_DIR}/www"
-if [ -d files/www ]; then
-    cp -rf files/www/* "${APP_DIR}/www/"
-fi
 
 # Install the local MapLibre style and allow optional custom map resources.
 if [ -d files/maps ]; then

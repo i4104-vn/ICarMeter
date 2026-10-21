@@ -810,35 +810,7 @@ def log_ws_event(event_name):
     except Exception:
         pass
 
-WWW_ROOT = "/opt/icarmeter/www"
-FALLBACK_WWW_PATHS = [
-    "/home/pi/www",
-    os.path.join(os.path.dirname(__file__), "www"),
-    os.path.join(os.path.dirname(__file__), "../../../mobile-app/www"),
-    "./www",
-    "./mobile-app/www"
-]
-
-MIME_TYPES = {
-    ".html": "text/html; charset=utf-8",
-    ".htm": "text/html; charset=utf-8",
-    ".js": "application/javascript; charset=utf-8",
-    ".mjs": "application/javascript; charset=utf-8",
-    ".css": "text/css; charset=utf-8",
-    ".json": "application/json; charset=utf-8",
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".svg": "image/svg+xml",
-    ".ico": "image/x-icon",
-    ".txt": "text/plain; charset=utf-8",
-    ".woff": "font/woff",
-    ".woff2": "font/woff2",
-    ".ttf": "font/ttf"
-}
-
-def touch_app_connected(name="Wi-Fi Mobile App"):
+def touch_app_connected(name="Mobile App"):
     try:
         with open(APP_CONN_MARKER, "w", encoding="utf-8") as f:
             f.write(name)
@@ -847,15 +819,6 @@ def touch_app_connected(name="Wi-Fi Mobile App"):
 
 def get_actual_config_path():
     return CONFIG_PATH
-
-def get_actual_www_root():
-    if os.path.isdir(WWW_ROOT):
-        return WWW_ROOT
-    for path in FALLBACK_WWW_PATHS:
-        abs_p = os.path.abspath(path)
-        if os.path.isdir(abs_p):
-            return abs_p
-    return WWW_ROOT
 
 
 def read_config():
@@ -1325,42 +1288,6 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    def serve_static(self, path):
-        www_dir = get_actual_www_root()
-        clean_path = path.lstrip("/")
-        if not clean_path or clean_path == "/":
-            clean_path = "index.html"
-
-        # Sanitize path to prevent directory traversal
-        file_path = os.path.abspath(os.path.join(www_dir, clean_path))
-        if not file_path.startswith(os.path.abspath(www_dir)):
-            self.send_error(403, "Forbidden")
-            return
-
-        # If file doesn't exist or is a directory, fallback to index.html (SPA routing)
-        if not os.path.exists(file_path) or os.path.isdir(file_path):
-            file_path = os.path.join(www_dir, "index.html")
-
-        if not os.path.exists(file_path):
-            self.send_error(404, "Not Found")
-            return
-
-        ext = os.path.splitext(file_path)[1].lower()
-        content_type = MIME_TYPES.get(ext, "application/octet-stream")
-
-        try:
-            with open(file_path, "rb") as f:
-                content = f.read()
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(content)))
-            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(content)
-        except Exception as e:
-            self.send_error(500, f"Error reading file: {e}")
-
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
@@ -1425,8 +1352,13 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        # ─── Static Web Companion Files ──────────────────────────────────────
-        self.serve_static(path)
+        # ─── API Info Endpoint for Mobile Companion ─────────────────────────
+        self.send_json(200, {
+            "service": "ICarMeter",
+            "status": "online",
+            "app_target": "ICarMeter Mobile Companion App",
+            "ws_endpoint": "/ws"
+        })
 
     def handle_websocket(self):
         sock = self.connection
@@ -1646,10 +1578,10 @@ def main():
         t80 = threading.Thread(target=start_http_listener, args=(HTTP_PORT,), daemon=True)
         t80.start()
 
-    # Primary listener on PORT 8080 (serves WebSocket at /ws + HTTP Web Companion)
+    # Primary listener on PORT 8080 (serves WebSocket at /ws + Companion API)
     server_address = ("", PORT)
     httpd = http.server.ThreadingHTTPServer(server_address, ApiHandler)
-    print(f"[API] ICarMeter primary WebSocket (/ws) & Web server running on port {PORT}...")
+    print(f"[API] ICarMeter primary WebSocket (/ws) & Companion API running on port {PORT}...")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
