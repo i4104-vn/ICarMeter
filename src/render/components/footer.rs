@@ -3,6 +3,7 @@
 // - White when connected (showing connected device name for Bluetooth)
 // - Dim muted gray when disconnected
 
+use crate::configs::display::SCREEN_WIDTH;
 use crate::models::VehicleState;
 use crate::render::core::FontRenderer;
 use tiny_skia::{Color, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Stroke, Transform};
@@ -206,6 +207,21 @@ impl FooterRenderer {
 
             cur_x += iw + item_spacing;
         }
+
+        // Keep the Rust dashboard build version visible in the lower-right
+        // corner, separate from the centered connection status indicators.
+        let version_label = concat!("v", env!("CARGO_PKG_VERSION"));
+        let version_size = 10.0;
+        let version_width = fonts.measure_width(&fonts.regular, version_label, version_size);
+        fonts.draw_text(
+            pixmap,
+            &fonts.regular,
+            version_label,
+            SCREEN_WIDTH as f32 - 20.0 - version_width,
+            baseline_y,
+            version_size,
+            dim_color,
+        );
     }
 
     /// Minimalist Bluetooth Rune Icon
