@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ICarMeter Headless Wi-Fi Configuration API Service
-Listens for JSON API requests from the ICarMeter Mobile App over Wi-Fi Hotspot (192.168.204.145:8080)
+Listens for JSON API requests from the ICarMeter Mobile App over Wi-Fi Hotspot (192.168.4.1:8080)
 to read, write, and synchronize /opt/icarmeter/config.toml in real time.
 """
 
@@ -458,9 +458,57 @@ def resolve_device_name(mac, initial_name=""):
         return str(initial_name).strip()
     return f"Thiết bị Bluetooth ({mac[-5:]})"
 
+def get_pi_bluetooth_mac():
+    """Returns the Bluetooth controller MAC address of the Raspberry Pi."""
+    # 1. Standard Linux sysfs
+    for hci in ("hci0", "hci1"):
+        path = f"/sys/class/bluetooth/{hci}/address"
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    mac = f.read().strip().upper()
+                    if len(mac) == 17 and mac.count(":") == 5:
+                        return mac
+            except Exception:
+                pass
+
+    # 2. bluetoothctl list
+    try:
+        res = subprocess.run(["bluetoothctl", "list"], capture_output=True, text=True, timeout=2)
+        if res.returncode == 0:
+            for line in res.stdout.splitlines():
+                m = re.search(r"Controller\s+([0-9A-Fa-f:]{17})", line)
+                if m:
+                    return m.group(1).upper()
+    except Exception:
+        pass
+
+    # 3. btmgmt info
+    try:
+        res = subprocess.run(["btmgmt", "info"], capture_output=True, text=True, timeout=2)
+        if res.returncode == 0:
+            m = re.search(r"addr\s+([0-9A-Fa-f:]{17})", res.stdout)
+            if m:
+                return m.group(1).upper()
+    except Exception:
+        pass
+
+    # 4. hciconfig
+    try:
+        res = subprocess.run(["hciconfig", "hci0"], capture_output=True, text=True, timeout=2)
+        if res.returncode == 0:
+            m = re.search(r"BD Address:\s*([0-9A-Fa-f:]{17})", res.stdout)
+            if m:
+                return m.group(1).upper()
+    except Exception:
+        pass
+
+    return ""
+
 def get_bluetooth_status():
     """Query Bluetooth adapter status and paired devices list with resolved names."""
     adapter_avail = os.path.exists("/sys/class/bluetooth/hci0")
+    pi_mac = get_pi_bluetooth_mac()
     paired = []
     try:
         res = run_bluetoothctl(["paired-devices"], timeout=5)
@@ -478,6 +526,8 @@ def get_bluetooth_status():
 
     return {
         "adapter_available": adapter_avail,
+        "pi_mac": pi_mac,
+        "pi_name": "ICarMeter",
         "paired_devices": paired,
         "rfcomm_listening": _rfcomm_listening
     }
@@ -1110,7 +1160,12 @@ def handle_bt_command(msg_dict, reply_fn):
 
     if msg_type == "get_bt_status":
         status_data = get_bluetooth_status()
-        reply_fn({"type": "bt_status", "data": status_data})
+        reply_fn({
+            "type": "bt_status",
+            "data": status_data,
+            "pi_mac": status_data.get("pi_mac", ""),
+            "pi_name": "ICarMeter"
+        })
         return
 
     if msg_type == "bt_start_discovery":
@@ -1382,9 +1437,12 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
         client_info = f"{self.client_address[0]}:{self.client_address[1]}"
         print(f"[WS] Pairing setup client connected from {client_info}")
 
+        pi_mac = get_pi_bluetooth_mac()
         welcome = {
             "type": "welcome",
             "status": "online",
+            "pi_mac": pi_mac,
+            "pi_name": "ICarMeter",
             "app_connected": False,
             "timestamp": int(time.time())
         }
@@ -1455,7 +1513,26 @@ class ApiHandler(http.server.BaseHTTPRequestHandler):
 
         if msg_type == "get_bt_status":
             status_data = get_bluetooth_status()
-            reply = {"type": "bt_status", "data": status_data}
+            reply = {
+                "type": "bt_status",
+                "data": status_data,
+                "pi_mac": status_data.get("pi_mac", ""),
+                "pi_name": "ICarMeter"
+            }
+            sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
+            return
+
+        if msg_type in ("match_pi", "get_pi_info"):
+            ensure_bt_always_ready()
+            pi_mac = get_pi_bluetooth_mac()
+            reply = {
+                "type": "pi_matched",
+                "pi_mac": pi_mac,
+                "pi_name": "ICarMeter",
+                "rfcomm_channel": RFCOMM_PORT,
+                "wifi_ip": "192.168.4.1",
+                "timestamp": int(time.time())
+            }
             sock.sendall(encode_ws_frame(json.dumps(reply).encode("utf-8"), 0x1))
             return
 

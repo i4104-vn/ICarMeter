@@ -6,7 +6,7 @@ import 'dart:io';
 class WifiWsService {
   WebSocket? _socket;
 
-  /// The target host and port (e.g. `192.168.204.145:8080`).
+  /// The target host and port (e.g. `192.168.4.1:8080`).
   String host;
   bool _isConnecting = false;
   Timer? _reconnectTimer;
@@ -18,7 +18,7 @@ class WifiWsService {
       StreamController<bool>.broadcast();
 
   /// Creates a [WifiWsService] targeting the specified [host].
-  WifiWsService({this.host = '192.168.204.145:8080'});
+  WifiWsService({this.host = '192.168.4.1:8080'});
 
   /// Stream of decoded JSON message payloads received from the WebSocket server.
   Stream<Map<String, dynamic>> get messages => _messageController.stream;
@@ -65,8 +65,9 @@ class WifiWsService {
         cancelOnError: true,
       );
 
-      // Request BT status after connecting over Wi-Fi
+      // Request BT status and match/identification info after connecting over Wi-Fi
       send({'type': 'get_bt_status'});
+      send({'type': 'match_pi'});
     } catch (_) {
       _socket = null;
       _isConnecting = false;

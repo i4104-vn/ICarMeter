@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
+import '../../models/bluetooth_device.dart';
 import '../../services/app_state.dart';
 import 'bt_device_tile.dart';
 
@@ -75,6 +76,45 @@ class BtDevicesTab extends StatelessWidget {
         ),
 
         const SizedBox(height: 20),
+
+        // Vehicle Hub (Pi) Section if identified
+        if (state.btCoordinator.piMac.isNotEmpty) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.directions_car, size: 18, color: AppColors.secondary),
+                  SizedBox(width: 6),
+                  Text(
+                    'Thiết bị xe (ICarMeter)',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.text),
+                  ),
+                ],
+              ),
+              if (state.isWifiConnected)
+                IconButton(
+                  onPressed: () => state.matchWithPi(),
+                  icon: const Icon(Icons.sync, size: 20, color: AppColors.secondary),
+                  tooltip: 'Khớp nối lại với xe',
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          BtDeviceTile(
+            device: state.btCoordinator.piDevice ??
+                BtDeviceInfo(
+                  mac: state.btCoordinator.piMac,
+                  name: state.btCoordinator.piName,
+                  isBonded: state.pairedDevices
+                      .any((d) => d.mac.toUpperCase() == state.btCoordinator.piMac.toUpperCase()),
+                ),
+            isPaired: state.pairedDevices
+                .any((d) => d.mac.toUpperCase() == state.btCoordinator.piMac.toUpperCase()),
+            appState: state,
+          ),
+          const SizedBox(height: 20),
+        ],
 
         // Paired Devices Header
         Row(

@@ -168,6 +168,10 @@ class AppState extends ChangeNotifier {
     _wsMsgSub = wifiWs.messages.listen(_handleWsMessage);
     _wsConnSub = wifiWs.connectionState.listen((connected) {
       _isWifiConnected = connected;
+      if (connected) {
+        wifiWs.send({'type': 'get_bt_status'});
+        wifiWs.send({'type': 'match_pi'});
+      }
       notifyListeners();
     });
 
@@ -220,6 +224,15 @@ class AppState extends ChangeNotifier {
   void _handleWsMessage(Map<String, dynamic> msg) {
     final type = msg['type'] as String?;
     switch (type) {
+      case 'welcome':
+      case 'pi_info':
+      case 'pi_matched':
+        final piMac = (msg['pi_mac'] as String? ?? '').trim().toUpperCase();
+        if (piMac.isNotEmpty) {
+          final piName = (msg['pi_name'] as String? ?? 'ICarMeter').trim();
+          btCoordinator.handlePiDiscovered(piMac, piName.isNotEmpty ? piName : 'ICarMeter');
+        }
+        break;
       case 'bt_pin_code':
         btCoordinator.handlePinRequest(
           msg['pin'] as String? ?? '',
@@ -228,6 +241,12 @@ class AppState extends ChangeNotifier {
         );
         break;
       case 'bt_status':
+        final data = (msg['data'] as Map<String, dynamic>?) ?? msg;
+        final piMac = ((data['pi_mac'] ?? msg['pi_mac']) as String? ?? '').trim().toUpperCase();
+        if (piMac.isNotEmpty) {
+          final piName = ((data['pi_name'] ?? msg['pi_name']) as String? ?? 'ICarMeter').trim();
+          btCoordinator.handlePiDiscovered(piMac, piName.isNotEmpty ? piName : 'ICarMeter');
+        }
         btCoordinator.handleBtStatusMessage(msg);
         break;
       case 'bt_device_found':
@@ -264,7 +283,8 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // --- Bluetooth Actions ---
+  /// Sends a matching command to identify and pair with the Raspberry Pi.
+  Future<void> matchWithPi() => btCoordinator.matchWithPi();
 
   /// Requests the hub daemon to return the latest list of paired Bluetooth devices.
   Future<void> loadPairedDevices() => btCoordinator.loadPairedDevices();

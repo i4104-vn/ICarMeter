@@ -11,7 +11,7 @@ set -u
 
 CONN_NAME="ICarMeter-Hotspot"
 WIFI_IFACE="wlan0"
-HOTSPOT_IP="192.168.204.145"
+HOTSPOT_IP="192.168.4.1"
 MARKER="/dev/shm/icarmeter_hotspot_active"
 API_PORT=8080
 

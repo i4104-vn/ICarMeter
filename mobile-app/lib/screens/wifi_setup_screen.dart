@@ -25,6 +25,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
     setState(() => _checking = true);
     await NativeBridge.bindToCarWifi();
     widget.appState.wifiWs.connect();
+    await widget.appState.matchWithPi();
 
     // The WebSocket uses a four-second connection timeout. Allow it to finish
     // before showing the result of this manual check.
@@ -32,13 +33,16 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
     if (!mounted) return;
 
     final connected = widget.appState.isWifiConnected;
+    if (connected) {
+      await widget.appState.matchWithPi();
+    }
     setState(() => _checking = false);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
           content: Text(connected
-              ? 'Đã kết nối với Wi-Fi của xe.'
+              ? 'Đã kết nối với Wi-Fi của xe và đang khớp nối dữ liệu.'
               : 'Chưa kết nối được. Hãy kiểm tra Wi-Fi đang chọn là ICarMeter rồi thử lại.'),
           backgroundColor: connected ? AppColors.success : AppColors.danger,
         ),
@@ -94,6 +98,141 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMatchingCard(AppState state) {
+    final isBtConnected = state.isBtConnected;
+    final isBtConnecting = state.isBtConnecting;
+    final piMac = state.btCoordinator.piMac;
+    final piName = state.btCoordinator.piName;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isBtConnected
+              ? AppColors.success.withOpacity(0.6)
+              : AppColors.primary.withOpacity(0.5),
+          width: 1.2,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: (isBtConnected ? AppColors.success : AppColors.primary)
+                      .withOpacity(0.18),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isBtConnected ? Icons.bluetooth_connected : Icons.sync_alt,
+                  color: isBtConnected ? AppColors.success : AppColors.primary,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isBtConnected
+                          ? 'Đã khớp nối Bluetooth với xe'
+                          : 'Khớp nối xe (ICarMeter)',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.text,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isBtConnected
+                          ? 'Đang đồng bộ dữ liệu qua Bluetooth SPP.'
+                          : (piMac.isNotEmpty
+                              ? 'Đã nhận diện: $piName ($piMac)'
+                              : 'Đã kết nối Wi-Fi, sẵn sàng ghép nối với xe.'),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (isBtConnected)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.success.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: AppColors.success, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Kết nối hoàn tất với $piName ($piMac)',
+                      style: const TextStyle(fontSize: 12, color: AppColors.success),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            SizedBox(
+              height: 44,
+              child: ElevatedButton.icon(
+                onPressed: isBtConnecting
+                    ? null
+                    : () {
+                        if (piMac.isNotEmpty) {
+                          state.connectToPi(piMac);
+                        } else {
+                          state.matchWithPi();
+                        }
+                      },
+                icon: isBtConnecting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.black,
+                        ),
+                      )
+                    : const Icon(Icons.link, size: 18),
+                label: Text(
+                  isBtConnecting
+                      ? 'Đang kết nối Bluetooth...'
+                      : (piMac.isNotEmpty
+                          ? 'Ghép nối & Kết nối Bluetooth ngay'
+                          : 'Nhận diện & Khớp nối với xe'),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.secondary,
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -163,7 +302,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
                           const SizedBox(height: 3),
                           Text(
                             isWifiConnected
-                                ? 'Kết nối đang hoạt động.'
+                                ? 'Kết nối Wi-Fi (192.168.4.1) đang hoạt động.'
                                 : 'Kết nối Wi-Fi để ghép nối và đồng bộ với xe.',
                             style: const TextStyle(
                               fontSize: 11,
@@ -176,6 +315,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
                   ],
                 ),
               ),
+              if (isWifiConnected) _buildMatchingCard(widget.appState),
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.fromLTRB(18, 20, 18, 4),
@@ -209,7 +349,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
                     _buildStep(
                       3,
                       'Quay lại ứng dụng',
-                      'Nhấn nút bên dưới để kiểm tra kết nối. Khi Wi-Fi đã hoạt động, bạn có thể ghép nối Bluetooth.',
+                      'Nhấn nút bên dưới để kiểm tra kết nối. Khi Wi-Fi đã hoạt động, ứng dụng sẽ tự động nhận diện và ghép nối với xe.',
                     ),
                   ],
                 ),

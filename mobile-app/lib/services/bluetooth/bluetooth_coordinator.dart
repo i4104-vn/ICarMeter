@@ -23,6 +23,9 @@ class BluetoothCoordinator extends ChangeNotifier {
   String _connectedMac = '';
   String _connectedName = '';
 
+  String _piMac = '';
+  String _piName = 'ICarMeter';
+
   bool _isDiscovering = false;
   final Map<String, BtDeviceInfo> _discoveredDevices = {};
   List<BtDeviceInfo> _pairedDevices = [];
@@ -52,6 +55,27 @@ class BluetoothCoordinator extends ChangeNotifier {
 
   /// The friendly name of the currently connected Bluetooth peer.
   String get connectedName => _connectedName;
+
+  /// The MAC address of the Raspberry Pi vehicle hub.
+  String get piMac => _piMac.isNotEmpty ? _piMac : storage.piMac;
+
+  /// The friendly name of the Raspberry Pi vehicle hub.
+  String get piName => _piName;
+
+  /// Returns the Pi vehicle device info if known.
+  BtDeviceInfo? get piDevice {
+    final mac = piMac;
+    if (mac.isEmpty) return null;
+    return _discoveredDevices[mac] ??
+        _pairedDevices.cast<BtDeviceInfo?>().firstWhere(
+              (d) => d?.mac.toUpperCase() == mac.toUpperCase(),
+              orElse: () => BtDeviceInfo(
+                mac: mac,
+                name: piName,
+                isBonded: _pairedDevices.any((d) => d.mac.toUpperCase() == mac.toUpperCase()),
+              ),
+            );
+  }
 
   /// Indicates whether device discovery scanning is currently active.
   bool get isDiscovering => _isDiscovering;
@@ -111,9 +135,44 @@ class BluetoothCoordinator extends ChangeNotifier {
     return false;
   }
 
+  /// Handles discovery of the Raspberry Pi vehicle hub over Wi-Fi/WS.
+  void handlePiDiscovered(String mac, String name) {
+    if (mac.isEmpty) return;
+    final cleanMac = mac.trim().toUpperCase();
+    final cleanName = name.trim().isNotEmpty ? name.trim() : 'ICarMeter';
+    _piMac = cleanMac;
+    _piName = cleanName;
+    storage.setPiMac(cleanMac);
+
+    final isBonded = _pairedDevices.any((d) => d.mac.toUpperCase() == cleanMac);
+    _discoveredDevices[cleanMac] = BtDeviceInfo(
+      mac: cleanMac,
+      name: cleanName,
+      rssi: 0,
+      isBonded: isBonded,
+    );
+
+    logService.addLog('[MATCH] Đã nhận diện xe $cleanName ($cleanMac)');
+    notifyListeners();
+
+    // Auto-connect if auto-reconnect is enabled and not yet connected/connecting
+    if (storage.autoReconnect && !_isConnected && !_isConnecting) {
+      logService.addLog('[MATCH] Tự động kết nối Bluetooth với xe $cleanMac...');
+      connectToPi(cleanMac);
+    }
+  }
+
   /// Parses and stores the updated list of paired devices received from the hub.
   void handleBtStatusMessage(Map<String, dynamic> msg) {
     final data = (msg['data'] as Map<String, dynamic>?) ?? msg;
+
+    // Check if Pi's own Bluetooth MAC was included
+    final hubMac = ((data['pi_mac'] ?? msg['pi_mac']) as String? ?? '').trim().toUpperCase();
+    if (hubMac.isNotEmpty) {
+      final hubName = ((data['pi_name'] ?? msg['pi_name']) as String? ?? 'ICarMeter').trim();
+      handlePiDiscovered(hubMac, hubName);
+    }
+
     final paired = (data['paired_devices'] as List<dynamic>?) ?? [];
     _pairedDevices = paired.map((item) {
       final m = Map<String, dynamic>.from(item as Map);
@@ -177,6 +236,18 @@ class BluetoothCoordinator extends ChangeNotifier {
     final cmd = {'type': 'get_bt_status'};
     if (_isConnected) sendBtCommand(cmd);
     wifiWs.send(cmd);
+    wifiWs.send({'type': 'match_pi'});
+  }
+
+  /// Sends a matching command to identify and pair with the Raspberry Pi.
+  Future<void> matchWithPi() async {
+    logService.addLog('[MATCH] Bắt đầu nhận diện & ghép nối với Pi qua Wi-Fi...');
+    wifiWs.send({'type': 'match_pi'});
+    wifiWs.send({'type': 'get_bt_status'});
+    final mac = piMac;
+    if (mac.isNotEmpty && !_isConnected && !_isConnecting) {
+      await connectToPi(mac);
+    }
   }
 
   /// Starts Bluetooth discovery scan to search for nearby wireless devices.
