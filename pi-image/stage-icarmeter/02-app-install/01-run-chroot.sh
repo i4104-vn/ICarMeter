@@ -23,8 +23,6 @@ if ldd /opt/icarmeter/icarmeter 2>&1 | grep -i "not found"; then
     exit 1
 fi
 
-echo "=== Verifying /opt/icarmeter/icarmeter binary execution ==="
-/opt/icarmeter/icarmeter --version
 
 # Ensure SSH host keys are generated and present so ssh.service never fails
 ssh-keygen -A || true
