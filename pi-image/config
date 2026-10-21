@@ -22,7 +22,6 @@ LOCALE_DEFAULT="en_US.UTF-8"
 TIMEZONE_DEFAULT="Asia/Ho_Chi_Minh"
 KEYBOARD_KEYMAP="us"
 KEYBOARD_LAYOUT="English (US)"
-WPA_COUNTRY="VN"
 
 # Output Archive Format (none to output raw .img ready for flashing without unzipping)
 DEPLOY_COMPRESSION="none"

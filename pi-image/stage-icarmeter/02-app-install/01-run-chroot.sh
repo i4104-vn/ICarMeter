@@ -62,69 +62,15 @@ EOF
 # Set system machine-info pretty hostname
 echo 'PRETTY_HOSTNAME="ICarMeter"' > /etc/machine-info
 
-# Hardware Wi-Fi stability: disable power saving and roaming in Broadcom driver
-mkdir -p /etc/modprobe.d
-cat << 'EOF' > /etc/modprobe.d/brcmfmac.conf
-options brcmfmac roamoff=1 feature_disable=0x82000
-EOF
-
-# Udev rule: immediately turn off power management on wlan interfaces
-mkdir -p /etc/udev/rules.d
-cat << 'EOF' > /etc/udev/rules.d/80-wifi-powersave.rules
-ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan*", RUN+="/sbin/iw dev %k set power_save off"
-EOF
-
-# Ensure scripts and NetworkManager hotspot connection have proper permissions
+# Ensure Bluetooth scripts and configuration have proper permissions
 chmod 755 /opt/icarmeter/icarmeter-bt-init.sh 2>/dev/null || true
-chmod 755 /opt/icarmeter/icarmeter-wifi-init.sh 2>/dev/null || true
 chmod 755 /opt/icarmeter/icarmeter-api.py 2>/dev/null || true
 chmod 755 /opt/icarmeter/icarmeter-bt-agent.py 2>/dev/null || true
 chmod 666 /opt/icarmeter/config.toml 2>/dev/null || true
 mkdir -p /home/${FIRST_USER_NAME}/.config/icarmeter 2>/dev/null || true
 chmod 777 /home/${FIRST_USER_NAME}/.config/icarmeter 2>/dev/null || true
 chmod 666 /home/${FIRST_USER_NAME}/.config/icarmeter/config.toml 2>/dev/null || true
-chmod 600 /etc/NetworkManager/system-connections/icarmeter-hotspot.nmconnection 2>/dev/null || true
 touch /var/log/icarmeter-bluetooth.log && chmod 666 /var/log/icarmeter-bluetooth.log 2>/dev/null || true
-
-# Ensure Wi-Fi is enabled in NetworkManager state
-mkdir -p /var/lib/NetworkManager
-cat << 'EOF' > /var/lib/NetworkManager/NetworkManager.state
-[main]
-NetworkingEnabled=true
-WirelessEnabled=true
-WWANEnabled=true
-EOF
-
-# Set Wi-Fi country code to unblock wireless bands
-raspi-config nonint do_wifi_country VN 2>/dev/null || true
-
-# Offline mode optimizations: do not block or wait for external internet on boot
-systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
-systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
-
-# Prevent the system-level dnsmasq.service from conflicting with
-# NetworkManager's own dnsmasq instance (method=shared spawns its own).
-systemctl disable dnsmasq.service 2>/dev/null || true
-systemctl mask dnsmasq.service 2>/dev/null || true
-
-# Configure NetworkManager: disable background wifi scanning and force powersave off
-mkdir -p /etc/NetworkManager/conf.d
-cat << 'EOF' > /etc/NetworkManager/conf.d/10-icarmeter-hotspot.conf
-[device]
-# Prevent NM from auto-scanning for station-mode wifi networks on wlan0.
-wifi.scan-rand-mac-address=no
-
-[connection]
-wifi.powersave=2
-
-[main]
-# Use internal DHCP client for reliability
-dhcp=internal
-EOF
-
-# Do not let a dispatcher callback race the hotspot watchdog during radio
-# bring-up or recovery. The hotspot service is the single activation owner.
-rm -f /etc/NetworkManager/dispatcher.d/99-icarmeter-hotspot
 
 # Boot flow: Plymouth -> tty1 autologin -> /etc/profile.d dashboard launcher.
 # Keep getty enabled; it also restarts the dashboard session after a crash.
@@ -147,5 +93,4 @@ systemctl enable bluetooth.service 2>/dev/null || true
 systemctl enable hciuart.service 2>/dev/null || true
 systemctl enable icarmeter-bluetooth.service || true
 systemctl enable icarmeter-bt-agent.service || true
-systemctl enable icarmeter-hotspot.service || true
 systemctl enable icarmeter-api.service || true

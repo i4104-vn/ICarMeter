@@ -1,7 +1,7 @@
 [Unit]
-Description=ICarMeter Mobile Companion Wi-Fi API Service
-After=network.target NetworkManager.service icarmeter-hotspot.service
-Wants=icarmeter-hotspot.service
+Description=ICarMeter Bluetooth RFCOMM/SPP service
+After=bluetooth.service icarmeter-bluetooth.service
+Wants=icarmeter-bluetooth.service
 
 [Service]
 Type=simple

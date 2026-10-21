@@ -1,7 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Initialize onboard Bluetooth controller strictly for TPMS LE sensor scanning.
-# Classic BT discovery/pairing and BLE GATT peripheral modes are disabled.
+# Initialize the onboard Bluetooth controller for TPMS and RFCOMM/SPP.
 # ==============================================================================
 set -u
 
@@ -14,13 +13,6 @@ log_bt() {
 log_bt "Initializing Bluetooth adapter for TPMS sensor scanning..."
 rfkill unblock bluetooth 2>/dev/null || true
 
-# Give the shared onboard radio time to establish the Wi-Fi AP first. If Wi-Fi
-# is unavailable, continue anyway so Bluetooth TPMS/SPP can still work.
-for i in $(seq 1 60); do
-    [ -e /dev/shm/icarmeter_hotspot_active ] && break
-    sleep 1
-done
-
 controller_found=0
 uart_restart_attempted=0
 for i in $(seq 1 60); do
@@ -29,8 +21,7 @@ for i in $(seq 1 60); do
         controller_found=1
         break
     fi
-    # Restart hciuart only once. Repeated resets can keep the shared radio
-    # unavailable while Wi-Fi is also bringing up its access point.
+    # Restart hciuart only once if the controller has not appeared yet.
     if [ "$i" -eq 15 ] && [ "$uart_restart_attempted" -eq 0 ]; then
         rfkill unblock bluetooth 2>/dev/null || true
         systemctl restart hciuart.service 2>/dev/null || true
