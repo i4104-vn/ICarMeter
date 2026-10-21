@@ -201,19 +201,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
-name = "icarmeter"
-version = "0.0.0"
-dependencies = [
- "fontdue",
- "libc",
- "maplibre_native",
- "memmap2",
- "serde_json",
- "tiny-skia",
- "url",
-]
-
-[[package]]
 name = "cc"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -843,6 +830,19 @@ dependencies = [
  "tokio",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "icarmeter"
+version = "0.0.0"
+dependencies = [
+ "fontdue",
+ "libc",
+ "maplibre_native",
+ "memmap2",
+ "serde_json",
+ "tiny-skia",
+ "url",
 ]
 
 [[package]]

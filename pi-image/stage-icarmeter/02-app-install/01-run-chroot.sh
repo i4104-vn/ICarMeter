@@ -12,9 +12,19 @@ fi
 chmod 755 /opt/icarmeter/icarmeter
 setcap 'cap_net_raw,cap_net_admin+eip' /opt/icarmeter/icarmeter 2>/dev/null || true
 
-# Setup convenience symlinks in PATH
+# Setup convenience symlink in PATH
 ln -sf /opt/icarmeter/icarmeter /usr/local/bin/icarmeter
-ln -sf /opt/icarmeter/icarmeter /usr/local/bin/icarmeter
+
+# Verify dynamic library linkage and execution
+echo "=== Verifying dynamic libraries for /opt/icarmeter/icarmeter ==="
+ldd /opt/icarmeter/icarmeter || true
+if ldd /opt/icarmeter/icarmeter 2>&1 | grep -i "not found"; then
+    echo "ERROR: /opt/icarmeter/icarmeter has missing shared libraries in rootfs!" >&2
+    exit 1
+fi
+
+echo "=== Verifying /opt/icarmeter/icarmeter binary execution ==="
+/opt/icarmeter/icarmeter --version
 
 # Ensure SSH host keys are generated and present so ssh.service never fails
 ssh-keygen -A || true

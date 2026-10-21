@@ -12,6 +12,9 @@ python3-gi
 libcurl4
 libegl1
 libgl1
+libgl1-mesa-dri
+libgles2
+libgbm1
 libicu72
 libjpeg62-turbo
 libpng16-16

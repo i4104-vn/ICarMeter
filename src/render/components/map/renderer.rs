@@ -6,7 +6,7 @@ use crate::render::core::FontRenderer;
 use maplibre_native::{CameraUpdate, ImageRendererBuilder, LatLng};
 use serde_json::Value;
 use std::num::NonZeroU32;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -278,12 +278,6 @@ fn map_worker(
     requests: Receiver<CameraRequest>,
     frames: SyncSender<MapFrame>,
 ) {
-    let mut renderer = ImageRendererBuilder::new()
-        .with_size(
-            NonZeroU32::new(RENDER_W).unwrap(),
-            NonZeroU32::new(RENDER_H).unwrap(),
-        )
-        .build_continuous_renderer();
     let style_path = match std::fs::canonicalize(&style_path) {
         Ok(path) => path,
         Err(error) => {
@@ -322,6 +316,17 @@ fn map_worker(
             return;
         }
     };
+
+    // This worker produces one complete snapshot at a time. Validate the
+    // style input before creating MapLibre's native graphics context; a
+    // missing/invalid style must degrade to the panel background, not take
+    // down the framebuffer process during renderer startup.
+    let mut renderer = ImageRendererBuilder::new()
+        .with_size(
+            NonZeroU32::new(RENDER_W).unwrap(),
+            NonZeroU32::new(RENDER_H).unwrap(),
+        )
+        .build_static_renderer();
     if let Err(error) = renderer.load_style_from_url(&style_uri).wait() {
         eprintln!("Failed to load offline MapLibre style: {error}");
         return;
@@ -331,26 +336,23 @@ fn map_worker(
         while let Ok(newer) = requests.try_recv() {
             camera = newer;
         }
-        renderer.update_camera(
-            &CameraUpdate::new()
-                .center(LatLng {
-                    lat: camera.latitude,
-                    lng: camera.longitude,
-                })
-                .zoom(MAP_ZOOM)
-                .bearing(camera.heading),
-        );
-
-        // A few short run-loop pumps let local MBTiles requests settle. The
-        // worker then sleeps until another 3 m camera update arrives.
-        for _ in 0..3 {
-            renderer.render_once();
-            thread::sleep(Duration::from_millis(25));
-        }
-        let image = renderer.read_still_image();
+        let camera_update = CameraUpdate::new()
+            .center(LatLng {
+                lat: camera.latitude,
+                lng: camera.longitude,
+            })
+            .zoom(MAP_ZOOM)
+            .bearing(camera.heading);
+        let image = match renderer.render_static(&camera_update) {
+            Ok(image) => image,
+            Err(error) => {
+                eprintln!("MapLibre snapshot failed: {error}");
+                continue;
+            }
+        };
         match frames.try_send(MapFrame {
             center: camera,
-            pixels: image.buffer().to_vec(),
+            pixels: image.as_image().as_raw().to_vec(),
         }) {
             Ok(()) | Err(TrySendError::Full(_)) => {}
             Err(TrySendError::Disconnected(_)) => return,
@@ -536,6 +538,17 @@ fn validate_offline_style(style: &Value) -> Result<(), String> {
                 return Err(format!(
                     "resource '{resource}' is remote; use local files or MBTiles"
                 ));
+            }
+            Value::String(resource) if key == Some("url") && resource.starts_with("mbtiles://") => {
+                let uri = Url::parse(resource)
+                    .map_err(|error| format!("invalid MBTiles URL '{resource}': {error}"))?;
+                let path = Path::new(uri.path());
+                if !path.is_file() {
+                    return Err(format!(
+                        "MBTiles resource '{}' does not exist",
+                        path.display()
+                    ));
+                }
             }
             _ => {}
         }
