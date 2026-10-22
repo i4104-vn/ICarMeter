@@ -1,8 +1,9 @@
 // Main Application Controller managing state and render cycle on Raspberry Pi OS
 
-use crate::configs::AppConfig;
+use crate::configs::app::AppConfig;
 use crate::controllers::demo::DemoGps;
-use crate::models::VehicleState;
+use crate::models::bluetooth::state::BluetoothSharedState;
+use crate::models::vehicle::state::VehicleState;
 use crate::render::DashboardRenderer;
 use crate::services::{FramebufferBackend, TelemetryService, is_app_running};
 use std::thread;
@@ -19,24 +20,24 @@ impl AppController {
             AppConfig::path().display()
         );
 
-        let mut state = VehicleState::new();
+        let mut state = VehicleState::default();
         state.tpms_enabled = config.tpms.enabled;
         state.tires.low_pressure_alert = config.tpms.low_pressure_alert;
         state.tires.high_temp_alert = config.tpms.high_temp_alert;
         let mut demo_gps = DemoGps::new();
 
-        // 2. Initialize real telemetry service (GPS & Bluetooth sensors)
-        let mut telemetry = TelemetryService::new(&config);
-
-        // 3. Initialize native Bluetooth RFCOMM server for mobile companion app
-        let bt_shared_state = crate::services::BluetoothSharedState::new();
+        // 2. Initialize native Bluetooth RFCOMM server for mobile companion app
+        let bt_shared_state = BluetoothSharedState::new();
         let _bt_server = crate::services::BluetoothServer::start(bt_shared_state.clone());
 
-        // 3. Initialize UI renderer
+        // 3. Initialize real telemetry service (GPS & Bluetooth sensors)
+        let mut telemetry = TelemetryService::new(&config, Some(bt_shared_state.clone()));
+
+        // 4. Initialize UI renderer
         let mut renderer = DashboardRenderer::new()
             .map_err(|e| format!("Renderer initialization failed: {}", e))?;
 
-        // 4. Initialize Raspberry Pi framebuffer
+        // 5. Initialize Raspberry Pi framebuffer
         let mut backend = FramebufferBackend::open(&config.display.framebuffer_device)
             .map_err(|e| format!("Failed to initialize framebuffer backend: {}", e))?;
 
@@ -45,7 +46,7 @@ impl AppController {
         let mut last_time = Instant::now();
         let mut last_config_check = Instant::now();
         let mut last_config_mtime = AppConfig::last_modified();
-        let mut last_tpms_shm_write = Instant::now();
+        let mut last_tpms_publish = Instant::now();
 
         while backend.is_open() && is_app_running() {
             // Check and re-read config.toml dynamically in real time
@@ -102,24 +103,10 @@ impl AppController {
             demo_gps.update(&mut state, dt);
             state.update_trip(dt);
 
-            // Expose real-time TPMS telemetry to native Bluetooth server and shared memory
-            if last_tpms_shm_write.elapsed() >= Duration::from_millis(250) {
-                last_tpms_shm_write = Instant::now();
+            // Expose real-time TPMS telemetry to native Bluetooth server
+            if last_tpms_publish.elapsed() >= Duration::from_millis(250) {
+                last_tpms_publish = Instant::now();
                 bt_shared_state.set_tires(&state.tires);
-                let tpms_json = format!(
-                    "{{\"fl\":{:.2},\"fr\":{:.2},\"rl\":{:.2},\"rr\":{:.2},\"fl_temp\":{:.1},\"fr_temp\":{:.1},\"rl_temp\":{:.1},\"rr_temp\":{:.1},\"alert\":{:.2},\"high_temp_alert\":{:.1}}}",
-                    state.tires.fl,
-                    state.tires.fr,
-                    state.tires.rl,
-                    state.tires.rr,
-                    state.tires.fl_temp,
-                    state.tires.fr_temp,
-                    state.tires.rl_temp,
-                    state.tires.rr_temp,
-                    state.tires.low_pressure_alert,
-                    state.tires.high_temp_alert
-                );
-                let _ = std::fs::write("/dev/shm/icarmeter_tpms_telemetry", tpms_json);
             }
 
             // Render frame to pixel buffer

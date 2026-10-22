@@ -4,7 +4,7 @@
 //! across the entire application. If the file does not exist, it is automatically
 //! created with default settings and read/write permissions for all users (0o666).
 
-use super::AppConfig;
+use super::app::AppConfig;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
