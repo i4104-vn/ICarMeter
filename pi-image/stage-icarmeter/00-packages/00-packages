@@ -3,8 +3,6 @@ plymouth-themes
 pix-plym-splash
 libcap2-bin
 fontconfig
-python3-dbus
-python3-gi
 libcurl4
 libegl1
 libgl1

@@ -5,7 +5,7 @@ After=bluetooth.service icarmeter-bluetooth.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /opt/icarmeter/icarmeter-bt-agent.py
+ExecStart=/usr/bin/bt-agent --capability=NoInputNoOutput
 Restart=always
 RestartSec=3
 

@@ -28,6 +28,10 @@ impl AppController {
         // 2. Initialize real telemetry service (GPS & Bluetooth sensors)
         let mut telemetry = TelemetryService::new(&config);
 
+        // 3. Initialize native Bluetooth RFCOMM server for mobile companion app
+        let bt_shared_state = crate::services::BluetoothSharedState::new();
+        let _bt_server = crate::services::BluetoothServer::start(bt_shared_state.clone());
+
         // 3. Initialize UI renderer
         let mut renderer = DashboardRenderer::new()
             .map_err(|e| format!("Renderer initialization failed: {}", e))?;
@@ -98,9 +102,10 @@ impl AppController {
             demo_gps.update(&mut state, dt);
             state.update_trip(dt);
 
-            // Expose real-time TPMS telemetry to shared memory for companion Bluetooth sync
+            // Expose real-time TPMS telemetry to native Bluetooth server and shared memory
             if last_tpms_shm_write.elapsed() >= Duration::from_millis(250) {
                 last_tpms_shm_write = Instant::now();
+                bt_shared_state.set_tires(&state.tires);
                 let tpms_json = format!(
                     "{{\"fl\":{:.2},\"fr\":{:.2},\"rl\":{:.2},\"rr\":{:.2},\"fl_temp\":{:.1},\"fr_temp\":{:.1},\"rl_temp\":{:.1},\"rr_temp\":{:.1},\"alert\":{:.2},\"high_temp_alert\":{:.1}}}",
                     state.tires.fl,

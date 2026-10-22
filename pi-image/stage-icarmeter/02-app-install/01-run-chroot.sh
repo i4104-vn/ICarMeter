@@ -66,8 +66,6 @@ echo 'PRETTY_HOSTNAME="ICarMeter"' > /etc/machine-info
 
 # Ensure Bluetooth scripts and configuration have proper permissions
 chmod 755 /opt/icarmeter/icarmeter-bt-init.sh 2>/dev/null || true
-chmod 755 /opt/icarmeter/icarmeter-api.py 2>/dev/null || true
-chmod 755 /opt/icarmeter/icarmeter-bt-agent.py 2>/dev/null || true
 chmod 666 /opt/icarmeter/config.toml 2>/dev/null || true
 mkdir -p /home/${FIRST_USER_NAME}/.config/icarmeter 2>/dev/null || true
 chmod 777 /home/${FIRST_USER_NAME}/.config/icarmeter 2>/dev/null || true
@@ -95,4 +93,3 @@ systemctl enable bluetooth.service 2>/dev/null || true
 systemctl enable hciuart.service 2>/dev/null || true
 systemctl enable icarmeter-bluetooth.service || true
 systemctl enable icarmeter-bt-agent.service || true
-systemctl enable icarmeter-api.service || true
