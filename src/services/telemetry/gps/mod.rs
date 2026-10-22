@@ -2,7 +2,8 @@
 
 pub mod nmea;
 
-use nmea::{GpsUpdate, parse_nmea_update};
+use crate::models::gps::update::GpsUpdate;
+use nmea::parse_nmea_update;
 use std::fs::{File, OpenOptions};
 use std::os::unix::io::AsRawFd;
 use std::time::{Duration, Instant};
@@ -140,11 +141,5 @@ impl GpsReceiver {
         }
 
         latest_update
-    }
-
-    /// Reads available NMEA bytes and returns updated speed (km/h) if a valid sentence was received
-    #[allow(dead_code)]
-    pub fn poll_speed(&mut self) -> Option<f32> {
-        self.poll_update().and_then(|u| u.speed_kmh)
     }
 }

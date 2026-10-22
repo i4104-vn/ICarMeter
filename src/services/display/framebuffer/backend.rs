@@ -1,9 +1,9 @@
 //! Linux framebuffer backend for Raspberry Pi OS TTY consoles.
 
-use super::info::{
+use crate::configs::display::{SCREEN_HEIGHT, SCREEN_WIDTH};
+use crate::models::display::framebuffer::{
     FBIOGET_FSCREENINFO, FBIOGET_VSCREENINFO, FBIOPUT_VSCREENINFO, FbFixScreeninfo, FbVarScreeninfo,
 };
-use crate::configs::display::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use crate::services::input::{TtyManager, is_app_running};
 use memmap2::MmapMut;
 use std::fs::{File, OpenOptions};

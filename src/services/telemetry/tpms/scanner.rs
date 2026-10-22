@@ -1,25 +1,18 @@
 // Background Bluetooth LE scanner loop capturing advertising packets
 
-use super::decoder::{decode_tpms_pressure, decode_tpms_temperature, matches_sensor_id};
-use super::hci_socket::{EVT_LE_ADVERTISING_REPORT, EVT_LE_META_EVENT, HCI_EVENT_PKT, HciSocket};
-use crate::configs::app::BleTpmsConfig;
-use crate::services::telemetry::bt_log::log_bt;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
-#[derive(Default, Clone, Copy)]
-pub struct SharedTirePressures {
-    pub fl: f32,
-    pub fr: f32,
-    pub rl: f32,
-    pub rr: f32,
-    pub fl_temp: f32,
-    pub fr_temp: f32,
-    pub rl_temp: f32,
-    pub rr_temp: f32,
-}
+use super::decoder::{decode_tpms_pressure, decode_tpms_temperature, matches_sensor_id};
+use super::hci_socket::HciSocket;
+use crate::configs::app::BleTpmsConfig;
+use crate::models::bluetooth::socket::{
+    EVT_LE_ADVERTISING_REPORT, EVT_LE_META_EVENT, HCI_EVENT_PKT,
+};
+use crate::models::tpms::shared::SharedTirePressures;
+use crate::services::telemetry::bt_log::log_bt;
 
 /// Continuous BLE advertising packet receiver loop running in background thread
 pub fn run_ble_scanner_loop(

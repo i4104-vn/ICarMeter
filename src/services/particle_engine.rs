@@ -1,6 +1,6 @@
 // Particle engine: straight-line inward suction physics & density scaling
 
-use crate::models::Particle;
+use crate::models::particle::particle::Particle;
 
 pub const MAX_PARTICLES: usize = 180;
 pub const PARTICLE_TERMINAL_DISTANCE: f32 = 96.0;

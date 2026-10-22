@@ -1,10 +1,10 @@
 //! JSON messaging protocol between ICarMeter and mobile companion app.
 
+use crate::configs::app::AppConfig;
+use crate::models::tpms::pressures::TirePressures;
+use serde_json::{Value, json};
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde_json::{json, Value};
-use crate::configs::AppConfig;
-use crate::models::tpms::TirePressures;
 
 pub fn now_timestamp() -> u64 {
     SystemTime::now()
@@ -40,8 +40,9 @@ pub fn read_config_json() -> Value {
 
 pub fn update_config_toml(payload: &Value) -> Result<(), String> {
     let path = AppConfig::path();
-    let content = fs::read_to_string(path).unwrap_or_else(|_| crate::configs::config::DEFAULT_CONFIG_CONTENT.to_string());
-    
+    let content = fs::read_to_string(path)
+        .unwrap_or_else(|_| crate::configs::config::DEFAULT_CONFIG_CONTENT.to_string());
+
     let mut new_lines = Vec::new();
     let mut in_section = "";
 
@@ -57,14 +58,32 @@ pub fn update_config_toml(payload: &Value) -> Result<(), String> {
             if let Some((k, _)) = line.split_once('=') {
                 let key = k.trim();
                 let updated_line = match key {
-                    "fl_sensor" => payload.get("fl").and_then(|v| v.as_str()).map(|v| format!("fl_sensor = \"{}\"", v)),
-                    "fr_sensor" => payload.get("fr").and_then(|v| v.as_str()).map(|v| format!("fr_sensor = \"{}\"", v)),
-                    "rl_sensor" => payload.get("rl").and_then(|v| v.as_str()).map(|v| format!("rl_sensor = \"{}\"", v)),
-                    "rr_sensor" => payload.get("rr").and_then(|v| v.as_str()).map(|v| format!("rr_sensor = \"{}\"", v)),
-                    "low_pressure_alert" => payload.get("alert").or_else(|| payload.get("low_pressure_alert"))
-                        .and_then(|v| v.as_f64()).map(|v| format!("low_pressure_alert = {:.1}", v)),
-                    "high_temp_alert" => payload.get("high_temp_alert").or_else(|| payload.get("temp_alert"))
-                        .and_then(|v| v.as_f64()).map(|v| format!("high_temp_alert = {:.1}", v)),
+                    "fl_sensor" => payload
+                        .get("fl")
+                        .and_then(|v| v.as_str())
+                        .map(|v| format!("fl_sensor = \"{}\"", v)),
+                    "fr_sensor" => payload
+                        .get("fr")
+                        .and_then(|v| v.as_str())
+                        .map(|v| format!("fr_sensor = \"{}\"", v)),
+                    "rl_sensor" => payload
+                        .get("rl")
+                        .and_then(|v| v.as_str())
+                        .map(|v| format!("rl_sensor = \"{}\"", v)),
+                    "rr_sensor" => payload
+                        .get("rr")
+                        .and_then(|v| v.as_str())
+                        .map(|v| format!("rr_sensor = \"{}\"", v)),
+                    "low_pressure_alert" => payload
+                        .get("alert")
+                        .or_else(|| payload.get("low_pressure_alert"))
+                        .and_then(|v| v.as_f64())
+                        .map(|v| format!("low_pressure_alert = {:.1}", v)),
+                    "high_temp_alert" => payload
+                        .get("high_temp_alert")
+                        .or_else(|| payload.get("temp_alert"))
+                        .and_then(|v| v.as_f64())
+                        .map(|v| format!("high_temp_alert = {:.1}", v)),
                     _ => None,
                 };
 

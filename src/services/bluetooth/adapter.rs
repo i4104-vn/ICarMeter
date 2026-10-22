@@ -1,12 +1,10 @@
 //! Host Bluetooth controller query and D-Bus management utilities for BlueZ.
 
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
-use std::process::Command;
-use serde_json::{json, Value};
 use zbus::blocking::{Connection, Proxy};
-use zbus::zvariant::{OwnedObjectPath, OwnedValue};
+use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue};
 
 pub const DEFAULT_ADAPTER: &str = "hci0";
 const BLUEZ_SERVICE: &str = "org.bluez";
@@ -19,7 +17,7 @@ pub fn get_local_mac(adapter: &str) -> String {
     // 1. Try D-Bus query to org.bluez.Adapter1.Address
     if let Ok(conn) = Connection::system() {
         let path = format!("/org/bluez/{}", adapter);
-        if let Ok(proxy) = Proxy::new(&conn, BLUEZ_SERVICE, &path, ADAPTER_INTERFACE) {
+        if let Ok(proxy) = Proxy::new(&conn, BLUEZ_SERVICE, path.as_str(), ADAPTER_INTERFACE) {
             if let Ok(addr) = proxy.get_property::<String>("Address") {
                 let clean = addr.trim().to_uppercase();
                 if !clean.is_empty() {
@@ -43,11 +41,9 @@ pub fn get_local_mac(adapter: &str) -> String {
 
 /// Ensures Bluetooth adapter is powered, named ICarMeter, discoverable, and pairable via BlueZ D-Bus.
 pub fn ensure_adapter_ready(adapter: &str) {
-    let _ = Command::new("rfkill").args(["unblock", "bluetooth"]).output();
-
     if let Ok(conn) = Connection::system() {
         let path = format!("/org/bluez/{}", adapter);
-        if let Ok(proxy) = Proxy::new(&conn, BLUEZ_SERVICE, &path, ADAPTER_INTERFACE) {
+        if let Ok(proxy) = Proxy::new(&conn, BLUEZ_SERVICE, path.as_str(), ADAPTER_INTERFACE) {
             let _ = proxy.set_property("Powered", true);
             let _ = proxy.set_property("Alias", "ICarMeter");
             let _ = proxy.set_property("DiscoverableTimeout", 0u32);
@@ -55,12 +51,6 @@ pub fn ensure_adapter_ready(adapter: &str) {
             let _ = proxy.set_property("Discoverable", true);
             let _ = proxy.set_property("Pairable", true);
         }
-    }
-
-    // Ensure hardware-level Page Scan & Inquiry Scan (PSCAN ISCAN) so phones can discover the controller
-    if Path::new("/usr/bin/hciconfig").exists() {
-        let _ = Command::new("hciconfig").args([adapter, "up"]).output();
-        let _ = Command::new("hciconfig").args([adapter, "piscan"]).output();
     }
 }
 
@@ -76,7 +66,10 @@ pub fn get_paired_devices() -> Vec<Value> {
     };
 
     type ManagedObjects = HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>;
-    let Ok(objects) = proxy.call_method::<(), ManagedObjects>("GetManagedObjects", &()) else {
+    let Ok(reply) = proxy.call_method("GetManagedObjects", &()) else {
+        return devices;
+    };
+    let Ok(objects) = reply.body().deserialize::<ManagedObjects>() else {
         return devices;
     };
 
@@ -84,20 +77,24 @@ pub fn get_paired_devices() -> Vec<Value> {
         if let Some(dev_props) = interfaces.get(DEVICE_INTERFACE) {
             let is_paired = dev_props
                 .get("Paired")
-                .and_then(|v| bool::try_from(v).ok())
-                .unwrap_or(false);
+                .map_or(false, |v| matches!(&**v, zbus::zvariant::Value::Bool(true)));
 
             if is_paired {
                 let mac = dev_props
                     .get("Address")
-                    .and_then(|v| String::try_from(v).ok())
-                    .unwrap_or_default()
-                    .to_uppercase();
+                    .and_then(|v| match &**v {
+                        zbus::zvariant::Value::Str(s) => Some(s.as_str().to_uppercase()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
 
                 let name = dev_props
                     .get("Alias")
                     .or_else(|| dev_props.get("Name"))
-                    .and_then(|v| String::try_from(v).ok())
+                    .and_then(|v| match &**v {
+                        zbus::zvariant::Value::Str(s) => Some(s.as_str().to_string()),
+                        _ => None,
+                    })
                     .unwrap_or_else(|| format!("Device ({})", mac));
 
                 devices.push(json!({
@@ -116,7 +113,7 @@ pub fn get_paired_devices() -> Vec<Value> {
 pub fn start_discovery() {
     if let Ok(conn) = Connection::system() {
         if let Ok(proxy) = Proxy::new(&conn, BLUEZ_SERVICE, "/org/bluez/hci0", ADAPTER_INTERFACE) {
-            let _ = proxy.call_method::<(), ()>("StartDiscovery", &());
+            let _ = proxy.call_method("StartDiscovery", &());
         }
     }
 }
@@ -125,7 +122,7 @@ pub fn start_discovery() {
 pub fn stop_discovery() {
     if let Ok(conn) = Connection::system() {
         if let Ok(proxy) = Proxy::new(&conn, BLUEZ_SERVICE, "/org/bluez/hci0", ADAPTER_INTERFACE) {
-            let _ = proxy.call_method::<(), ()>("StopDiscovery", &());
+            let _ = proxy.call_method("StopDiscovery", &());
         }
     }
 }
@@ -141,11 +138,11 @@ pub fn unpair_device(mac: &str) -> bool {
 
     let dev_subpath = mac.replace(':', "_").to_uppercase();
     let dev_obj_path = format!("/org/bluez/hci0/dev_{}", dev_subpath);
-    let Ok(obj_path) = zbus::zvariant::ObjectPath::try_from(dev_obj_path.as_str()) else {
+    let Ok(obj_path) = ObjectPath::try_from(dev_obj_path.as_str()) else {
         return false;
     };
 
-    proxy.call_method::<&zbus::zvariant::ObjectPath, ()>("RemoveDevice", &obj_path).is_ok()
+    proxy.call_method("RemoveDevice", &(obj_path,)).is_ok()
 }
 
 /// Pairs a target Bluetooth device using BlueZ D-Bus Device1.Pair.
@@ -157,11 +154,16 @@ pub fn pair_device(mac: &str) -> (bool, String) {
     let dev_subpath = mac.replace(':', "_").to_uppercase();
     let dev_obj_path = format!("/org/bluez/hci0/dev_{}", dev_subpath);
 
-    let Ok(proxy) = Proxy::new(&conn, BLUEZ_SERVICE, &dev_obj_path, DEVICE_INTERFACE) else {
+    let Ok(proxy) = Proxy::new(
+        &conn,
+        BLUEZ_SERVICE,
+        dev_obj_path.as_str(),
+        DEVICE_INTERFACE,
+    ) else {
         return (false, "Device not found on D-Bus".to_string());
     };
 
-    match proxy.call_method::<(), ()>("Pair", &()) {
+    match proxy.call_method("Pair", &()) {
         Ok(_) => (true, "Pairing successful".to_string()),
         Err(e) => (false, e.to_string()),
     }

@@ -5,8 +5,9 @@ pub mod hci_socket;
 pub mod scanner;
 
 use crate::configs::app::BleTpmsConfig;
-use crate::models::VehicleState;
-use scanner::{SharedTirePressures, run_ble_scanner_loop};
+use crate::models::tpms::shared::SharedTirePressures;
+use crate::models::vehicle::state::VehicleState;
+use scanner::run_ble_scanner_loop;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 

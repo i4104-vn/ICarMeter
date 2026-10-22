@@ -1,20 +1,17 @@
 //! Dedicated connection handler processing commands from connected mobile companion app.
 
-use std::fs;
+use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use serde_json::{json, Value};
+use std::time::Duration;
 
 use super::adapter;
 use super::protocol;
 use super::server::Broadcaster;
 use super::socket::RfcommStream;
-use super::state::{BluetoothSharedState, PhoneGpsData};
+use crate::models::bluetooth::state::BluetoothSharedState;
+use crate::models::gps::phone::PhoneGpsData;
 use crate::services::telemetry::bt_log::{log_bt, read_recent_bt_logs};
-
-const APP_CONNECTED_MARKER: &str = "/dev/shm/icarmeter_app_connected";
-const PHONE_TELEMETRY_MARKER: &str = "/dev/shm/icarmeter_phone_telemetry";
 
 pub fn handle_client(
     mut stream: RfcommStream,
@@ -26,7 +23,6 @@ pub fn handle_client(
     let _ = stream.set_read_timeout(Some(Duration::from_secs(60)));
 
     shared_state.set_client_connected(&peer_addr);
-    let _ = fs::write(APP_CONNECTED_MARKER, &peer_addr);
 
     let pi_mac = adapter::get_local_mac(adapter::DEFAULT_ADAPTER);
     let welcome = protocol::build_welcome(&pi_mac, "ICarMeter");
@@ -35,7 +31,10 @@ pub fn handle_client(
     let reader_stream = match stream.try_clone() {
         Ok(s) => s,
         Err(e) => {
-            log_bt("BT-RFCOMM", &format!("Failed to clone stream for reader: {}", e));
+            log_bt(
+                "BT-RFCOMM",
+                &format!("Failed to clone stream for reader: {}", e),
+            );
             cleanup_client(&shared_state);
             return;
         }
@@ -55,18 +54,14 @@ pub fn handle_client(
                 }
 
                 if let Ok(msg) = serde_json::from_str::<Value>(trimmed) {
-                    process_message(
-                        &mut stream,
-                        &msg,
-                        &pi_mac,
-                        &shared_state,
-                        &broadcaster,
-                    );
+                    process_message(&mut stream, &msg, &pi_mac, &shared_state, &broadcaster);
                 }
             }
             Err(e) => {
                 // If it's a timeout, send a ping to keep connection alive
-                if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut {
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut
+                {
                     if send_json_line(&mut stream, &json!({"type": "ping"})).is_err() {
                         break;
                     }
@@ -77,15 +72,15 @@ pub fn handle_client(
         }
     }
 
-    log_bt("BT-RFCOMM", &format!("Client disconnected from {}", peer_addr));
+    log_bt(
+        "BT-RFCOMM",
+        &format!("Client disconnected from {}", peer_addr),
+    );
     cleanup_client(&shared_state);
 }
 
 fn cleanup_client(shared_state: &BluetoothSharedState) {
     shared_state.set_client_disconnected();
-    if shared_state.active_clients() == 0 {
-        let _ = fs::remove_file(APP_CONNECTED_MARKER);
-    }
 }
 
 fn send_json_line(stream: &mut RfcommStream, val: &Value) -> std::io::Result<()> {
@@ -138,34 +133,20 @@ fn process_message(
             let lat = msg.get("lat").and_then(|v| v.as_f64());
             let lon = msg.get("lon").and_then(|v| v.as_f64());
             let alt = msg.get("alt").and_then(|v| v.as_f64()).map(|v| v as f32);
-            let heading = msg.get("heading")
+            let heading = msg
+                .get("heading")
                 .or_else(|| msg.get("bearing"))
                 .and_then(|v| v.as_f64())
                 .map(|v| v as f32);
 
-            let phone_gps = PhoneGpsData {
-                spd,
-                lat,
-                lon,
-                alt,
-                heading,
-                last_updated: Some(Instant::now()),
-            };
-
-            // Write shared memory marker for telemetry service compatibility
-            let shm_content = format!(
-                "spd={}\nlat={}\nlon={}\nalt={}\nheading={}\n",
-                spd.unwrap_or(0.0),
-                lat.unwrap_or(0.0),
-                lon.unwrap_or(0.0),
-                alt.unwrap_or(0.0),
-                heading.unwrap_or(0.0)
-            );
-            let _ = fs::write(PHONE_TELEMETRY_MARKER, shm_content);
+            let phone_gps = PhoneGpsData::new(spd, lat, lon, alt, heading);
             shared_state.set_phone_gps(phone_gps);
         }
         "get_status" => {
-            let _ = send_json_line(stream, &protocol::build_status(shared_state.active_clients()));
+            let _ = send_json_line(
+                stream,
+                &protocol::build_status(shared_state.active_clients()),
+            );
         }
         "match_pi" | "get_pi_info" => {
             adapter::ensure_adapter_ready(adapter::DEFAULT_ADAPTER);
@@ -173,7 +154,10 @@ fn process_message(
         }
         "get_bt_status" => {
             let paired = adapter::get_paired_devices();
-            let _ = send_json_line(stream, &protocol::build_bt_status(pi_mac, "ICarMeter", paired));
+            let _ = send_json_line(
+                stream,
+                &protocol::build_bt_status(pi_mac, "ICarMeter", paired),
+            );
         }
         "get_bt_logs" => {
             let logs = read_recent_bt_logs(100);
@@ -208,15 +192,21 @@ fn process_message(
         "bt_unpair" => {
             if let Some(target_mac) = msg.get("mac").and_then(|v| v.as_str()) {
                 let ok = adapter::unpair_device(target_mac);
-                let _ = send_json_line(stream, &json!({
-                    "type": "bt_unpair_result",
-                    "mac": target_mac,
-                    "success": ok
-                }));
+                let _ = send_json_line(
+                    stream,
+                    &json!({
+                        "type": "bt_unpair_result",
+                        "mac": target_mac,
+                        "success": ok
+                    }),
+                );
             }
         }
         _ => {
-            log_bt("BT-RFCOMM", &format!("Unhandled command type: {}", msg_type));
+            log_bt(
+                "BT-RFCOMM",
+                &format!("Unhandled command type: {}", msg_type),
+            );
         }
     }
 }

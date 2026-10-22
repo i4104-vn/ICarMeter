@@ -5,68 +5,23 @@ mod connection;
 pub mod gps;
 pub mod tpms;
 
-use crate::configs::AppConfig;
-use crate::models::VehicleState;
+use crate::configs::app::AppConfig;
+use crate::models::bluetooth::state::BluetoothSharedState;
+use crate::models::vehicle::state::VehicleState;
 
-pub use bt_log::{BtLogReader, log_bt, read_recent_bt_logs};
+pub use bt_log::BtLogReader;
 pub use gps::GpsReceiver;
 pub use tpms::BleTpmsReceiver;
 
 pub struct TelemetryService {
     gps: Option<GpsReceiver>,
     sensors: Option<BleTpmsReceiver>,
+    bt_state: Option<BluetoothSharedState>,
     bt_log_reader: BtLogReader,
 }
 
-const PHONE_TELEMETRY_MARKER: &str = "/dev/shm/icarmeter_phone_telemetry";
-const PHONE_TELEMETRY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
-
-struct PhoneTelemetry {
-    spd: Option<f32>,
-    lat: Option<f64>,
-    lon: Option<f64>,
-    alt: Option<f32>,
-    heading: Option<f32>,
-}
-
-fn poll_phone_telemetry() -> Option<PhoneTelemetry> {
-    let metadata = std::fs::metadata(PHONE_TELEMETRY_MARKER).ok()?;
-    let modified = metadata.modified().ok()?;
-    if modified
-        .elapsed()
-        .map_or(true, |el| el >= PHONE_TELEMETRY_TIMEOUT)
-    {
-        return None;
-    }
-
-    let content = std::fs::read_to_string(PHONE_TELEMETRY_MARKER).ok()?;
-    let mut tel = PhoneTelemetry {
-        spd: None,
-        lat: None,
-        lon: None,
-        alt: None,
-        heading: None,
-    };
-
-    for line in content.lines() {
-        if let Some(val) = line.strip_prefix("spd=") {
-            tel.spd = val.trim().parse::<f32>().ok();
-        } else if let Some(val) = line.strip_prefix("lat=") {
-            tel.lat = val.trim().parse::<f64>().ok();
-        } else if let Some(val) = line.strip_prefix("lon=") {
-            tel.lon = val.trim().parse::<f64>().ok();
-        } else if let Some(val) = line.strip_prefix("alt=") {
-            tel.alt = val.trim().parse::<f32>().ok();
-        } else if let Some(val) = line.strip_prefix("heading=") {
-            tel.heading = val.trim().parse::<f32>().ok();
-        }
-    }
-
-    Some(tel)
-}
-
 impl TelemetryService {
-    pub fn new(config: &AppConfig) -> Self {
+    pub fn new(config: &AppConfig, bt_state: Option<BluetoothSharedState>) -> Self {
         let gps = if config.gps.enabled {
             Some(GpsReceiver::new(&config.gps.device, config.gps.baud_rate))
         } else {
@@ -82,6 +37,7 @@ impl TelemetryService {
         Self {
             gps,
             sensors,
+            bt_state,
             bt_log_reader: BtLogReader::new(),
         }
     }
@@ -109,7 +65,8 @@ impl TelemetryService {
     }
 
     pub fn update(&mut self, state: &mut VehicleState) {
-        // Poll hardware GPS first, then fall back to the companion app marker.
+        // 1. Poll hardware GPS first; fall back to mobile companion GPS via Bluetooth
+        let mut has_hardware_fix = false;
         if let Some(gps) = self.gps.as_mut() {
             if let Some(update) = gps.poll_update() {
                 if let Some(speed) = update.speed_kmh {
@@ -125,35 +82,42 @@ impl TelemetryService {
                     state.gps_heading = hdg;
                 }
             }
-            state.gps_connected = gps.is_connected();
-        } else if let Some(phone) = poll_phone_telemetry() {
-            if let Some(speed) = phone.spd {
-                state.current_speed = speed.max(0.0);
-            }
-            if let Some(lat) = phone.lat {
-                state.gps_latitude = lat;
-            }
-            if let Some(lon) = phone.lon {
-                state.gps_longitude = lon;
-            }
-            if let Some(alt) = phone.alt {
-                state.gps_altitude = alt;
-            }
-            if let Some(hdg) = phone.heading {
-                state.gps_heading = hdg;
-            }
-            state.gps_connected = true;
-        } else {
-            state.gps_connected = false;
+            has_hardware_fix = gps.is_connected();
+            state.gps_connected = has_hardware_fix;
         }
 
-        // Connection indicators are independent from sensor polling.
-        connection::update_connection_state(state);
+        if !has_hardware_fix {
+            if let Some(phone) = self.bt_state.as_ref().and_then(|b| b.get_phone_gps()) {
+                if let Some(speed) = phone.spd {
+                    state.current_speed = speed.max(0.0);
+                }
+                if let Some(lat) = phone.lat {
+                    state.gps_latitude = lat;
+                }
+                if let Some(lon) = phone.lon {
+                    state.gps_longitude = lon;
+                }
+                if let Some(alt) = phone.alt {
+                    state.gps_altitude = alt;
+                }
+                if let Some(hdg) = phone.heading {
+                    state.gps_heading = hdg;
+                }
+                state.gps_connected = true;
+            } else if self.gps.is_none() {
+                state.gps_connected = false;
+            }
+        }
+
+        // 2. Connection indicators and hardware adapter state
+        connection::update_connection_state(state, self.bt_state.as_ref());
+
+        // 3. BLE TPMS sensor polling
         if let Some(ref mut sensors) = self.sensors {
             sensors.poll(state);
         }
 
-        // Poll Bluetooth logs when view is enabled
+        // 4. Poll Bluetooth logs when view is enabled
         if state.show_bt_log {
             state.bt_logs = self.bt_log_reader.poll(30).to_vec();
         }

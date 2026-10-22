@@ -2,30 +2,11 @@
 
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::process::Command;
 
-pub const AF_BLUETOOTH: libc::c_int = 31;
-pub const BTPROTO_HCI: libc::c_int = 1;
-pub const SOL_HCI: libc::c_int = 0;
-pub const HCI_FILTER: libc::c_int = 2;
-
-pub const HCI_EVENT_PKT: u8 = 0x04;
-pub const EVT_LE_META_EVENT: u8 = 0x3E;
-pub const EVT_LE_ADVERTISING_REPORT: u8 = 0x02;
-
-#[repr(C)]
-struct SockAddrHci {
-    hci_family: libc::sa_family_t,
-    hci_dev: u16,
-    hci_channel: u16,
-}
-
-#[repr(C)]
-struct HciFilter {
-    type_mask: u32,
-    event_mask: [u32; 2],
-    opcode: u16,
-}
+use crate::models::bluetooth::address::AF_BLUETOOTH;
+use crate::models::bluetooth::socket::{
+    BTPROTO_HCI, HCI_EVENT_PKT, HCI_FILTER, HciFilter, SOL_HCI, SockAddrHci,
+};
 
 pub struct HciSocket {
     fd: RawFd,
@@ -34,9 +15,18 @@ pub struct HciSocket {
 impl HciSocket {
     /// Opens and binds a raw HCI socket to the specified Bluetooth adapter (e.g. "hci0")
     pub fn open(adapter: &str) -> io::Result<Self> {
-        // Ensure adapter is UP and discoverable (piscan: Page & Inquiry Scan)
-        let _ = Command::new("hciconfig").args([adapter, "up"]).output();
-        let _ = Command::new("hciconfig").args([adapter, "piscan"]).output();
+        // Configure adapter power and discoverability through BlueZ D-Bus.
+        crate::services::bluetooth::adapter::ensure_adapter_ready(adapter);
+
+        let hci_dev = adapter
+            .strip_prefix("hci")
+            .and_then(|id| id.parse().ok())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid Bluetooth adapter name",
+                )
+            })?;
 
         let fd = unsafe { libc::socket(AF_BLUETOOTH, libc::SOCK_RAW, BTPROTO_HCI) };
         if fd < 0 {
@@ -45,7 +35,7 @@ impl HciSocket {
 
         let sa = SockAddrHci {
             hci_family: AF_BLUETOOTH as libc::sa_family_t,
-            hci_dev: 0, // hci0
+            hci_dev,
             hci_channel: 0,
         };
 
