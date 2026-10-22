@@ -9,7 +9,7 @@ pub struct GpsConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct BleTpmsConfig {
+pub struct TpmsConfig {
     pub enabled: bool,
     pub adapter: String,
     pub fl_sensor: String,
@@ -29,7 +29,7 @@ pub struct DisplayConfig {
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub gps: GpsConfig,
-    pub tpms: BleTpmsConfig,
+    pub tpms: TpmsConfig,
     pub display: DisplayConfig,
 }
 
@@ -42,13 +42,13 @@ impl Default for AppConfig {
                 enabled: true,
                 bluetooth: true,
             },
-            tpms: BleTpmsConfig {
-                enabled: true,
+            tpms: TpmsConfig {
+                enabled: false,
                 adapter: "hci0".to_string(),
-                fl_sensor: "A4:C1:38:00:00:01".to_string(),
-                fr_sensor: "A4:C1:38:00:00:02".to_string(),
-                rl_sensor: "A4:C1:38:00:00:03".to_string(),
-                rr_sensor: "A4:C1:38:00:00:04".to_string(),
+                fl_sensor: String::new(),
+                fr_sensor: String::new(),
+                rl_sensor: String::new(),
+                rr_sensor: String::new(),
                 low_pressure_alert: 2.2,
                 high_temp_alert: 70.0,
             },

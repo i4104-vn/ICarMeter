@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 pub use bt_log::BtLogReader;
 pub use gps::GpsReceiver;
-pub use tpms::BleTpmsReceiver;
+pub use tpms::TpmsReceiver;
 
 #[derive(Clone, Debug, Default)]
 pub struct TelemetrySnapshot {
@@ -99,7 +99,7 @@ impl TelemetryService {
     }
 }
 
-/// Independent telemetry loop handling GPS serial I/O, BLE TPMS scanning,
+/// Independent telemetry loop handling GPS serial I/O, TPMS updates,
 /// Bluetooth adapter status checking, and log reading off the main thread.
 fn run_telemetry_loop(
     config: AppConfig,
@@ -115,7 +115,7 @@ fn run_telemetry_loop(
     };
 
     let mut sensors = if config.tpms.enabled {
-        Some(BleTpmsReceiver::new(&config.tpms))
+        Some(TpmsReceiver::new(&config.tpms))
     } else {
         None
     };
@@ -154,7 +154,7 @@ fn run_telemetry_loop(
             match new_config.tpms.enabled {
                 true => match sensors.as_mut() {
                     Some(s) => s.update_config(&new_config.tpms),
-                    None => sensors = Some(BleTpmsReceiver::new(&new_config.tpms)),
+                    None => sensors = Some(TpmsReceiver::new(&new_config.tpms)),
                 },
                 false => sensors = None,
             }
@@ -243,7 +243,7 @@ fn run_telemetry_loop(
             bt_device_name = connected;
         }
 
-        // 4. Poll BLE TPMS sensors
+        // 4. Poll TPMS sensors
         if let Some(ref mut s) = sensors {
             let mut temp_state = VehicleState::default();
             temp_state.tires = current_tires.clone();

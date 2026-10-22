@@ -6,7 +6,7 @@ use crate::models::render::sprite::ExpressionSprite;
 use std::sync::OnceLock;
 use tiny_skia::{FillRule, Paint, Pixmap, Transform};
 
-pub(super) use super::sprite_parser::{EXPRESSION_COUNT, EXPRESSION_DURATION};
+pub(super) use super::sprite_parser::EXPRESSION_DURATION;
 
 const MAX_DISPLAY_WIDTH: f32 = 330.0;
 const MAX_DISPLAY_HEIGHT: f32 = 125.0;
@@ -81,3 +81,4 @@ fn expression_cell(expression: EmoExpression) -> usize {
         EmoExpression::Dizzy => 2,
     }
 }
+

@@ -24,17 +24,8 @@ enabled = true
 bluetooth = true
 
 [tpms]
-# Kích hoạt hệ thống cảm biến áp suất lốp không dây Bluetooth Low Energy (BLE)
-enabled = true
-
-# Adapter Bluetooth tích hợp trên bo mạch Raspberry Pi (mặc định: hci0)
-adapter = "hci0"
-
-# Địa chỉ MAC Bluetooth (hoặc Serial ID) của 4 van cảm biến gắn trên 4 bánh xe:
-fl_sensor = "A4:C1:38:00:00:01" 
-fr_sensor = "A4:C1:38:00:00:02" 
-rl_sensor = "A4:C1:38:00:00:03" 
-rr_sensor = "A4:C1:38:00:00:04" 
+# Kích hoạt hệ thống cảm biến áp suất lốp
+enabled = false
 
 # Ngưỡng cảnh báo áp suất lốp thấp (bar)
 low_pressure_alert = 2.2

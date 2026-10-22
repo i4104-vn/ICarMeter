@@ -8,9 +8,8 @@ if [ ! -f /opt/icarmeter/icarmeter ]; then
     exit 1
 fi
 
-# Set binary permissions and Bluetooth raw socket capabilities
+# Set binary permissions
 chmod 755 /opt/icarmeter/icarmeter
-setcap 'cap_net_raw,cap_net_admin+eip' /opt/icarmeter/icarmeter 2>/dev/null || true
 
 # Setup convenience symlink in PATH
 ln -sf /opt/icarmeter/icarmeter /usr/local/bin/icarmeter
@@ -27,7 +26,7 @@ fi
 # Ensure SSH host keys are generated and present so ssh.service never fails
 ssh-keygen -A || true
 
-# Configure Bluetooth: Dual mode for TPMS LE scanner + RFCOMM SPP companion app
+# Configure Bluetooth: RFCOMM SPP companion app
 mkdir -p /etc/bluetooth
 cat << 'EOF' > /etc/bluetooth/main.conf
 [General]

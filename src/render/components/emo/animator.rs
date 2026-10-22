@@ -1,11 +1,8 @@
-use super::sprite_renderer::{EXPRESSION_COUNT, EXPRESSION_DURATION};
+use super::sprite_renderer::EXPRESSION_DURATION;
 use crate::models::emotion::expression::EmoExpression;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const RANDOM_EXPRESSION_INDICES: [u8; EXPRESSION_COUNT - 2] = [
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 23, 24, 25, 27,
-    28, 29, 30, 31, 32, 33, 34,
-];
+const RANDOM_COUNT: usize = EmoExpression::RANDOM_MOODS.len();
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SleepCyclePhase {
@@ -21,7 +18,7 @@ pub struct EmoAnimator {
     mood_duration: f32,
     last_mood_idx: usize,
     rng_state: u64,
-    mood_order: [u8; EXPRESSION_COUNT - 2],
+    mood_order: [usize; RANDOM_COUNT],
     mood_cursor: usize,
     random_emotions_target: u8,
     random_emotions_shown: u8,
@@ -34,6 +31,11 @@ impl EmoAnimator {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_nanos() as u64)
             .unwrap_or(1);
+        let mut initial_order = [0usize; RANDOM_COUNT];
+        for (i, item) in initial_order.iter_mut().enumerate() {
+            *item = i;
+        }
+
         let mut animator = Self {
             active_expression: None,
             phase: SleepCyclePhase::Random,
@@ -41,8 +43,8 @@ impl EmoAnimator {
             mood_duration: EXPRESSION_DURATION,
             last_mood_idx: usize::MAX,
             rng_state: (time_seed ^ (std::process::id() as u64).rotate_left(23)).max(1),
-            mood_order: RANDOM_EXPRESSION_INDICES,
-            mood_cursor: EXPRESSION_COUNT - 2,
+            mood_order: initial_order,
+            mood_cursor: RANDOM_COUNT,
             random_emotions_target: 10,
             random_emotions_shown: 0,
             was_moving: false,
@@ -101,29 +103,29 @@ impl EmoAnimator {
         self.phase = SleepCyclePhase::Random;
         self.mood_timer = 0.0;
         self.mood_duration = EXPRESSION_DURATION;
-        self.mood_cursor = EXPRESSION_COUNT - 2;
+        self.mood_cursor = RANDOM_COUNT;
         self.random_emotions_shown = 0;
-        self.random_emotions_target = 10 + (self.rand_f32() * 6.0) as u8;
+        self.random_emotions_target = 8 + (self.rand_f32() * 6.0) as u8;
         self.apply_random_mood();
     }
 
     fn apply_random_mood(&mut self) {
-        // Shuffle the available non-sleep expressions to avoid immediate repeats.
+        // Shuffle the available emotions to continuously cycle through without direct repeats.
         if self.mood_cursor >= self.mood_order.len() {
             for i in (1..self.mood_order.len()).rev() {
                 let j = (self.rand_f32() * (i + 1) as f32) as usize;
                 self.mood_order.swap(i, j);
             }
-            if self.mood_order[0] as usize == self.last_mood_idx {
+            if self.mood_order[0] == self.last_mood_idx {
                 self.mood_order.swap(0, 1);
             }
             self.mood_cursor = 0;
         }
 
-        let idx = self.mood_order[self.mood_cursor] as usize;
+        let idx = self.mood_order[self.mood_cursor];
         self.mood_cursor += 1;
         self.last_mood_idx = idx;
         self.random_emotions_shown += 1;
-        self.active_expression = Some(EmoExpression::Atlas(idx as u8));
+        self.active_expression = Some(EmoExpression::RANDOM_MOODS[idx]);
     }
 }

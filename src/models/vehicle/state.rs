@@ -49,10 +49,6 @@ impl Default for VehicleState {
 }
 
 impl VehicleState {
-    pub fn set_expression_name(&mut self, name: &str) {
-        self.current_emo = EmoExpression::from_str(name);
-    }
-
     pub fn update_trip(&mut self, dt: f32) {
         if self.current_speed > 0.5 {
             self.driving_time_secs += dt as f64;
