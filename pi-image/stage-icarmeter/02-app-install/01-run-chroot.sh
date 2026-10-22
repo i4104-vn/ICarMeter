@@ -48,24 +48,10 @@ ReconnectAttempts = 7
 ReconnectIntervals = 1, 2, 4, 8, 16, 32, 64
 EOF
 
-# BlueZ Compat Mode Drop-in: enables SDP server socket for SPP profile and grants permissions
-BT_DAEMON="/usr/libexec/bluetooth/bluetoothd"
-if [ ! -f "$BT_DAEMON" ] && [ -f "/usr/lib/bluetooth/bluetoothd" ]; then
-    BT_DAEMON="/usr/lib/bluetooth/bluetoothd"
-fi
-mkdir -p /etc/systemd/system/bluetooth.service.d
-cat << EOF > /etc/systemd/system/bluetooth.service.d/icarmeter-compat.conf
-[Service]
-ExecStart=
-ExecStart=${BT_DAEMON} --compat
-ExecStartPost=-/bin/chmod 777 /var/run/sdp /run/sdp
-EOF
-
 # Set system machine-info pretty hostname
 echo 'PRETTY_HOSTNAME="ICarMeter"' > /etc/machine-info
 
-# Ensure Bluetooth scripts and configuration have proper permissions
-chmod 755 /opt/icarmeter/icarmeter-bt-init.sh 2>/dev/null || true
+# Ensure application configuration has proper permissions
 chmod 666 /opt/icarmeter/config.toml 2>/dev/null || true
 mkdir -p /home/${FIRST_USER_NAME}/.config/icarmeter 2>/dev/null || true
 chmod 777 /home/${FIRST_USER_NAME}/.config/icarmeter 2>/dev/null || true
@@ -91,5 +77,3 @@ systemctl enable getty@tty1.service || true
 systemctl daemon-reload || true
 systemctl enable bluetooth.service 2>/dev/null || true
 systemctl enable hciuart.service 2>/dev/null || true
-systemctl enable icarmeter-bluetooth.service || true
-systemctl enable icarmeter-bt-agent.service || true

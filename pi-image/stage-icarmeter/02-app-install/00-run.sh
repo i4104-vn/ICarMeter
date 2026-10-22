@@ -8,15 +8,10 @@ install -d -m 755 "${APP_DIR}"
 if [ -f files/config.toml ]; then
 install -m 666 files/config.toml "${APP_DIR}/config.toml"
 fi
-install -m 755 files/icarmeter-bt-init.sh "${APP_DIR}/icarmeter-bt-init.sh"
 install -d -m 755 "${APP_DIR}/licenses"
 install -m 644 files/MAPLIBRE-NATIVE-LICENSE.txt "${APP_DIR}/licenses/MAPLIBRE-NATIVE-LICENSE.txt"
 install -d -m 755 "${ROOTFS_DIR}/etc/profile.d"
 install -m 644 files/icarmeter-dashboard.sh "${ROOTFS_DIR}/etc/profile.d/icarmeter-dashboard.sh"
-install -m 644 files/icarmeter-bluetooth.service "${ROOTFS_DIR}/etc/systemd/system/icarmeter-bluetooth.service"
-install -m 644 files/icarmeter-bt-agent.service "${ROOTFS_DIR}/etc/systemd/system/icarmeter-bt-agent.service"
-
-
 # Install the local MapLibre style and allow optional custom map resources.
 if [ -d files/maps ]; then
     install -d -m 755 "${APP_DIR}/maps"
