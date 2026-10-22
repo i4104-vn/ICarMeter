@@ -113,6 +113,8 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
 
       - name: Set Flutter app version
         working-directory: mobile-app
@@ -187,6 +189,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Setup Cargo Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-aarch64-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-aarch64-
+
       - name: Build ICarMeter binary
         env:
           APP_VERSION: ${{ needs.resolve-version.outputs.version }}
@@ -213,12 +227,15 @@ jobs:
           print(f"Updated Cargo.toml version -> {os.environ['APP_VERSION']}")
           PY
 
-          # Build inside Debian Bookworm arm64, the same userspace family as
-          # the Raspberry Pi rootfs. Building on ubuntu-24.04-arm directly
-          # produces binaries requiring newer GLIBC/GLIBCXX symbols than the
-          # image can provide.
+          # Ensure host cargo directories exist for volume mounting
+          mkdir -p ~/.cargo/registry ~/.cargo/git target
+
+          # Build inside Debian Bookworm arm64 for ABI compatibility with Raspberry Pi rootfs.
+          # Mount host cargo cache to avoid redownloading and recompiling untouched crates.
           docker run --rm --platform linux/arm64 \
             -v "$GITHUB_WORKSPACE:/src" \
+            -v "$HOME/.cargo/registry:/usr/local/cargo/registry" \
+            -v "$HOME/.cargo/git:/usr/local/cargo/git" \
             -w /src \
             rust:bookworm \
             bash -euo pipefail -c '
@@ -231,6 +248,9 @@ jobs:
               gcc -O2 -fPIC -c compat/glibc_compat.c -o /tmp/glibc_compat.o
               RUSTFLAGS="-C link-arg=/tmp/glibc_compat.o" cargo build --release --target aarch64-unknown-linux-gnu
             '
+
+          # Fix permissions from container build so actions/cache can save target/ and .cargo/
+          sudo chown -R $USER:$USER ~/.cargo target/ 2>/dev/null || true
 
       - name: Stage compiled binary
         run: |
@@ -276,6 +296,12 @@ jobs:
           echo "Cleaned disk space:"
           df -h
 
+      - name: Cache Vietnam Offline MBTiles
+        uses: actions/cache@v4
+        with:
+          path: pi-image/stage-icarmeter/02-app-install/files/maps/vietnam.mbtiles
+          key: ${{ runner.os }}-vietnam-mbtiles-v1
+
       - name: Download compiled binary artifact
         uses: actions/download-artifact@v6
         with:
@@ -314,7 +340,15 @@ jobs:
           echo "Found image: ${IMG_FILE}"
           ZIP_NAME="ICarMeter-RaspberryPiOS-arm64.zip"
 
-          zip -6 -j "../../image_dist/${ZIP_NAME}" "${IMG_FILE}"
+          # Fast multi-threaded compression utilizing all runner CPU cores
+          if command -v 7z >/dev/null 2>&1; then
+            echo "Compressing with multi-threaded 7z..."
+            7z a -tzip -mx=4 -mmt=on "../../image_dist/${ZIP_NAME}" "${IMG_FILE}"
+          else
+            echo "Compressing with zip (fast level 1)..."
+            zip -1 -j "../../image_dist/${ZIP_NAME}" "${IMG_FILE}"
+          fi
+
           cp -v *.info ../../image_dist/image_build.info 2>/dev/null || true
           ls -lah ../../image_dist/
 
