@@ -141,19 +141,16 @@ impl MapPanel {
             .last_request
             .is_none_or(|last| distance_m(last, camera) >= MAP_REFRESH_DISTANCE_M);
         if !self.map_worker_stopped && refresh_due {
-            match self
-                .requests
-                .as_ref()
-                .expect("MapLibre worker is started before drawing")
-                .try_send(camera)
-            {
-                Ok(()) => {
-                    self.last_request = Some(camera);
-                }
-                Err(TrySendError::Full(_)) => {}
-                Err(TrySendError::Disconnected(_)) => {
-                    eprintln!("MapLibre renderer thread stopped");
-                    self.map_worker_stopped = true;
+            if let Some(requests) = &self.requests {
+                match requests.try_send(camera) {
+                    Ok(()) => {
+                        self.last_request = Some(camera);
+                    }
+                    Err(TrySendError::Full(_)) => {}
+                    Err(TrySendError::Disconnected(_)) => {
+                        eprintln!("[Map] MapLibre renderer thread stopped");
+                        self.map_worker_stopped = true;
+                    }
                 }
             }
         }
@@ -180,10 +177,13 @@ impl MapPanel {
             paint.quality = FilterQuality::Bilinear;
             self.map_pixmap
                 .draw_pixmap(0, 0, self.render_pixmap.as_ref(), &paint, transform, None);
+        } else {
+            // Draw graceful fallback GPS Navigation radar HUD while tiles are loading or offline
+            draw_fallback_nav_hud(&mut self.map_pixmap, fonts, w, h, state, &camera);
         }
 
         // Keep the vehicle marker fixed while rotating the map to its heading.
-        if has_gps_position {
+        if has_gps_position || self.rendered_center.is_some() {
             draw_vehicle_arrow(&mut self.map_pixmap, w * 0.5, h * 0.5);
         }
 
@@ -219,6 +219,10 @@ impl MapPanel {
             return;
         }
 
+        unsafe {
+            std::env::set_var("UV_USE_IO_URING", "0");
+        }
+
         let (request_tx, request_rx) = mpsc::sync_channel::<CameraRequest>(1);
         let (frame_tx, frame_rx) = mpsc::sync_channel::<MapFrame>(1);
         let style_path = std::env::var_os("ICARMETER_MAP_STYLE_PATH")
@@ -226,14 +230,18 @@ impl MapPanel {
             .unwrap_or_else(|| PathBuf::from(DEFAULT_STYLE_PATH));
         match thread::Builder::new()
             .name("maplibre-renderer".to_string())
-            .spawn(move || map_worker(style_path, request_rx, frame_tx))
+            .spawn(move || {
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    map_worker(style_path, request_rx, frame_tx);
+                }));
+            })
         {
             Ok(_) => {
                 self.requests = Some(request_tx);
                 self.frames = Some(frame_rx);
             }
             Err(error) => {
-                eprintln!("Failed to start MapLibre renderer thread: {error}");
+                eprintln!("[Map] Failed to start MapLibre renderer thread: {error}");
                 self.map_worker_stopped = true;
             }
         }
@@ -282,7 +290,7 @@ fn map_worker(
         Ok(path) => path,
         Err(error) => {
             eprintln!(
-                "Cannot resolve offline MapLibre style '{}': {error}",
+                "[Map] Cannot resolve offline MapLibre style '{}': {error}",
                 style_path.display()
             );
             return;
@@ -292,7 +300,7 @@ fn map_worker(
         Ok(json) => json,
         Err(error) => {
             eprintln!(
-                "Cannot read offline MapLibre style '{}': {error}",
+                "[Map] Cannot read offline MapLibre style '{}': {error}",
                 style_path.display()
             );
             return;
@@ -301,18 +309,18 @@ fn map_worker(
     let style_value: Value = match serde_json::from_str(&style_json) {
         Ok(value) => value,
         Err(error) => {
-            eprintln!("Invalid offline MapLibre style JSON: {error}");
+            eprintln!("[Map] Invalid offline MapLibre style JSON: {error}");
             return;
         }
     };
     if let Err(error) = validate_offline_style(&style_value) {
-        eprintln!("Offline MapLibre style rejected: {error}");
+        eprintln!("[Map] Offline MapLibre style rejected: {error}");
         return;
     }
     let style_uri = match Url::from_file_path(&style_path) {
         Ok(uri) => uri,
         Err(()) => {
-            eprintln!("Offline MapLibre style path is not a valid file path");
+            eprintln!("[Map] Offline MapLibre style path is not a valid file path");
             return;
         }
     };
@@ -321,15 +329,37 @@ fn map_worker(
     // style input before creating MapLibre's native graphics context; a
     // missing/invalid style must degrade to the panel background, not take
     // down the framebuffer process during renderer startup.
-    let mut renderer = ImageRendererBuilder::new()
-        .with_size(
-            NonZeroU32::new(RENDER_W).unwrap(),
-            NonZeroU32::new(RENDER_H).unwrap(),
-        )
-        .build_static_renderer();
-    if let Err(error) = renderer.load_style_from_url(&style_uri).wait() {
-        eprintln!("Failed to load offline MapLibre style: {error}");
-        return;
+    let mut renderer = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ImageRendererBuilder::new()
+            .with_size(
+                NonZeroU32::new(RENDER_W).unwrap(),
+                NonZeroU32::new(RENDER_H).unwrap(),
+            )
+            .build_static_renderer()
+    })) {
+        Ok(renderer) => renderer,
+        Err(err) => {
+            eprintln!("[Map] Panic while creating MapLibre static renderer: {:?}", err);
+            return;
+        }
+    };
+
+    let load_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        renderer.load_style_from_url(&style_uri).wait()
+    }));
+
+    match load_res {
+        Ok(Ok(())) => {
+            eprintln!("[Map] Offline MapLibre style loaded successfully");
+        }
+        Ok(Err(error)) => {
+            eprintln!("[Map] Failed to load offline MapLibre style: {error}");
+            return;
+        }
+        Err(panic_err) => {
+            eprintln!("[Map] Panic while loading MapLibre style: {:?}", panic_err);
+            return;
+        }
     }
 
     while let Ok(mut camera) = requests.recv() {
@@ -343,10 +373,17 @@ fn map_worker(
             })
             .zoom(MAP_ZOOM)
             .bearing(camera.heading);
-        let image = match renderer.render_static(&camera_update) {
-            Ok(image) => image,
-            Err(error) => {
-                eprintln!("MapLibre snapshot failed: {error}");
+        let render_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            renderer.render_static(&camera_update)
+        }));
+        let image = match render_res {
+            Ok(Ok(image)) => image,
+            Ok(Err(error)) => {
+                eprintln!("[Map] MapLibre snapshot failed: {error}");
+                continue;
+            }
+            Err(panic_err) => {
+                eprintln!("[Map] Panic during MapLibre render_static: {:?}", panic_err);
                 continue;
             }
         };
@@ -514,6 +551,153 @@ fn draw_vehicle_arrow(pixmap: &mut Pixmap, center_x: f32, center_y: f32) {
             None,
         );
     }
+}
+
+fn draw_fallback_nav_hud(
+    pixmap: &mut Pixmap,
+    fonts: &FontRenderer,
+    w: f32,
+    h: f32,
+    state: &VehicleState,
+    camera: &CameraRequest,
+) {
+    let center_x = w * 0.5;
+    let center_y = h * 0.45;
+
+    // Draw radar / compass concentric guide circles
+    let mut grid_paint = Paint::default();
+    grid_paint.set_color(tiny_skia::Color::from_rgba8(30, 50, 75, 160));
+    let grid_stroke = Stroke {
+        width: 1.0,
+        ..Default::default()
+    };
+
+    for radius in [45.0, 90.0, 135.0] {
+        let mut pb = PathBuilder::new();
+        pb.push_circle(center_x, center_y, radius);
+        if let Some(path) = pb.finish() {
+            pixmap.stroke_path(&path, &grid_paint, &grid_stroke, Transform::identity(), None);
+        }
+    }
+
+    // Crosshair axis lines
+    let mut pb = PathBuilder::new();
+    pb.move_to(center_x, center_y - 145.0);
+    pb.line_to(center_x, center_y + 145.0);
+    pb.move_to(center_x - 145.0, center_y);
+    pb.line_to(center_x + 145.0, center_y);
+    if let Some(path) = pb.finish() {
+        pixmap.stroke_path(&path, &grid_paint, &grid_stroke, Transform::identity(), None);
+    }
+
+    // Compass cardinal markers
+    fonts.draw_text(
+        pixmap,
+        &fonts.bold,
+        "N",
+        center_x - 4.5,
+        center_y - 148.0,
+        11.0,
+        tiny_skia::Color::from_rgba8(56, 189, 248, 220),
+    );
+    fonts.draw_text(
+        pixmap,
+        &fonts.bold,
+        "S",
+        center_x - 4.0,
+        center_y + 158.0,
+        10.0,
+        tiny_skia::Color::from_rgba8(148, 163, 184, 180),
+    );
+    fonts.draw_text(
+        pixmap,
+        &fonts.bold,
+        "E",
+        center_x + 148.0,
+        center_y + 4.0,
+        10.0,
+        tiny_skia::Color::from_rgba8(148, 163, 184, 180),
+    );
+    fonts.draw_text(
+        pixmap,
+        &fonts.bold,
+        "W",
+        center_x - 162.0,
+        center_y + 4.0,
+        10.0,
+        tiny_skia::Color::from_rgba8(148, 163, 184, 180),
+    );
+
+    // Header badge
+    fonts.draw_text(
+        pixmap,
+        &fonts.bold,
+        "GPS NAVIGATION",
+        18.0,
+        28.0,
+        12.0,
+        tiny_skia::Color::from_rgba8(56, 189, 248, 255),
+    );
+
+    let (status_text, status_color) = if state.gps_connected {
+        ("SATELLITE FIX 3D", tiny_skia::Color::from_rgba8(52, 211, 153, 255))
+    } else {
+        ("SEARCHING GPS...", tiny_skia::Color::from_rgba8(251, 191, 36, 255))
+    };
+    fonts.draw_text(pixmap, &fonts.regular, status_text, 18.0, 44.0, 9.5, status_color);
+
+    // Telemetry stats HUD at bottom
+    let lat_text = format!("LAT: {:.4}°", camera.latitude);
+    let lon_text = format!("LON: {:.4}°", camera.longitude);
+    let hdg_text = format!("HDG: {:.0}°", camera.heading);
+    let alt_text = format!("ALT: {:.0}m", state.gps_altitude);
+
+    fonts.draw_text(
+        pixmap,
+        &fonts.regular,
+        &lat_text,
+        18.0,
+        h - 52.0,
+        10.0,
+        tiny_skia::Color::from_rgba8(226, 232, 240, 220),
+    );
+    fonts.draw_text(
+        pixmap,
+        &fonts.regular,
+        &lon_text,
+        18.0,
+        h - 38.0,
+        10.0,
+        tiny_skia::Color::from_rgba8(226, 232, 240, 220),
+    );
+    fonts.draw_text(
+        pixmap,
+        &fonts.regular,
+        &hdg_text,
+        w - 90.0,
+        h - 52.0,
+        10.0,
+        tiny_skia::Color::from_rgba8(226, 232, 240, 220),
+    );
+    fonts.draw_text(
+        pixmap,
+        &fonts.regular,
+        &alt_text,
+        w - 90.0,
+        h - 38.0,
+        10.0,
+        tiny_skia::Color::from_rgba8(226, 232, 240, 220),
+    );
+
+    fonts.draw_text(
+        pixmap,
+        &fonts.regular,
+        "[M] Toggle TPMS / Map",
+        center_x - 52.0,
+        h - 18.0,
+        9.0,
+        tiny_skia::Color::from_rgba8(148, 163, 184, 160),
+    );
 }
 
 fn validate_offline_style(style: &Value) -> Result<(), String> {
