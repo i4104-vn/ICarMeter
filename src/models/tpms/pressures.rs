@@ -1,4 +1,4 @@
-// Tire Pressure Monitoring System (TPMS) models and telemetry state
+// Tire Pressure Monitoring System (TPMS) pressures model
 
 pub const LOW_PRESSURE_THRESHOLD: f32 = 2.2;
 pub const HIGH_TEMP_THRESHOLD: f32 = 70.0;

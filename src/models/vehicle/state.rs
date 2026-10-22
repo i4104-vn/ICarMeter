@@ -1,7 +1,7 @@
-// Vehicle status and telemetry data model
+// Vehicle state and trip telemetry model
 
-use super::emotion::EmoExpression;
-use super::tpms::TirePressures;
+use crate::models::emotion::expression::EmoExpression;
+use crate::models::tpms::pressures::TirePressures;
 
 #[derive(Debug, Clone)]
 pub struct VehicleState {
@@ -49,10 +49,6 @@ impl Default for VehicleState {
 }
 
 impl VehicleState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn set_expression_name(&mut self, name: &str) {
         self.current_emo = EmoExpression::from_str(name);
     }
