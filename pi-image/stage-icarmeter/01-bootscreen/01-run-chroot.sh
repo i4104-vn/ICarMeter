@@ -52,9 +52,10 @@ elif [ -f "/boot/config.txt" ]; then
 fi
 
 if [ -n "$CONFIG_FILE" ]; then
-    # Remove disable-bt overlay so onboard Bluetooth hardware remains enabled
+    # Sanitize overlays: ensure disable-bt and miniuart-bt are removed so onboard Bluetooth hardware operates on PL011
     sed -i '/disable-bt/d' "$CONFIG_FILE" 2>/dev/null || true
-    sed -i '/dtparam=bluetooth=on/d' "$CONFIG_FILE" 2>/dev/null || true
+    sed -i '/miniuart-bt/d' "$CONFIG_FILE" 2>/dev/null || true
+    sed -i '/core_freq/d' "$CONFIG_FILE" 2>/dev/null || true
 
     if ! grep -q "ICarMeter" "$CONFIG_FILE"; then
         cat << 'EOF' >> "$CONFIG_FILE"
@@ -63,20 +64,16 @@ if [ -n "$CONFIG_FILE" ]; then
 disable_splash=1
 boot_delay=0
 enable_uart=1
-dtoverlay=miniuart-bt
-core_freq=250
-core_freq_min=250
+dtparam=bluetooth=on
 framebuffer_depth=32
 framebuffer_ignore_alpha=1
 EOF
     else
-        # Ensure miniuart-bt and core frequency locking exist so Bluetooth controller is active alongside GPS serial
-        if ! grep -q "dtoverlay=miniuart-bt" "$CONFIG_FILE"; then
-            echo "dtoverlay=miniuart-bt" >> "$CONFIG_FILE"
+        if ! grep -q "enable_uart=1" "$CONFIG_FILE"; then
+            echo "enable_uart=1" >> "$CONFIG_FILE"
         fi
-        if ! grep -q "core_freq=250" "$CONFIG_FILE"; then
-            echo "core_freq=250" >> "$CONFIG_FILE"
-            echo "core_freq_min=250" >> "$CONFIG_FILE"
+        if ! grep -q "dtparam=bluetooth=on" "$CONFIG_FILE"; then
+            echo "dtparam=bluetooth=on" >> "$CONFIG_FILE"
         fi
     fi
 fi

@@ -139,46 +139,53 @@ def bluetoothctl_monitor_worker():
     time.sleep(2)
     log_bt("SYSTEM", "Starting Bluetooth live event monitor...")
 
-    # Primary: D-Bus signal monitoring (passive, non-intrusive)
-    try:
-        if not dbus or not GLib:
-            raise RuntimeError("D-Bus / GLib not available")
+    # Primary: D-Bus signal monitoring with connection retry loop
+    while HAS_DBUS and dbus and GLib:
+        try:
+            dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+            bus = dbus.SystemBus()
 
-        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-        bus = dbus.SystemBus()
+            def on_properties_changed(interface, changed, invalidated, path=None):
+                if interface == "org.bluez.Device1":
+                    mac = str(path).split("dev_")[-1].replace("_", ":").upper() if "dev_" in str(path) else str(path)
+                    for k, v in changed.items():
+                        if k in ("Connected", "Paired", "Name", "Alias", "RSSI"):
+                            log_bt("bluetooth", f"Device {mac} {k}: {v}")
+                        if k == "Connected":
+                            status = "connected" if v else "disconnected"
+                            bt_broadcast({"type": "bt_device_status", "mac": mac, "status": status})
+                elif interface == "org.bluez.Adapter1":
+                    for k, v in changed.items():
+                        if k in ("Powered", "Discoverable", "Pairable"):
+                            log_bt("bluetooth", f"Adapter {k}: {v}")
 
-        def on_properties_changed(interface, changed, invalidated, path=None):
-            if interface == "org.bluez.Device1":
-                mac = str(path).split("dev_")[-1].replace("_", ":").upper() if "dev_" in str(path) else str(path)
-                for k, v in changed.items():
-                    log_bt("bluetooth", f"Device {mac} {k}: {v}")
-                    if k == "Connected":
-                        status = "connected" if v else "disconnected"
-                        bt_broadcast({"type": "bt_device_status", "mac": mac, "status": status})
-            elif interface == "org.bluez.Adapter1":
-                for k, v in changed.items():
-                    log_bt("bluetooth", f"Adapter {k}: {v}")
+            bus.add_signal_receiver(
+                on_properties_changed,
+                signal_name="PropertiesChanged",
+                dbus_interface="org.freedesktop.DBus.Properties",
+                path_keyword="path"
+            )
+            log_bt("SYSTEM", "Active D-Bus Bluetooth signal monitor listening.")
+            loop = GLib.MainLoop()
+            loop.run()
+            return
+        except Exception as e:
+            log_bt("SYSTEM", f"D-Bus monitor note ({e}). Retrying in 5s...")
+            time.sleep(5)
 
-        bus.add_signal_receiver(
-            on_properties_changed,
-            bus_name="org.bluez",
-            signal_name="PropertiesChanged",
-            dbus_interface="org.freedesktop.DBus.Properties",
-            path_keyword="path"
-        )
-        log_bt("SYSTEM", "Active D-Bus Bluetooth signal monitor listening.")
-        loop = GLib.MainLoop()
-        loop.run()
-        return
-    except Exception as e:
-        log_bt("SYSTEM", f"D-Bus monitor fallback ({e}), using bluetoothctl stream...")
-
-    # Fallback to bluetoothctl passive output
+    # Secondary Fallback: bluetoothctl streaming without EOF
+    log_bt("SYSTEM", "D-Bus unavailable, starting passive bluetoothctl stream...")
+    ignore_patterns = (
+        "Waiting to connect to bluetoothd...",
+        "quit",
+        "Agent registered",
+        "[bluetooth]#",
+    )
     while True:
         try:
             p = subprocess.Popen(
                 ["bluetoothctl"],
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -189,15 +196,14 @@ def bluetoothctl_monitor_worker():
                 if not clean:
                     continue
                 clean = re.sub(r'\[bluetooth\s*\]#\s*', '', clean).strip()
-                if not clean:
-                    continue
                 clean_line = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', clean).strip()
-                if clean_line:
-                    log_bt("bluetoothctl", clean_line)
+                if not clean_line or any(clean_line.startswith(ig) for ig in ignore_patterns) or clean_line == "quit":
+                    continue
+                log_bt("bluetoothctl", clean_line)
             p.wait()
         except Exception as e:
-            log_bt("bluetoothctl", f"Monitor restart note: {e}")
-        time.sleep(3)
+            log_bt("bluetoothctl", f"Monitor stream note: {e}")
+        time.sleep(5)
 
 def bt_broadcast(msg_dict):
     """Broadcasts a JSON line message to all connected Bluetooth RFCOMM clients."""

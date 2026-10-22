@@ -4,13 +4,11 @@ use crate::models::VehicleState;
 use crate::render::core::FontRenderer;
 use tiny_skia::{Color, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
-pub struct BtLogPanel {
-    blink_timer: f32,
-}
+pub struct BtLogPanel;
 
 impl BtLogPanel {
     pub fn new() -> Self {
-        Self { blink_timer: 0.0 }
+        Self
     }
 
     pub fn draw(
@@ -18,15 +16,13 @@ impl BtLogPanel {
         pixmap: &mut Pixmap,
         fonts: &FontRenderer,
         state: &VehicleState,
-        dt: f32,
+        _dt: f32,
     ) {
-        self.blink_timer = (self.blink_timer + dt) % 1.2;
-
         let left_x = 420.0;
         let right_x = 860.0;
         let max_text_w = right_x - left_x - 10.0;
 
-        // 1. Header: Bluetooth Icon, Title, Live Status Indicator, and [B] Back hint
+        // 1. Header: Bluetooth Icon, Title, and [B] Back hint
         let header_y = 58.0;
         let icon_cx = left_x + 8.0;
         let icon_cy = header_y - 4.5;
@@ -42,31 +38,6 @@ impl BtLogPanel {
             header_y,
             14.0,
             Color::from_rgba8(255, 255, 255, 255),
-        );
-
-        // Live status dot
-        let live_color = if state.bt_active {
-            if self.blink_timer < 0.8 {
-                Color::from_rgba8(34, 197, 94, 255) // Pulsing emerald green
-            } else {
-                Color::from_rgba8(22, 101, 52, 255)
-            }
-        } else {
-            Color::from_rgba8(239, 68, 68, 255)
-        };
-
-        let dot_x = left_x + 165.0;
-        Self::draw_circle(pixmap, dot_x, header_y - 4.5, 3.5, live_color);
-
-        let status_text = if state.bt_active { "LIVE" } else { "OFFLINE" };
-        fonts.draw_text(
-            pixmap,
-            &fonts.bold,
-            status_text,
-            dot_x + 7.0,
-            header_y - 1.0,
-            10.0,
-            live_color,
         );
 
         // [B] Close hint at top-right
