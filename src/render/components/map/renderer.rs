@@ -7,11 +7,12 @@ use maplibre_native::{CameraUpdate, ImageRendererBuilder, LatLng};
 use serde_json::Value;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TrySendError};
 use std::thread;
 use std::time::{Duration, Instant};
 use tiny_skia::{
-    FillRule, FilterQuality, Mask, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform,
+    FillRule, FilterQuality, LineCap, LineJoin, Mask, Paint, PathBuilder, Pixmap, PixmapPaint,
+    Stroke, Transform,
 };
 use url::Url;
 
@@ -50,6 +51,8 @@ pub struct MapPanel {
     clip_mask: Mask,
     requests: Option<SyncSender<CameraRequest>>,
     frames: Option<Receiver<MapFrame>>,
+    error_rx: Option<Receiver<String>>,
+    load_error: Option<String>,
     last_request: Option<CameraRequest>,
     rendered_center: Option<CameraRequest>,
     gps_smoother: GpsPositionSmoother,
@@ -94,6 +97,8 @@ impl MapPanel {
             clip_mask,
             requests: None,
             frames: None,
+            error_rx: None,
+            load_error: None,
             last_request: None,
             rendered_center: None,
             gps_smoother: GpsPositionSmoother::new(),
@@ -106,12 +111,20 @@ impl MapPanel {
         panel
     }
 
-    /// Draws the map centered on the current GPS position.
+    /// Draws the map centered on the current GPS position, or explicit error state if failed.
     pub fn draw(&mut self, pixmap: &mut Pixmap, fonts: &FontRenderer, state: &VehicleState) {
         let view_x = 14.0;
         let view_y = 24.0;
         let w = VIEW_W as f32;
         let h = VIEW_H as f32;
+
+        // Check for error notifications from background worker thread
+        if let Some(error_rx) = &self.error_rx {
+            while let Ok(err) = error_rx.try_recv() {
+                self.load_error = Some(err);
+                self.map_worker_stopped = true;
+            }
+        }
 
         // Keep the completed map frame while the next 3 m update is rendered.
         if let Some(frames) = &self.frames {
@@ -153,16 +166,23 @@ impl MapPanel {
                     Err(TrySendError::Disconnected(_)) => {
                         eprintln!("[Map] MapLibre renderer thread stopped");
                         self.map_worker_stopped = true;
+                        if self.load_error.is_none() {
+                            self.load_error = Some("Map renderer thread stopped".to_string());
+                        }
                     }
                 }
             }
         }
 
         self.map_pixmap.fill(self.appearance.background_color);
-        self.render_pixmap
-            .data_mut()
-            .copy_from_slice(&self.map_frame);
-        if let Some(center) = self.rendered_center {
+
+        if let Some(ref error_msg) = self.load_error {
+            // Strictly display error screen instead of fallback HUD
+            draw_map_error(&mut self.map_pixmap, fonts, w, h, error_msg);
+        } else if let Some(center) = self.rendered_center {
+            self.render_pixmap
+                .data_mut()
+                .copy_from_slice(&self.map_frame);
             let (pan_x, pan_y) = map_pan_pixels(center, camera);
             let delta = heading_delta(center.heading, camera.heading).to_radians() as f32;
             let (sin, cos) = delta.sin_cos();
@@ -180,27 +200,27 @@ impl MapPanel {
             paint.quality = FilterQuality::Bilinear;
             self.map_pixmap
                 .draw_pixmap(0, 0, self.render_pixmap.as_ref(), &paint, transform, None);
+
+            // Keep the vehicle marker fixed while rotating the map to its heading.
+            if has_gps_position {
+                draw_vehicle_arrow(&mut self.map_pixmap, w * 0.5, h * 0.5);
+            }
+
+            fonts.draw_text(
+                &mut self.map_pixmap,
+                &fonts.regular,
+                "© OpenStreetMap contributors · BBBike",
+                8.0,
+                h - 7.0,
+                7.0,
+                tiny_skia::Color::from_rgba8(220, 229, 235, 230),
+            );
         } else {
-            // Draw graceful fallback GPS Navigation radar HUD while tiles are loading or offline
-            draw_fallback_nav_hud(&mut self.map_pixmap, fonts, w, h, state, &camera);
+            // Still waiting for initial map frame to complete rendering
+            draw_map_loading(&mut self.map_pixmap, fonts, w, h);
         }
 
-        // Keep the vehicle marker fixed while rotating the map to its heading.
-        if has_gps_position || self.rendered_center.is_some() {
-            draw_vehicle_arrow(&mut self.map_pixmap, w * 0.5, h * 0.5);
-        }
-
-        fonts.draw_text(
-            &mut self.map_pixmap,
-            &fonts.regular,
-            "© OpenStreetMap contributors · BBBike",
-            8.0,
-            h - 7.0,
-            7.0,
-            tiny_skia::Color::from_rgba8(220, 229, 235, 230),
-        );
-
-        // Clip map, position arrow, and attribution to the rounded panel.
+        // Clip map, error/loading, position arrow, and attribution to the rounded panel.
         self.map_pixmap.apply_mask(&self.clip_mask);
 
         let mut paint = PixmapPaint::default();
@@ -228,23 +248,31 @@ impl MapPanel {
 
         let (request_tx, request_rx) = mpsc::sync_channel::<CameraRequest>(1);
         let (frame_tx, frame_rx) = mpsc::sync_channel::<MapFrame>(1);
+        let (error_tx, error_rx) = mpsc::channel::<String>();
         let style_path = std::env::var_os("ICARMETER_MAP_STYLE_PATH")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(DEFAULT_STYLE_PATH));
+
+        let worker_error_tx = error_tx.clone();
         match thread::Builder::new()
             .name("maplibre-renderer".to_string())
             .spawn(move || {
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    map_worker(style_path, request_rx, frame_tx);
+                let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    map_worker(style_path, request_rx, frame_tx, worker_error_tx.clone());
                 }));
+                if res.is_err() {
+                    let _ = worker_error_tx.send("Map renderer worker thread panicked".to_string());
+                }
             })
         {
             Ok(_) => {
                 self.requests = Some(request_tx);
                 self.frames = Some(frame_rx);
+                self.error_rx = Some(error_rx);
             }
             Err(error) => {
                 eprintln!("[Map] Failed to start MapLibre renderer thread: {error}");
+                self.load_error = Some(format!("Failed to spawn thread: {error}"));
                 self.map_worker_stopped = true;
             }
         }
@@ -283,55 +311,63 @@ fn valid_coordinates(latitude: f64, longitude: f64) -> bool {
 }
 
 // MapLibre Native owns a GL context and its renderer is thread-bound. Keep it
+// MapLibre Native owns a GL context and its renderer is thread-bound. Keep it
 // on this worker so reading tiles/rendering never stalls the framebuffer loop.
 fn map_worker(
     style_path: PathBuf,
     requests: Receiver<CameraRequest>,
     frames: SyncSender<MapFrame>,
+    errors: Sender<String>,
 ) {
-    let style_path = match std::fs::canonicalize(&style_path) {
+    let canonical_path = match std::fs::canonicalize(&style_path) {
         Ok(path) => path,
         Err(error) => {
+            let msg = format!("Style not found: {}", style_path.display());
             eprintln!(
                 "[Map] Cannot resolve offline MapLibre style '{}': {error}",
                 style_path.display()
             );
+            let _ = errors.send(msg);
             return;
         }
     };
-    let style_json = match std::fs::read_to_string(&style_path) {
+    let style_json = match std::fs::read_to_string(&canonical_path) {
         Ok(json) => json,
         Err(error) => {
+            let msg = format!("Cannot read style file: {error}");
             eprintln!(
                 "[Map] Cannot read offline MapLibre style '{}': {error}",
-                style_path.display()
+                canonical_path.display()
             );
+            let _ = errors.send(msg);
             return;
         }
     };
     let style_value: Value = match serde_json::from_str(&style_json) {
         Ok(value) => value,
         Err(error) => {
+            let msg = format!("Invalid style JSON: {error}");
             eprintln!("[Map] Invalid offline MapLibre style JSON: {error}");
+            let _ = errors.send(msg);
             return;
         }
     };
     if let Err(error) = validate_offline_style(&style_value) {
+        let msg = format!("Style validation failed: {error}");
         eprintln!("[Map] Offline MapLibre style rejected: {error}");
+        let _ = errors.send(msg);
         return;
     }
-    let style_uri = match Url::from_file_path(&style_path) {
+    let style_uri = match Url::from_file_path(&canonical_path) {
         Ok(uri) => uri,
         Err(()) => {
+            let msg = "Invalid file path URL for style".to_string();
             eprintln!("[Map] Offline MapLibre style path is not a valid file path");
+            let _ = errors.send(msg);
             return;
         }
     };
 
-    // This worker produces one complete snapshot at a time. Validate the
-    // style input before creating MapLibre's native graphics context; a
-    // missing/invalid style must degrade to the panel background, not take
-    // down the framebuffer process during renderer startup.
     let mut renderer = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         ImageRendererBuilder::new()
             .with_size(
@@ -342,7 +378,9 @@ fn map_worker(
     })) {
         Ok(renderer) => renderer,
         Err(err) => {
+            let msg = "Failed to initialize MapLibre static renderer".to_string();
             eprintln!("[Map] Panic while creating MapLibre static renderer: {:?}", err);
+            let _ = errors.send(msg);
             return;
         }
     };
@@ -356,11 +394,15 @@ fn map_worker(
             eprintln!("[Map] Offline MapLibre style loaded successfully");
         }
         Ok(Err(error)) => {
+            let msg = format!("Failed to load style: {error}");
             eprintln!("[Map] Failed to load offline MapLibre style: {error}");
+            let _ = errors.send(msg);
             return;
         }
         Err(panic_err) => {
+            let msg = "Panic while loading MapLibre style".to_string();
             eprintln!("[Map] Panic while loading MapLibre style: {:?}", panic_err);
+            let _ = errors.send(msg);
             return;
         }
     }
@@ -556,150 +598,257 @@ fn draw_vehicle_arrow(pixmap: &mut Pixmap, center_x: f32, center_y: f32) {
     }
 }
 
-fn draw_fallback_nav_hud(
+fn wrap_text(
+    fonts: &FontRenderer,
+    text: &str,
+    max_width: f32,
+    font_size: f32,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+    for word in text.split_whitespace() {
+        let test_line = if current_line.is_empty() {
+            word.to_string()
+        } else {
+            format!("{current_line} {word}")
+        };
+        if fonts.measure_width(&fonts.regular, &test_line, font_size) <= max_width {
+            current_line = test_line;
+        } else {
+            if !current_line.is_empty() {
+                lines.push(current_line);
+            }
+            current_line = word.to_string();
+        }
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+    if lines.len() > 3 {
+        lines.truncate(3);
+        if let Some(last) = lines.last_mut() {
+            last.push_str("...");
+        }
+    }
+    lines
+}
+
+fn draw_map_error(
     pixmap: &mut Pixmap,
     fonts: &FontRenderer,
     w: f32,
     h: f32,
-    state: &VehicleState,
-    camera: &CameraRequest,
+    error_msg: &str,
 ) {
     let center_x = w * 0.5;
-    let center_y = h * 0.45;
+    let center_y = h * 0.40;
 
-    // Draw radar / compass concentric guide circles
-    let mut grid_paint = Paint::default();
-    grid_paint.set_color(tiny_skia::Color::from_rgba8(30, 50, 75, 160));
-    let grid_stroke = Stroke {
+    // 1. Warning badge container
+    let box_w = 46.0;
+    let box_h = 46.0;
+    let box_x = center_x - box_w * 0.5;
+    let box_y = center_y - 64.0;
+
+    let rounded_box = crate::render::core::create_rounded_rect(box_x, box_y, box_w, box_h, 12.0);
+    let mut box_paint = Paint::default();
+    box_paint.set_color(tiny_skia::Color::from_rgba8(239, 68, 68, 28));
+    box_paint.anti_alias = true;
+    pixmap.fill_path(&rounded_box, &box_paint, FillRule::Winding, Transform::identity(), None);
+
+    let mut box_border = Paint::default();
+    box_border.set_color(tiny_skia::Color::from_rgba8(239, 68, 68, 140));
+    box_border.anti_alias = true;
+    let box_stroke = Stroke {
+        width: 1.2,
+        line_cap: LineCap::Round,
+        line_join: LineJoin::Round,
+        ..Default::default()
+    };
+    pixmap.stroke_path(&rounded_box, &box_border, &box_stroke, Transform::identity(), None);
+
+    // 2. Warning Triangle Icon inside badge
+    let icon_cy = box_y + box_h * 0.5;
+    let mut triangle = PathBuilder::new();
+    triangle.move_to(center_x, icon_cy - 10.0);
+    triangle.line_to(center_x + 11.0, icon_cy + 9.0);
+    triangle.line_to(center_x - 11.0, icon_cy + 9.0);
+    triangle.close();
+    if let Some(path) = triangle.finish() {
+        let mut tri_paint = Paint::default();
+        tri_paint.set_color(tiny_skia::Color::from_rgba8(248, 113, 113, 255));
+        tri_paint.anti_alias = true;
+        let tri_stroke = Stroke {
+            width: 1.6,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Round,
+            ..Default::default()
+        };
+        pixmap.stroke_path(&path, &tri_paint, &tri_stroke, Transform::identity(), None);
+    }
+
+    // Exclamation mark inside triangle
+    let mut excl = PathBuilder::new();
+    excl.move_to(center_x, icon_cy - 4.0);
+    excl.line_to(center_x, icon_cy + 2.5);
+    if let Some(path) = excl.finish() {
+        let mut excl_paint = Paint::default();
+        excl_paint.set_color(tiny_skia::Color::from_rgba8(248, 113, 113, 255));
+        excl_paint.anti_alias = true;
+        let excl_stroke = Stroke {
+            width: 1.6,
+            line_cap: LineCap::Round,
+            ..Default::default()
+        };
+        pixmap.stroke_path(&path, &excl_paint, &excl_stroke, Transform::identity(), None);
+    }
+    // Dot of exclamation mark
+    let mut dot = PathBuilder::new();
+    dot.push_circle(center_x, icon_cy + 6.0, 0.9);
+    if let Some(path) = dot.finish() {
+        let mut dot_paint = Paint::default();
+        dot_paint.set_color(tiny_skia::Color::from_rgba8(248, 113, 113, 255));
+        dot_paint.anti_alias = true;
+        pixmap.fill_path(&path, &dot_paint, FillRule::Winding, Transform::identity(), None);
+    }
+
+    // 3. Category header: "OFFLINE MAP"
+    let cat_text = "OFFLINE MAP";
+    let cat_w = fonts.measure_width(&fonts.bold, cat_text, 10.0);
+    fonts.draw_text(
+        pixmap,
+        &fonts.bold,
+        cat_text,
+        center_x - cat_w * 0.5,
+        center_y + 8.0,
+        10.0,
+        tiny_skia::Color::from_rgba8(148, 163, 184, 180),
+    );
+
+    // 4. Primary Error title: "Failed to load"
+    let title_text = "Failed to load";
+    let title_w = fonts.measure_width(&fonts.bold, title_text, 19.0);
+    fonts.draw_text(
+        pixmap,
+        &fonts.bold,
+        title_text,
+        center_x - title_w * 0.5,
+        center_y + 32.0,
+        19.0,
+        tiny_skia::Color::from_rgba8(248, 113, 113, 255),
+    );
+
+    // 5. Details container box with wrapped message
+    let lines = wrap_text(fonts, error_msg, w - 48.0, 9.5);
+    let line_h = 14.0;
+    let detail_box_h = (lines.len() as f32 * line_h + 16.0).max(36.0);
+    let detail_box_w = w - 36.0;
+    let detail_box_x = 18.0;
+    let detail_box_y = center_y + 46.0;
+
+    let detail_rect = crate::render::core::create_rounded_rect(
+        detail_box_x,
+        detail_box_y,
+        detail_box_w,
+        detail_box_h,
+        8.0,
+    );
+    let mut bg_paint = Paint::default();
+    bg_paint.set_color(tiny_skia::Color::from_rgba8(15, 23, 42, 220));
+    bg_paint.anti_alias = true;
+    pixmap.fill_path(&detail_rect, &bg_paint, FillRule::Winding, Transform::identity(), None);
+
+    let mut border_paint = Paint::default();
+    border_paint.set_color(tiny_skia::Color::from_rgba8(51, 65, 85, 140));
+    border_paint.anti_alias = true;
+    let border_stroke = Stroke {
         width: 1.0,
         ..Default::default()
     };
+    pixmap.stroke_path(&detail_rect, &border_paint, &border_stroke, Transform::identity(), None);
 
-    for radius in [45.0, 90.0, 135.0] {
-        let mut pb = PathBuilder::new();
-        pb.push_circle(center_x, center_y, radius);
-        if let Some(path) = pb.finish() {
-            pixmap.stroke_path(&path, &grid_paint, &grid_stroke, Transform::identity(), None);
-        }
+    let start_text_y = detail_box_y + 14.0 + (detail_box_h - (lines.len() as f32 * line_h + 10.0)) * 0.5;
+    for (idx, line) in lines.iter().enumerate() {
+        let line_w = fonts.measure_width(&fonts.regular, line, 9.5);
+        let text_x = center_x - line_w * 0.5;
+        let text_y = start_text_y + idx as f32 * line_h;
+        fonts.draw_text(
+            pixmap,
+            &fonts.regular,
+            line,
+            text_x,
+            text_y,
+            9.5,
+            tiny_skia::Color::from_rgba8(203, 213, 225, 230),
+        );
     }
 
-    // Crosshair axis lines
-    let mut pb = PathBuilder::new();
-    pb.move_to(center_x, center_y - 145.0);
-    pb.line_to(center_x, center_y + 145.0);
-    pb.move_to(center_x - 145.0, center_y);
-    pb.line_to(center_x + 145.0, center_y);
-    if let Some(path) = pb.finish() {
-        pixmap.stroke_path(&path, &grid_paint, &grid_stroke, Transform::identity(), None);
-    }
+    // 6. Footer toggle hint: "[M] Toggle TPMS / Map"
+    let hint_text = "[M] Toggle TPMS / Map";
+    let hint_w = fonts.measure_width(&fonts.regular, hint_text, 9.5);
+    fonts.draw_text(
+        pixmap,
+        &fonts.regular,
+        hint_text,
+        center_x - hint_w * 0.5,
+        h - 18.0,
+        9.5,
+        tiny_skia::Color::from_rgba8(148, 163, 184, 180),
+    );
+}
 
-    // Compass cardinal markers
-    fonts.draw_text(
-        pixmap,
-        &fonts.bold,
-        "N",
-        center_x - 4.5,
-        center_y - 148.0,
-        11.0,
-        tiny_skia::Color::from_rgba8(56, 189, 248, 220),
-    );
-    fonts.draw_text(
-        pixmap,
-        &fonts.bold,
-        "S",
-        center_x - 4.0,
-        center_y + 158.0,
-        10.0,
-        tiny_skia::Color::from_rgba8(148, 163, 184, 180),
-    );
-    fonts.draw_text(
-        pixmap,
-        &fonts.bold,
-        "E",
-        center_x + 148.0,
-        center_y + 4.0,
-        10.0,
-        tiny_skia::Color::from_rgba8(148, 163, 184, 180),
-    );
-    fonts.draw_text(
-        pixmap,
-        &fonts.bold,
-        "W",
-        center_x - 162.0,
-        center_y + 4.0,
-        10.0,
-        tiny_skia::Color::from_rgba8(148, 163, 184, 180),
-    );
+fn draw_map_loading(pixmap: &mut Pixmap, fonts: &FontRenderer, w: f32, h: f32) {
+    let center_x = w * 0.5;
+    let center_y = h * 0.44;
 
     // Header badge
+    let header_text = "OFFLINE MAP";
+    let header_w = fonts.measure_width(&fonts.bold, header_text, 10.0);
     fonts.draw_text(
         pixmap,
         &fonts.bold,
-        "GPS NAVIGATION",
-        18.0,
-        28.0,
-        12.0,
-        tiny_skia::Color::from_rgba8(56, 189, 248, 255),
+        header_text,
+        center_x - header_w * 0.5,
+        center_y - 20.0,
+        10.0,
+        tiny_skia::Color::from_rgba8(56, 189, 248, 220),
     );
 
-    let (status_text, status_color) = if state.gps_connected {
-        ("SATELLITE FIX 3D", tiny_skia::Color::from_rgba8(52, 211, 153, 255))
-    } else {
-        ("SEARCHING GPS...", tiny_skia::Color::from_rgba8(251, 191, 36, 255))
-    };
-    fonts.draw_text(pixmap, &fonts.regular, status_text, 18.0, 44.0, 9.5, status_color);
-
-    // Telemetry stats HUD at bottom
-    let lat_text = format!("LAT: {:.4}°", camera.latitude);
-    let lon_text = format!("LON: {:.4}°", camera.longitude);
-    let hdg_text = format!("HDG: {:.0}°", camera.heading);
-    let alt_text = format!("ALT: {:.0}m", state.gps_altitude);
-
+    // Title
+    let title_text = "Loading map...";
+    let title_w = fonts.measure_width(&fonts.bold, title_text, 17.0);
     fonts.draw_text(
         pixmap,
-        &fonts.regular,
-        &lat_text,
-        18.0,
-        h - 52.0,
-        10.0,
-        tiny_skia::Color::from_rgba8(226, 232, 240, 220),
-    );
-    fonts.draw_text(
-        pixmap,
-        &fonts.regular,
-        &lon_text,
-        18.0,
-        h - 38.0,
-        10.0,
-        tiny_skia::Color::from_rgba8(226, 232, 240, 220),
-    );
-    fonts.draw_text(
-        pixmap,
-        &fonts.regular,
-        &hdg_text,
-        w - 90.0,
-        h - 52.0,
-        10.0,
-        tiny_skia::Color::from_rgba8(226, 232, 240, 220),
-    );
-    fonts.draw_text(
-        pixmap,
-        &fonts.regular,
-        &alt_text,
-        w - 90.0,
-        h - 38.0,
-        10.0,
-        tiny_skia::Color::from_rgba8(226, 232, 240, 220),
+        &fonts.bold,
+        title_text,
+        center_x - title_w * 0.5,
+        center_y + 8.0,
+        17.0,
+        tiny_skia::Color::from_rgba8(226, 232, 240, 240),
     );
 
+    let sub_text = "Initializing MapLibre vector renderer";
+    let sub_w = fonts.measure_width(&fonts.regular, sub_text, 10.0);
     fonts.draw_text(
         pixmap,
         &fonts.regular,
-        "[M] Toggle TPMS / Map",
-        center_x - 52.0,
+        sub_text,
+        center_x - sub_w * 0.5,
+        center_y + 26.0,
+        10.0,
+        tiny_skia::Color::from_rgba8(148, 163, 184, 180),
+    );
+
+    // Toggle hint
+    let hint_text = "[M] Toggle TPMS / Map";
+    let hint_w = fonts.measure_width(&fonts.regular, hint_text, 9.5);
+    fonts.draw_text(
+        pixmap,
+        &fonts.regular,
+        hint_text,
+        center_x - hint_w * 0.5,
         h - 18.0,
-        9.0,
-        tiny_skia::Color::from_rgba8(148, 163, 184, 160),
+        9.5,
+        tiny_skia::Color::from_rgba8(148, 163, 184, 180),
     );
 }
 
@@ -772,6 +921,18 @@ mod tests {
         state.current_speed = 65.0;
         state.gps_connected = true;
         let _ = renderer.render(&state, 2.0);
-        let _ = renderer.pixmap().save_png("/home/i4104/.gemini/antigravity-ide/brain/1653a5b5-5bed-4b97-97c8-db6cbffce294/dashboard_map_preview.png");
+        let _ = renderer.pixmap().save_png("/home/i4104/.gemini/antigravity-ide/brain/3c4551f7-044f-4cc0-bc1b-9bf1ceb3095b/dashboard_map_preview.png");
+    }
+
+    #[test]
+    fn test_render_map_panel_error_state() {
+        let mut pixmap = Pixmap::new(410, 480).unwrap();
+        pixmap.fill(Color::BLACK);
+        let state = VehicleState::default();
+        let mut panel = MapPanel::new();
+        panel.load_error = Some("Style not found: /opt/icarmeter/maps/style.json".to_string());
+        let fonts = FontRenderer::new().unwrap();
+        panel.draw(&mut pixmap, &fonts, &state);
+        let _ = pixmap.save_png("/home/i4104/.gemini/antigravity-ide/brain/3c4551f7-044f-4cc0-bc1b-9bf1ceb3095b/map_error_preview.png");
     }
 }

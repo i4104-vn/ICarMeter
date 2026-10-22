@@ -128,9 +128,10 @@ fn run_telemetry_loop(
     let mut current_lon = 105.8542;
     let mut current_heading = 0.0;
     let mut current_altitude = 18.0;
-    let mut gps_connected = false;
+    let mut gps_connected;
     let mut bt_active = true;
     let mut bt_device_name: Option<String> = None;
+    let mut current_config = config;
 
     while is_app_running() {
         // 1. Process dynamic config updates
@@ -157,9 +158,11 @@ fn run_telemetry_loop(
                 },
                 false => sensors = None,
             }
+
+            current_config = new_config;
         }
 
-        // 2. Poll hardware GPS; fall back to companion phone GPS via Bluetooth
+        // 2. Poll GPS: prioritize hardware GPS; take data from Bluetooth phone when configured
         let mut has_hardware_fix = false;
         if let Some(gps_ref) = gps.as_mut() {
             if let Some(update) = gps_ref.poll_update() {
@@ -178,28 +181,33 @@ fn run_telemetry_loop(
             }
             has_hardware_fix = gps_ref.is_connected();
             gps_connected = has_hardware_fix;
+        } else {
+            gps_connected = false;
         }
 
         if !has_hardware_fix {
             if let Some(phone) = bt_state.as_ref().and_then(|b| b.get_phone_gps()) {
+                // Speed exception: companion phone speed is always adopted if present
                 if let Some(speed) = phone.spd {
                     current_speed = Some(speed.max(0.0));
                 }
-                if let Some(lat) = phone.lat {
-                    current_lat = lat;
+
+                // GPS telemetry from Bluetooth phone according to config
+                if current_config.gps.enabled && current_config.gps.bluetooth {
+                    if let Some(lat) = phone.lat {
+                        current_lat = lat;
+                    }
+                    if let Some(lon) = phone.lon {
+                        current_lon = lon;
+                    }
+                    if let Some(alt) = phone.alt {
+                        current_altitude = alt;
+                    }
+                    if let Some(hdg) = phone.heading {
+                        current_heading = hdg;
+                    }
+                    gps_connected = true;
                 }
-                if let Some(lon) = phone.lon {
-                    current_lon = lon;
-                }
-                if let Some(alt) = phone.alt {
-                    current_altitude = alt;
-                }
-                if let Some(hdg) = phone.heading {
-                    current_heading = hdg;
-                }
-                gps_connected = true;
-            } else if gps.is_none() {
-                gps_connected = false;
             }
         }
 

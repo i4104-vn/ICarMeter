@@ -2,6 +2,7 @@
 
 use std::time::Instant;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct PhoneGpsData {
     pub spd: Option<f32>,
