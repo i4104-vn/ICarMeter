@@ -73,6 +73,12 @@ fi
 /usr/bin/bluetoothctl discoverable on 2>/dev/null || true
 /usr/bin/bluetoothctl pairable on 2>/dev/null || true
 
+# Force hardware-level Page Scan & Inquiry Scan so mobile phones can discover the Pi
+if [ -x /usr/bin/hciconfig ]; then
+    /usr/bin/hciconfig hci0 up 2>/dev/null || true
+    /usr/bin/hciconfig hci0 piscan 2>/dev/null || true
+fi
+
 # Register Serial Port Profile (SPP) in BlueZ SDP
 # Wait for SDP socket to become available from bluetoothd --compat
 sdp_socket_ready=0

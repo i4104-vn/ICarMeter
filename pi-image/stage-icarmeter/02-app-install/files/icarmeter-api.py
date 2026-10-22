@@ -18,8 +18,13 @@ try:
     import dbus
     import dbus.mainloop.glib
     from gi.repository import GLib
+    try:
+        dbus.mainloop.glib.threads_init()
+    except Exception:
+        pass
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     HAS_DBUS = True
-except ImportError:
+except Exception:
     dbus = None
     GLib = None
     HAS_DBUS = False
@@ -140,10 +145,10 @@ def bluetoothctl_monitor_worker():
     log_bt("SYSTEM", "Starting Bluetooth live event monitor...")
 
     # Primary: D-Bus signal monitoring with connection retry loop
-    while HAS_DBUS and dbus and GLib:
+    dbus_retries = 0
+    while HAS_DBUS and dbus and GLib and dbus_retries < 3:
         try:
-            dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-            bus = dbus.SystemBus()
+            bus = dbus.SystemBus(private=True)
 
             def on_properties_changed(interface, changed, invalidated, path=None):
                 if interface == "org.bluez.Device1":
@@ -170,7 +175,8 @@ def bluetoothctl_monitor_worker():
             loop.run()
             return
         except Exception as e:
-            log_bt("SYSTEM", f"D-Bus monitor note ({e}). Retrying in 5s...")
+            dbus_retries += 1
+            log_bt("SYSTEM", f"Err: {e}. Retry {dbus_retries}/3 in 5s...")
             time.sleep(5)
 
     # Secondary Fallback: bluetoothctl streaming without EOF
@@ -224,43 +230,57 @@ def bt_broadcast(msg_dict):
 def ensure_bt_always_ready():
     """Keeps Bluetooth adapter powered, named ICarMeter, discoverable, and pairable at all times."""
     try:
-        # Check and configure via D-Bus first to avoid spawning subprocesses
+        # Unblock kernel radio
         try:
-            if not dbus:
-                raise RuntimeError("D-Bus not available")
-            bus = dbus.SystemBus()
-            adapter_obj = bus.get_object("org.bluez", "/org/bluez/hci0")
-            props = dbus.Interface(adapter_obj, "org.freedesktop.DBus.Properties")
+            subprocess.run(["rfkill", "unblock", "bluetooth"], capture_output=True, timeout=2)
+        except Exception:
+            pass
 
-            powered = bool(props.Get("org.bluez.Adapter1", "Powered"))
-            discoverable = bool(props.Get("org.bluez.Adapter1", "Discoverable"))
-            pairable = bool(props.Get("org.bluez.Adapter1", "Pairable"))
-            alias = str(props.Get("org.bluez.Adapter1", "Alias"))
+        # Check and configure via D-Bus
+        dbus_ok = False
+        try:
+            if dbus:
+                bus = dbus.SystemBus()
+                adapter_obj = bus.get_object("org.bluez", "/org/bluez/hci0")
+                props = dbus.Interface(adapter_obj, "org.freedesktop.DBus.Properties")
 
-            if not powered:
-                props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(True))
-            if alias != "ICarMeter":
-                props.Set("org.bluez.Adapter1", "Alias", dbus.String("ICarMeter"))
-            if not discoverable:
+                powered = bool(props.Get("org.bluez.Adapter1", "Powered"))
+                discoverable = bool(props.Get("org.bluez.Adapter1", "Discoverable"))
+                pairable = bool(props.Get("org.bluez.Adapter1", "Pairable"))
+                alias = str(props.Get("org.bluez.Adapter1", "Alias"))
+
+                if not powered:
+                    props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(True))
+                if alias != "ICarMeter":
+                    props.Set("org.bluez.Adapter1", "Alias", dbus.String("ICarMeter"))
                 props.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(0))
-                props.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(True))
-            if not pairable:
+                if not discoverable:
+                    props.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(True))
                 props.Set("org.bluez.Adapter1", "PairableTimeout", dbus.UInt32(0))
-                props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
-            return
+                if not pairable:
+                    props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
+                dbus_ok = True
         except Exception:
             pass
 
         # Fallback to btmgmt or bluetoothctl
-        if os.path.exists("/usr/bin/btmgmt"):
-            subprocess.run(["btmgmt", "--index", "0", "power", "on"], capture_output=True, timeout=2)
-            subprocess.run(["btmgmt", "--index", "0", "name", "ICarMeter", "ICarMeter"], capture_output=True, timeout=2)
-            subprocess.run(["btmgmt", "--index", "0", "discov", "on"], capture_output=True, timeout=2)
-            subprocess.run(["btmgmt", "--index", "0", "pairable", "on"], capture_output=True, timeout=2)
-        else:
-            subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=2)
-            subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=2)
-            subprocess.run(["bluetoothctl", "pairable", "on"], capture_output=True, timeout=2)
+        if not dbus_ok:
+            if os.path.exists("/usr/bin/btmgmt"):
+                subprocess.run(["btmgmt", "--index", "0", "power", "on"], capture_output=True, timeout=2)
+                subprocess.run(["btmgmt", "--index", "0", "name", "ICarMeter", "ICarMeter"], capture_output=True, timeout=2)
+                subprocess.run(["btmgmt", "--index", "0", "discov", "on"], capture_output=True, timeout=2)
+                subprocess.run(["btmgmt", "--index", "0", "pairable", "on"], capture_output=True, timeout=2)
+            else:
+                subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=2)
+                subprocess.run(["bluetoothctl", "system-alias", "ICarMeter"], capture_output=True, timeout=2)
+                subprocess.run(["bluetoothctl", "discoverable-timeout", "0"], capture_output=True, timeout=2)
+                subprocess.run(["bluetoothctl", "pairable-timeout", "0"], capture_output=True, timeout=2)
+                subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=2)
+                subprocess.run(["bluetoothctl", "pairable", "on"], capture_output=True, timeout=2)
+
+        # Hardware-level Inquiry Scan (piscan) ensures phones scanning can discover the Pi
+        if os.path.exists("/usr/bin/hciconfig"):
+            subprocess.run(["hciconfig", "hci0", "piscan"], capture_output=True, timeout=2)
     except Exception:
         pass
 

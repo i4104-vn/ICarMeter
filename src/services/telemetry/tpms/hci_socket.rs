@@ -34,8 +34,9 @@ pub struct HciSocket {
 impl HciSocket {
     /// Opens and binds a raw HCI socket to the specified Bluetooth adapter (e.g. "hci0")
     pub fn open(adapter: &str) -> io::Result<Self> {
-        // Ensure adapter is UP
+        // Ensure adapter is UP and discoverable (piscan: Page & Inquiry Scan)
         let _ = Command::new("hciconfig").args([adapter, "up"]).output();
+        let _ = Command::new("hciconfig").args([adapter, "piscan"]).output();
 
         let fd = unsafe { libc::socket(AF_BLUETOOTH, libc::SOCK_RAW, BTPROTO_HCI) };
         if fd < 0 {
