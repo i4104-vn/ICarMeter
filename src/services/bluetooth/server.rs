@@ -133,39 +133,43 @@ impl SppProfile {
 
 struct PairingAgent;
 
-#[derive(Debug, zbus::DBusError)]
-#[zbus(prefix = "org.bluez.Error")]
-enum PairingAgentError {
-    Rejected(String),
-}
-
 #[interface(name = "org.bluez.Agent1")]
 impl PairingAgent {
     fn release(&self) {}
 
-    fn request_pin_code(&self, _device: OwnedObjectPath) -> Result<String, PairingAgentError> {
-        Err(PairingAgentError::Rejected(
-            "ICarMeter supports Just Works pairing only".to_string(),
-        ))
+    fn request_pin_code(&self, device: OwnedObjectPath) -> zbus::fdo::Result<String> {
+        log_bt("BT-AGENT", &format!("PIN requested by {device}, auto-replying 0000"));
+        Ok("0000".to_string())
     }
 
-    fn display_pin_code(&self, _device: OwnedObjectPath, _pin_code: String) {}
-
-    fn request_passkey(&self, _device: OwnedObjectPath) -> Result<u32, PairingAgentError> {
-        Err(PairingAgentError::Rejected(
-            "ICarMeter has no passkey input".to_string(),
-        ))
+    fn display_pin_code(&self, device: OwnedObjectPath, pin_code: String) {
+        log_bt("BT-AGENT", &format!("PIN for {device}: {pin_code}"));
     }
 
-    fn display_passkey(&self, _device: OwnedObjectPath, _passkey: u32, _entered: u16) {}
+    fn request_passkey(&self, device: OwnedObjectPath) -> zbus::fdo::Result<u32> {
+        log_bt("BT-AGENT", &format!("Passkey requested by {device}, auto-replying 0"));
+        Ok(0)
+    }
 
-    fn request_confirmation(&self, _device: OwnedObjectPath, _passkey: u32) {}
+    fn display_passkey(&self, device: OwnedObjectPath, passkey: u32, _entered: u16) {
+        log_bt("BT-AGENT", &format!("Passkey for {device}: {passkey:06}"));
+    }
 
-    fn request_authorization(&self, _device: OwnedObjectPath) {}
+    fn request_confirmation(&self, device: OwnedObjectPath, passkey: u32) {
+        log_bt("BT-AGENT", &format!("Auto-confirmed pairing passkey {passkey:06} for {device}"));
+    }
 
-    fn authorize_service(&self, _device: OwnedObjectPath, _uuid: String) {}
+    fn request_authorization(&self, device: OwnedObjectPath) {
+        log_bt("BT-AGENT", &format!("Authorized connection from {device}"));
+    }
 
-    fn cancel(&self) {}
+    fn authorize_service(&self, device: OwnedObjectPath, uuid: String) {
+        log_bt("BT-AGENT", &format!("Authorized service {uuid} for {device}"));
+    }
+
+    fn cancel(&self) {
+        log_bt("BT-AGENT", "Pairing cancelled");
+    }
 }
 
 fn run_profile_loop(shared_state: BluetoothSharedState, broadcaster: Arc<Broadcaster>) {
@@ -233,6 +237,18 @@ fn register_spp_profile(
         "Channel".to_string(),
         OwnedValue::from(RFCOMM_CHANNEL_DEFAULT as u16),
     );
+    options.insert(
+        "AutoConnect".to_string(),
+        OwnedValue::from(true),
+    );
+    options.insert(
+        "RequireAuthentication".to_string(),
+        OwnedValue::from(false),
+    );
+    options.insert(
+        "RequireAuthorization".to_string(),
+        OwnedValue::from(false),
+    );
 
     let manager = Proxy::new(
         &connection,
@@ -257,6 +273,7 @@ fn register_pairing_agent(connection: &Connection) -> Result<(), Box<dyn std::er
     let agent_path = ObjectPath::try_from(AGENT_PATH)?;
     manager.call_method("RegisterAgent", &(agent_path.clone(), "NoInputNoOutput"))?;
     manager.call_method("RequestDefaultAgent", &(agent_path,))?;
+    log_bt("BT-AGENT", "Auto-pairing agent registered with BlueZ over D-Bus");
     Ok(())
 }
 
@@ -284,15 +301,15 @@ fn run_heartbeat_loop(shared_state: BluetoothSharedState, broadcaster: Arc<Broad
             broadcaster.broadcast(&tpms_msg);
 
             // 2. Broadcast heartbeat every 4 seconds
-            if tick % 2 == 0 {
+            if tick.is_multiple_of(2) {
                 let hb_msg = protocol::build_heartbeat(clients);
                 broadcaster.broadcast(&hb_msg);
             }
         }
 
-        // Periodically verify adapter remains discoverable & pairable
-        if tick % 15 == 0 {
-            adapter::ensure_adapter_ready(adapter::DEFAULT_ADAPTER);
+        // Periodically verify adapter remains discoverable & pairable over D-Bus
+        if tick.is_multiple_of(5) {
+            adapter::maintain_discoverability(adapter::DEFAULT_ADAPTER);
         }
     }
 }

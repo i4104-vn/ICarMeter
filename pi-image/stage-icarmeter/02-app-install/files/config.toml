@@ -8,7 +8,7 @@ baud_rate = 9600
 enabled = true
 
 [tpms]
-enabled = true
+enabled = false
 
 # Adapter Bluetooth tích hợp trên bo mạch Raspberry Pi (mặc định: hci0)
 adapter = "hci0"
