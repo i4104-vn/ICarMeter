@@ -12,7 +12,14 @@ fn main() {
             let obj_path = format!("{}/glibc_compat.o", out_dir);
             let cc = std::env::var("CC").unwrap_or_else(|_| "gcc".to_string());
             let status = std::process::Command::new(&cc)
-                .args(&["-O2", "-fPIC", "-c", "compat/glibc_compat.c", "-o", &obj_path])
+                .args(&[
+                    "-O2",
+                    "-fPIC",
+                    "-c",
+                    "compat/glibc_compat.c",
+                    "-o",
+                    &obj_path,
+                ])
                 .status();
 
             if let Ok(s) = status {
