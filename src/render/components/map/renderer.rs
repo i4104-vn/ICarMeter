@@ -1,7 +1,7 @@
 // MapLibre Native renderer presented in the framebuffer dashboard.
 
 use super::style::MapAppearance;
-use crate::models::VehicleState;
+use crate::models::vehicle::state::VehicleState;
 use crate::render::core::FontRenderer;
 use maplibre_native::{CameraUpdate, ImageRendererBuilder, LatLng};
 use serde_json::Value;

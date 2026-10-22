@@ -1,7 +1,7 @@
 // 4 Side Wheels rendering with alert red fill & glow for low tire pressure
 
 use crate::configs::colors;
-use crate::models::tpms::TirePressures;
+use crate::models::tpms::pressures::TirePressures;
 use crate::render::core::create_rounded_rect;
 use tiny_skia::{Color, FillRule, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
 

@@ -1,6 +1,6 @@
 // Renders straight-line inward suction dots (no tails) with alpha fade
 
-use crate::models::Particle;
+use crate::models::particle::particle::Particle;
 use crate::services::particle_engine::PARTICLE_TERMINAL_DISTANCE;
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform};
 

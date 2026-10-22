@@ -2,18 +2,7 @@
 
 use super::{CenterModeState, CenterTransitionManager, WELCOME_SLEEP_END};
 
-#[derive(Debug, Clone, Copy)]
-pub struct CenterVisualParams {
-    pub emo_alpha: f32,
-    pub brackets_fly: f32,
-    pub brackets_alpha: f32,
-    pub brackets_speed: Option<f32>,
-    pub digits_speed: Option<f32>,
-    pub digits_alpha: f32,
-    pub particles_alpha: f32,
-    pub welcome_time: f32,
-    pub welcome_alpha: f32,
-}
+use crate::models::render::transition::CenterVisualParams;
 
 impl CenterTransitionManager {
     pub fn visual_parameters(&self) -> CenterVisualParams {

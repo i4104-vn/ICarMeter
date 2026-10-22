@@ -7,8 +7,10 @@ pub mod tier;
 pub mod transition;
 pub mod welcome;
 
-use super::emo::{EmoExpression, EmoRenderer};
-use crate::models::VehicleState;
+use super::emo::EmoRenderer;
+use crate::models::emotion::expression::EmoExpression;
+use crate::models::render::transition::CenterModeState;
+use crate::models::vehicle::state::VehicleState;
 use crate::render::core::FontRenderer;
 use crate::services::ParticleEngine;
 use brackets::SpeedometerBrackets;
@@ -16,7 +18,7 @@ use digits::SpeedometerDigits;
 use particles::ParticleRenderer;
 use tier::get_tier_colors;
 use tiny_skia::Pixmap;
-use transition::{CenterModeState, CenterTransitionManager};
+use transition::CenterTransitionManager;
 use welcome::SpeedometerWelcome;
 
 pub struct SpeedometerPanel {

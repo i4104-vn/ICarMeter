@@ -1,7 +1,5 @@
-// Randomly cycles through expressions, then plays a one-way sleep progression.
-
 use super::sprite_renderer::{EXPRESSION_COUNT, EXPRESSION_DURATION};
-use super::types::EmoExpression;
+use crate::models::emotion::expression::EmoExpression;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const RANDOM_EXPRESSION_INDICES: [u8; EXPRESSION_COUNT - 2] = [

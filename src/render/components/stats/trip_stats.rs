@@ -1,7 +1,7 @@
 // Trip and driving statistics display
 
 use crate::configs::colors;
-use crate::models::VehicleState;
+use crate::models::vehicle::state::VehicleState;
 use crate::render::core::FontRenderer;
 use tiny_skia::{LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
 

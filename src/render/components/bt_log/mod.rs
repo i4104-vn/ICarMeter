@@ -1,6 +1,6 @@
 // Center Panel: Real-time Bluetooth Subsystem Event & Diagnostics Log Viewer
 
-use crate::models::VehicleState;
+use crate::models::vehicle::state::VehicleState;
 use crate::render::core::FontRenderer;
 use tiny_skia::{Color, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
@@ -91,23 +91,11 @@ impl BtLogPanel {
 
             // Parse color and truncated text
             let (color, display_str) = Self::style_log_line(line, fonts, max_text_w);
-            fonts.draw_text(
-                pixmap,
-                &fonts.regular,
-                &display_str,
-                left_x,
-                y,
-                11.0,
-                color,
-            );
+            fonts.draw_text(pixmap, &fonts.regular, &display_str, left_x, y, 11.0, color);
         }
     }
 
-    fn style_log_line(
-        line: &str,
-        fonts: &FontRenderer,
-        max_w: f32,
-    ) -> (Color, String) {
+    fn style_log_line(line: &str, fonts: &FontRenderer, max_w: f32) -> (Color, String) {
         let color = if line.contains("[Bluetooth-Init]") || line.contains("[System start]") {
             Color::from_rgba8(74, 222, 128, 255) // Bright Emerald Green
         } else if line.contains("[BTAgent]") || line.contains("[PAIR]") || line.contains("PIN") {
@@ -131,11 +119,8 @@ impl BtLogPanel {
         let mut display_str = line.to_string();
         if fonts.measure_width(&fonts.regular, &display_str, font_size) > max_w {
             while !display_str.is_empty()
-                && fonts.measure_width(
-                    &fonts.regular,
-                    &format!("{}...", display_str),
-                    font_size,
-                ) > max_w
+                && fonts.measure_width(&fonts.regular, &format!("{}...", display_str), font_size)
+                    > max_w
             {
                 display_str.pop();
             }
@@ -174,23 +159,6 @@ impl BtLogPanel {
                 ..Default::default()
             };
             pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
-        }
-    }
-
-    fn draw_circle(pixmap: &mut Pixmap, cx: f32, cy: f32, radius: f32, color: Color) {
-        let mut pb = PathBuilder::new();
-        let k = 0.55228475 * radius;
-        pb.move_to(cx, cy - radius);
-        pb.cubic_to(cx + k, cy - radius, cx + radius, cy - k, cx + radius, cy);
-        pb.cubic_to(cx + radius, cy + k, cx + k, cy + radius, cx, cy + radius);
-        pb.cubic_to(cx - k, cy + radius, cx - radius, cy + k, cx - radius, cy);
-        pb.cubic_to(cx - radius, cy - k, cx - k, cy - radius, cx, cy - radius);
-
-        if let Some(path) = pb.finish() {
-            let mut paint = Paint::default();
-            paint.set_color(color);
-            paint.anti_alias = true;
-            pixmap.fill_path(&path, &paint, tiny_skia::FillRule::Winding, Transform::identity(), None);
         }
     }
 }

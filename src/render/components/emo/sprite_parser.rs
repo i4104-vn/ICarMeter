@@ -1,24 +1,11 @@
-//! Parser for the bundled SVG expression strips.
-
-use tiny_skia::{Color, Path, PathBuilder};
+use tiny_skia::{Color, PathBuilder};
 
 pub(super) const EXPRESSION_COUNT: usize = 35;
 pub(super) const FRAME_COUNT: usize = 24;
 pub(super) const FRAME_RATE: f32 = 6.0;
 pub(super) const EXPRESSION_DURATION: f32 = FRAME_COUNT as f32 / FRAME_RATE;
 
-pub(super) struct ExpressionSprite {
-    pub(super) frames: Vec<Vec<ColoredPath>>,
-    pub(super) bounds: Option<(f32, f32, f32, f32)>,
-    pub(super) frame_width: f32,
-}
-
-#[derive(Clone)]
-pub(super) struct ColoredPath {
-    pub(super) path: Path,
-    pub(super) color: Color,
-    pub(super) opacity: f32,
-}
+use crate::models::render::sprite::{ColoredPath, ExpressionSprite};
 
 pub(super) const EXPRESSION_SVGS: [&str; EXPRESSION_COUNT] = [
     include_str!("../../../../assets/emotions/0.svg"),

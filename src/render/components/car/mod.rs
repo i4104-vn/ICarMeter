@@ -4,7 +4,7 @@ pub mod chassis;
 pub mod tpms;
 pub mod wheels;
 
-use crate::models::VehicleState;
+use crate::models::vehicle::state::VehicleState;
 use crate::render::core::FontRenderer;
 use chassis::CarChassis;
 use tiny_skia::Pixmap;

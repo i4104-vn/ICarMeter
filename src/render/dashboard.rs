@@ -6,7 +6,7 @@ use super::components::{
 use super::core::FontRenderer;
 use super::pixel_buffer::PixelBuffer;
 use crate::configs::display::{SCREEN_HEIGHT, SCREEN_WIDTH};
-use crate::models::VehicleState;
+use crate::models::vehicle::state::VehicleState;
 use tiny_skia::{Color, Paint, Pixmap, Rect, Transform};
 
 const STARTUP_FADE_DURATION: f32 = 1.4;

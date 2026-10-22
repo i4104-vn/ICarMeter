@@ -3,13 +3,12 @@
 pub mod animator;
 mod sprite_parser;
 pub mod sprite_renderer;
-pub mod types;
 
+use crate::models::emotion::expression::EmoExpression;
 use crate::render::core::FontRenderer;
 use animator::EmoAnimator;
 pub use sprite_renderer::EmoSpriteRenderer;
 use tiny_skia::Pixmap;
-pub use types::EmoExpression;
 
 pub struct EmoRenderer {
     animator: EmoAnimator,

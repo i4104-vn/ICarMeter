@@ -2,7 +2,7 @@
 
 pub mod trip_stats;
 
-use crate::models::VehicleState;
+use crate::models::vehicle::state::VehicleState;
 use crate::render::core::FontRenderer;
 use tiny_skia::Pixmap;
 use trip_stats::TripStats;

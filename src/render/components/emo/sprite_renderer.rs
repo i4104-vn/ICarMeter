@@ -1,7 +1,8 @@
 //! Renderer for each expression's horizontal SVG animation strip.
 
-use super::EmoExpression;
-use super::sprite_parser::{EXPRESSION_SVGS, ExpressionSprite, parse_svg};
+use super::sprite_parser::{EXPRESSION_SVGS, parse_svg};
+use crate::models::emotion::expression::EmoExpression;
+use crate::models::render::sprite::ExpressionSprite;
 use std::sync::OnceLock;
 use tiny_skia::{FillRule, Paint, Pixmap, Transform};
 

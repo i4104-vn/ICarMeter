@@ -7,16 +7,7 @@ pub const WELCOME_SLEEP_END: f32 = 4.0;
 pub const WELCOME_WAKE_END: f32 = 8.0;
 pub const WELCOME_END: f32 = WELCOME_WAKE_END;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum CenterModeState {
-    Welcome(f32),
-    SpeedActive,
-    FadingSpeedToEmo(f32),
-    EmoActive,
-    FadingEmoOut(f32),
-    FlyingBracketsOut(f32),
-    FadingSpeedIn(f32),
-}
+use crate::models::render::transition::CenterModeState;
 
 pub struct CenterTransitionManager {
     pub state: CenterModeState,

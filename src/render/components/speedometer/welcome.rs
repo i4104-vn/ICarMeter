@@ -2,7 +2,8 @@
 // Clean presentation without extra text or HUD clutter
 
 use super::transition::{WELCOME_SLEEP_END, WELCOME_WAKE_END};
-use crate::render::components::emo::{EmoExpression, EmoSpriteRenderer};
+use crate::models::emotion::expression::EmoExpression;
+use crate::render::components::emo::EmoSpriteRenderer;
 use crate::render::core::FontRenderer;
 use tiny_skia::Pixmap;
 

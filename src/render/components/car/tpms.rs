@@ -2,7 +2,7 @@
 
 use super::wheels::{WHEEL_HEIGHT, WHEEL_WIDTH};
 use crate::configs::colors;
-use crate::models::tpms::TirePressures;
+use crate::models::tpms::pressures::TirePressures;
 use crate::render::core::{FontRenderer, create_rounded_rect};
 use tiny_skia::{Color, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Stroke, Transform};
 

@@ -1,7 +1,7 @@
 // Compact connection footer: Bluetooth and GPS only.
 
 use crate::configs::display::SCREEN_WIDTH;
-use crate::models::VehicleState;
+use crate::models::vehicle::state::VehicleState;
 use crate::render::core::FontRenderer;
 use tiny_skia::{Color, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
