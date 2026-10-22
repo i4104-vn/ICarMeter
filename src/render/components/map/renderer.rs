@@ -86,7 +86,7 @@ impl MapPanel {
             clip_mask.fill_path(&path, FillRule::Winding, true, Transform::identity());
         }
 
-        Self {
+        let mut panel = Self {
             appearance,
             map_frame: render_pixmap.data().to_vec(),
             map_pixmap,
@@ -98,7 +98,12 @@ impl MapPanel {
             rendered_center: None,
             gps_smoother: GpsPositionSmoother::new(),
             map_worker_stopped: false,
-        }
+        };
+
+        // Eagerly start MapLibre in its own dedicated background thread at startup
+        panel.start_worker();
+
+        panel
     }
 
     /// Draws the map centered on the current GPS position.
@@ -107,8 +112,6 @@ impl MapPanel {
         let view_y = 24.0;
         let w = VIEW_W as f32;
         let h = VIEW_H as f32;
-
-        self.start_worker();
 
         // Keep the completed map frame while the next 3 m update is rendered.
         if let Some(frames) = &self.frames {

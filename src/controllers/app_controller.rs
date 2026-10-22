@@ -46,7 +46,6 @@ impl AppController {
         let mut last_time = Instant::now();
         let mut last_config_check = Instant::now();
         let mut last_config_mtime = AppConfig::last_modified();
-        let mut last_tpms_publish = Instant::now();
 
         while backend.is_open() && is_app_running() {
             // Check and re-read config.toml dynamically in real time
@@ -98,16 +97,10 @@ impl AppController {
             let dt = now.duration_since(last_time).as_secs_f32().min(0.1);
             last_time = now;
 
-            // Update real vehicle telemetry from GPS and Bluetooth sensors
+            // Non-blocking telemetry sync from dedicated background worker thread
             telemetry.update(&mut state);
             demo_gps.update(&mut state, dt);
             state.update_trip(dt);
-
-            // Expose real-time TPMS telemetry to native Bluetooth server
-            if last_tpms_publish.elapsed() >= Duration::from_millis(250) {
-                last_tpms_publish = Instant::now();
-                bt_shared_state.set_tires(&state.tires);
-            }
 
             // Render frame to pixel buffer
             let buffer = renderer.render(&state, dt);
