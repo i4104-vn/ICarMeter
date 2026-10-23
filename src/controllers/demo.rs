@@ -76,15 +76,15 @@ impl DemoGps {
 
 fn speed_at(time: f32) -> f32 {
     match time {
-        t if t < 4.0 => smoothstep(t / 4.0) * 22.0,
-        t if t < 22.0 => 22.0 + (t * 0.45).sin() * 1.2,
-        t if t < 28.0 => (1.0 - smoothstep((t - 22.0) / 6.0)) * 22.0,
+        t if t < 4.0 => smoothstep(t / 4.0) * 30.0,
+        t if t < 22.0 => 30.0 + (t * 0.45).sin() * 1.2,
+        t if t < 28.0 => (1.0 - smoothstep((t - 22.0) / 6.0)) * 30.0,
         t if t < 34.0 => 0.0,
-        t if t < 39.0 => smoothstep((t - 34.0) / 5.0) * 36.0,
-        t if t < 54.0 => 36.0 + (t * 0.32).sin() * 1.5,
-        t if t < 62.0 => 36.0 - smoothstep((t - 54.0) / 8.0) * 24.0,
-        t if t < 66.0 => 12.0,
-        t if t < SPEED_CYCLE_SECONDS => (1.0 - smoothstep((t - 66.0) / 4.0)) * 12.0,
+        t if t < 39.0 => smoothstep((t - 34.0) / 5.0) * 80.0,
+        t if t < 54.0 => 80.0,
+        t if t < 62.0 => 80.0 - smoothstep((t - 54.0) / 8.0) * 50.0,
+        t if t < 66.0 => 30.0,
+        t if t < SPEED_CYCLE_SECONDS => (1.0 - smoothstep((t - 66.0) / 4.0)) * 30.0,
         _ => 0.0,
     }
 }

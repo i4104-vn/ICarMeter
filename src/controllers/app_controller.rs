@@ -125,29 +125,14 @@ impl AppController {
                 // Add the latest real speed sample to the rolling chart history.
                 let current_speed = runtime.state.current_speed;
                 if runtime.wave_tracker.update(current_speed, dt) {
-                    let (
-                        stroke_path,
-                        area_path,
-                        endpoint_x,
-                        endpoint_y,
-                        endpoint_visible,
-                        y1,
-                        y2,
-                        y4,
-                        y5,
-                        y6,
-                    ) = runtime.wave_tracker.generate_paths();
+                    let (stroke_path, area_path, endpoint_x, endpoint_y, endpoint_visible) =
+                        runtime.wave_tracker.generate_paths();
 
                     ui.set_chart_stroke_path(stroke_path.into());
                     ui.set_chart_area_path(area_path.into());
                     ui.set_chart_endpoint_x(endpoint_x);
                     ui.set_chart_endpoint_y(endpoint_y);
                     ui.set_chart_endpoint_visible(endpoint_visible);
-                    ui.set_chart_y1(y1);
-                    ui.set_chart_y2(y2);
-                    ui.set_chart_y4(y4);
-                    ui.set_chart_y5(y5);
-                    ui.set_chart_y6(y6);
                 }
 
                 sync_ui(&ui, &runtime.state);
@@ -214,11 +199,11 @@ impl SpeedWaveTracker {
     /// Converts the rolling speed samples into a smooth chart and a very
     /// transparent shadow area below it.
     /// A zero-speed history therefore stays exactly on the bottom baseline.
-    pub fn generate_paths(&self) -> (String, String, f32, f32, bool, f32, f32, f32, f32, f32) {
+    pub fn generate_paths(&self) -> (String, String, f32, f32, bool) {
         const CHART_WIDTH: f32 = 370.0;
         const CHART_BASELINE: f32 = 205.0;
         const CHART_TOP: f32 = 26.0;
-        const CHART_SCALE_SPEED: f32 = 60.0;
+        const CHART_SCALE_SPEED: f32 = 80.0;
 
         let y_for_speed = |speed: f32| {
             CHART_BASELINE
@@ -263,25 +248,7 @@ impl SpeedWaveTracker {
             "{} L {:.1} {:.1} L 0 {:.1} Z",
             stroke_path, CHART_WIDTH, CHART_BASELINE, CHART_BASELINE
         );
-        let chart_y_at = |x: f32| {
-            let index = ((x / CHART_WIDTH) * (self.samples.len() - 1) as f32)
-                .round()
-                .clamp(0.0, (self.samples.len() - 1) as f32) as usize;
-            points[index].1
-        };
-
-        (
-            stroke_path,
-            area_path,
-            endpoint_x,
-            endpoint_y,
-            self.current_smoothed_speed > 0.5,
-            chart_y_at(65.0),
-            chart_y_at(130.0),
-            chart_y_at(260.0),
-            chart_y_at(320.0),
-            chart_y_at(370.0),
-        )
+        (stroke_path, area_path, endpoint_x, endpoint_y, self.current_smoothed_speed > 0.5)
     }
 }
 

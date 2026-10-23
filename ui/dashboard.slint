@@ -69,11 +69,6 @@ export component AppWindow inherits Window {
     in-out property <float> chart_endpoint_x: 370.0;
     in-out property <float> chart_endpoint_y: 205.0;
     in-out property <bool> chart_endpoint_visible: false;
-    in-out property <float> chart_y1: 205.0;
-    in-out property <float> chart_y2: 205.0;
-    in-out property <float> chart_y4: 205.0;
-    in-out property <float> chart_y5: 205.0;
-    in-out property <float> chart_y6: 205.0;
 
     // 1280×480 three-column layout: Speed Chart/TPMS, Center Speedometer/Emotions, Right Trip stats.
     TpmsPanel {
@@ -101,11 +96,6 @@ export component AppWindow inherits Window {
         chart_endpoint_x: root.chart_endpoint_x;
         chart_endpoint_y: root.chart_endpoint_y;
         chart_endpoint_visible: root.chart_endpoint_visible;
-        chart_y1: root.chart_y1;
-        chart_y2: root.chart_y2;
-        chart_y4: root.chart_y4;
-        chart_y5: root.chart_y5;
-        chart_y6: root.chart_y6;
     }
 
     Rectangle {

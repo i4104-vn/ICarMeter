@@ -23,11 +23,6 @@ export component TpmsPanel inherits Rectangle {
     in property <float> chart_endpoint_x: 370.0;
     in property <float> chart_endpoint_y: 205.0;
     in property <bool> chart_endpoint_visible: false;
-    in property <float> chart_y1: 205.0;
-    in property <float> chart_y2: 205.0;
-    in property <float> chart_y4: 205.0;
-    in property <float> chart_y5: 205.0;
-    in property <float> chart_y6: 205.0;
 
     callback toggle_mode();
 
@@ -101,57 +96,6 @@ export component TpmsPanel inherits Rectangle {
             height: 220px;
             background: #000000;
 
-            // Vertical Dashed Drop Lines matching reference image
-            // 1. Left Hill Drop line (x = 65)
-            for i in 22: Rectangle {
-                x: 65px;
-                y: (root.chart_y1 + 4.0 + i * 6.5) * 1px;
-                width: 1.5px;
-                height: 3.5px;
-                background: #ffffff2e;
-                visible: (self.y + self.height) <= 210px;
-            }
-
-            // 2. First Trough Drop line (x = 130)
-            for i in 15: Rectangle {
-                x: 130px;
-                y: (root.chart_y2 + 4.0 + i * 6.5) * 1px;
-                width: 1.5px;
-                height: 3.5px;
-                background: #ffffff2e;
-                visible: (self.y + self.height) <= 210px;
-            }
-
-            // 3. Second Trough Drop line (x = 260)
-            for i in 18: Rectangle {
-                x: 260px;
-                y: (root.chart_y4 + 4.0 + i * 6.5) * 1px;
-                width: 1.5px;
-                height: 3.5px;
-                background: #ffffff2e;
-                visible: (self.y + self.height) <= 210px;
-            }
-
-            // 4. Right Hill Drop line (x = 320)
-            for i in 28: Rectangle {
-                x: 320px;
-                y: (root.chart_y5 + 4.0 + i * 6.5) * 1px;
-                width: 1.5px;
-                height: 3.5px;
-                background: #ffffff2e;
-                visible: (self.y + self.height) <= 210px;
-            }
-
-            // 5. Far Right End Drop line (x = 370)
-            for i in 20: Rectangle {
-                x: 369px;
-                y: (root.chart_y6 + 4.0 + i * 6.5) * 1px;
-                width: 1.5px;
-                height: 3.5px;
-                background: #ffffff2e;
-                visible: (self.y + self.height) <= 210px;
-            }
-
             // A very soft area shadow gives the line depth without becoming a
             // solid filled graph.
             Path {
@@ -165,7 +109,7 @@ export component TpmsPanel inherits Rectangle {
                 viewbox-height: 220;
                 stroke: transparent;
                 stroke-width: 0px;
-                fill: #ff1e380b;
+                fill: #ff1e380e;
                 commands: root.chart_area_path;
             }
 
@@ -178,7 +122,7 @@ export component TpmsPanel inherits Rectangle {
                 viewbox-y: 0;
                 viewbox-width: 370;
                 viewbox-height: 220;
-                stroke: #ff1e3814;
+                stroke: #ff1e381a;
                 stroke-width: 18px;
                 stroke-line-cap: round;
                 fill: transparent;

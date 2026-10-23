@@ -7,14 +7,20 @@ export component SpeedPanel inherits Rectangle {
     in property <string> latest_bt_log;
 
     property <float> bounded_speed: Math.max(0.0, Math.min(root.speed, 100.0));
-    property <float> fill_progress: root.bounded_speed / 100.0;
-    property <int> particle_count_per_side: Math.round(root.bounded_speed * 0.24);
-    // Speed scale: white -> blue -> yellow -> red.
-    property <color> speed_color: root.bounded_speed < 35.0
-        ? #ffffff.mix(#3b82f6, root.bounded_speed / 35.0)
-        : (root.bounded_speed < 70.0
-        ? #3b82f6.mix(#facc15, (root.bounded_speed - 35.0) / 35.0)
-        : #facc15.mix(#ef4444, (root.bounded_speed - 70.0) / 30.0));
+    property <float> fill_progress: root.smooth-step(root.bounded_speed / 100.0);
+    property <int> particle_count: Math.round(30.0 + root.bounded_speed * 1.25);
+
+    function smooth-step(value: float) -> float {
+        let t = Math.max(0.0, Math.min(value, 1.0));
+        return t * t * (3.0 - 2.0 * t);
+    }
+
+    // The original speedometer palette: icy silver -> cyan -> amber -> coral.
+    property <color> speed_color: root.bounded_speed < 42.0
+        ? #dcebF2.mix(#4adeD8, root.smooth-step(root.bounded_speed / 42.0))
+        : (root.bounded_speed < 72.0
+        ? #4adeD8.mix(#ffc15c, root.smooth-step((root.bounded_speed - 42.0) / 30.0))
+        : #ffc15c.mix(#ff565c, root.smooth-step((root.bounded_speed - 72.0) / 28.0)));
 
     width: 460px;
     height: 480px;
@@ -26,87 +32,76 @@ export component SpeedPanel inherits Rectangle {
         interval: 16ms;
         running: emo.gps_screen;
         triggered => {
-            // The stream is slow at low GPS speeds and visibly accelerates as
-            // the speed rises. At zero speed there are no visible particles.
-            let speed_mult = 0.001 + root.fill_progress * 0.032;
+            // Match the original particle engine: inward speed is
+            // 15 + (GPS speed * 1.85) pixels per second over a 135px span.
+            let speed_mult = 0.016 * (15.0 + root.bounded_speed * 1.85) / 135.0;
             root.particle_tick = Math.mod(root.particle_tick + speed_mult, 1.0);
         }
     }
 
     function bracket-pos-x(t: float, right: bool) -> length {
-        // Match the two-segment, rounded bracket path below.
-        let q = t < 0.5 ? t * 2.0 : (t - 0.5) * 2.0;
-        let u = 1.0 - q;
-        if t < 0.5 {
-            let left_x = u * u * u * 168.0 + 3.0 * u * u * q * 140.0
-                + 3.0 * u * q * q * 120.0 + q * q * q * 120.0;
-            return (right ? 460.0 - left_x : left_x) * 1px;
-        }
-        let left_x = u * u * u * 120.0 + 3.0 * u * u * q * 120.0
-            + 3.0 * u * q * q * 140.0 + q * q * q * 168.0;
+        let u = 1.0 - t;
+        let left_x = u * u * u * 120.0 + 3.0 * u * u * t * 40.0
+            + 3.0 * u * t * t * 40.0 + t * t * t * 120.0;
         return (right ? 460.0 - left_x : left_x) * 1px;
     }
 
     function bracket-pos-y(t: float) -> length {
-        let q = t < 0.5 ? t * 2.0 : (t - 0.5) * 2.0;
-        let u = 1.0 - q;
-        if t < 0.5 {
-            return (u * u * u * 330.0 + 3.0 * u * u * q * 330.0
-                + 3.0 * u * q * q * 290.0 + q * q * q * 240.0) * 1px;
-        }
-        return (u * u * u * 240.0 + 3.0 * u * u * q * 190.0
-            + 3.0 * u * q * q * 150.0 + q * q * q * 150.0) * 1px;
+        let u = 1.0 - t;
+        return (u * u * u * 348.0 + 3.0 * u * u * t * 305.0
+            + 3.0 * u * t * t * 175.0 + t * t * t * 132.0) * 1px;
     }
 
-    function particle-phase(i: int) -> float {
-        let idx = i >= 24 ? (i - 24) : i;
-        return Math.mod(root.particle_tick + idx * 0.0417 + (i >= 24 ? 0.021 : 0.0), 1.0);
+    function particle-seed(i: int) -> float {
+        return Math.abs(Math.sin(i * 19.17 * 1deg));
     }
 
-    function particle-travel(i: int) -> float {
-        let phase = root.particle-phase(i);
-        // Ease into the center so the particles visibly travel, rather than
-        // blinking between two fixed positions.
-        return 1.0 - (1.0 - phase) * (1.0 - phase);
+    function particle-angle(i: int) -> angle {
+        return ((i / 180.0) * 360.0 + root.particle-seed(i) * 28.6479) * 1deg;
+    }
+
+    function particle-distance(i: int) -> float {
+        let speed_factor = 0.75 + root.particle-seed(i) * 0.55;
+        let phase = Math.mod(root.particle_tick * speed_factor + root.particle-seed(i) * 0.47, 1.0);
+        // The old engine moved from its outer radius toward the terminal
+        // radius, then respawned outside with a deterministic offset.
+        return 96.0 + (1.0 - phase) * 135.0;
+    }
+
+    function particle-x-value(i: int) -> float {
+        return 230.0 + Math.cos(root.particle-angle(i)) * root.particle-distance(i);
+    }
+
+    function particle-y-value(i: int) -> float {
+        return 240.0 + Math.sin(root.particle-angle(i)) * root.particle-distance(i) * 0.78;
     }
 
     function particle-x(i: int) -> length {
-        let is_right = i >= 24;
-        let idx = is_right ? (i - 24) : i;
-        let lane = Math.mod(idx, 6);
-        let start_x = is_right ? 394.0 - lane * 5.0 : 66.0 + lane * 5.0;
-        let end_x = is_right ? 286.0 - lane * 3.0 : 174.0 + lane * 3.0;
-        let travel = root.particle-travel(i);
-        return (is_right
-            ? start_x - (start_x - end_x) * travel
-            : start_x + (end_x - start_x) * travel) * 1px;
+        return root.particle-x-value(i) * 1px;
     }
 
     function particle-y(i: int) -> length {
-        let idx = i >= 24 ? (i - 24) : i;
-        let lane = Math.mod(idx, 6);
-        let row = Math.floor(idx / 6.0);
-        let start_y = 136.0 + lane * 8.0 + row * 5.0;
-        let end_y = 196.0 + lane * 3.0 + row * 4.0;
-        return (start_y + (end_y - start_y) * root.particle-travel(i)) * 1px;
+        return root.particle-y-value(i) * 1px;
     }
 
     function particle-opacity(i: int) -> float {
-        let phase = root.particle-phase(i);
-        return Math.min(1.0, phase * 4.0) * Math.min(1.0, (1.0 - phase) * 3.0);
-    }
-
-    function particle-color(i: int) -> color {
-        return #ffffff.mix(root.speed_color, root.particle-phase(i));
-    }
-
-    function particle-glow(i: int) -> color {
-        return root.speed_color.transparentize(65%);
+        let x = root.particle-x-value(i);
+        let y = root.particle-y-value(i);
+        let dist = root.particle-distance(i);
+        let edge_fade = x < 26.0
+            ? Math.max(0.0, Math.min(1.0, (x - 6.0) / 20.0))
+            : (x > 434.0
+            ? Math.max(0.0, Math.min(1.0, (454.0 - x) / 20.0))
+            : 1.0);
+        let digit_dx = (x - 230.0) / 92.0;
+        let digit_dy = (y - 248.0) / 106.0;
+        let digit_clear = digit_dx * digit_dx + digit_dy * digit_dy < 1.0 ? 0.0 : 1.0;
+        let inner_fade = Math.max(0.0, Math.min(1.0, (dist - 96.0) / 28.0));
+        return edge_fade * digit_clear * inner_fade;
     }
 
     function particle-size(i: int) -> length {
-        let idx = Math.mod(i, 4);
-        return (idx == 0 ? 5.0 : (idx == 1 ? 4.0 : (idx == 2 ? 3.5 : 3.0))) * 1px;
+        return (1.4 + root.particle-seed(i) * 2.2) * 1px;
     }
 
     if root.show_bt_log: VerticalLayout {
@@ -136,19 +131,28 @@ export component SpeedPanel inherits Rectangle {
         height: parent.height;
         background: #000000;
 
-        // Smooth background curved brackets, pulled inward from the panel
-        // dividers so the center area has clear breathing room.
+        // Original speedometer brackets: quiet track plus a soft outer glow.
         Path {
             width: 460px;
             height: 480px;
-            stroke: #262930;
+            stroke: #46525c1a;
+            stroke-width: 15px;
+            stroke-line-cap: round;
+            fill: transparent;
+            commands: "M 120 348 C 40 305 40 175 120 132 M 340 348 C 420 305 420 175 340 132";
+        }
+
+        Path {
+            width: 460px;
+            height: 480px;
+            stroke: #2a323a9e;
             stroke-width: 5px;
             stroke-line-cap: round;
             fill: transparent;
-            commands: "M 168 330 C 140 330 120 290 120 240 C 120 190 140 150 168 150 M 292 150 C 320 150 340 190 340 240 C 340 290 320 330 292 330";
+            commands: "M 120 348 C 40 305 40 175 120 132 M 340 348 C 420 305 420 175 340 132";
         }
 
-        // Reveal the active stroke from the exact bottom endpoint upward.
+        // Reveal the original active bracket stroke from bottom to top.
         if root.fill_progress > 0.005: Rectangle {
             x: 0px;
             y: (348.0 - 216.0 * root.fill_progress - 12.0) * 1px;
@@ -156,30 +160,42 @@ export component SpeedPanel inherits Rectangle {
             height: (216.0 * root.fill_progress + 24.0) * 1px;
             clip: true;
 
-            // Outer glow path
+            // Original active soft screen glow.
             Path {
                 x: 0px;
                 y: -(348.0 - 216.0 * root.fill_progress - 12.0) * 1px;
                 width: 460px;
                 height: 480px;
-                stroke: root.speed_color.transparentize(72%);
-                stroke-width: 14px;
+                stroke: root.speed_color.transparentize(84%);
+                stroke-width: 24px;
                 stroke-line-cap: round;
                 fill: transparent;
-                commands: "M 168 330 C 140 330 120 290 120 240 C 120 190 140 150 168 150 M 292 150 C 320 150 340 190 340 240 C 340 290 320 330 292 330";
+                commands: "M 120 348 C 40 305 40 175 120 132 M 340 348 C 420 305 420 175 340 132";
             }
 
-            // Core solid active stroke
+            Path {
+                x: 0px;
+                y: -(348.0 - 216.0 * root.fill_progress - 12.0) * 1px;
+                width: 460px;
+                height: 480px;
+                stroke: root.speed_color.transparentize(68%);
+                stroke-width: 12px;
+                stroke-line-cap: round;
+                fill: transparent;
+                commands: "M 120 348 C 40 305 40 175 120 132 M 340 348 C 420 305 420 175 340 132";
+            }
+
+            // Original bright active core.
             Path {
                 x: 0px;
                 y: -(348.0 - 216.0 * root.fill_progress - 12.0) * 1px;
                 width: 460px;
                 height: 480px;
                 stroke: root.speed_color;
-                stroke-width: 5px;
+                stroke-width: 6.5px;
                 stroke-line-cap: round;
                 fill: transparent;
-                commands: "M 168 330 C 140 330 120 290 120 240 C 120 190 140 150 168 150 M 292 150 C 320 150 340 190 340 240 C 340 290 320 330 292 330";
+                commands: "M 120 348 C 40 305 40 175 120 132 M 340 348 C 420 305 420 175 340 132";
             }
         }
 
@@ -218,38 +234,25 @@ export component SpeedPanel inherits Rectangle {
             background: root.speed_color;
         }
 
-        // Round particles fly from both outer edges toward the center. Their
-        // count and travel speed are both driven by the live GPS speed.
-        for i in 48: Rectangle {
-            visible: Math.mod(i, 24) < root.particle_count_per_side
-                && root.particle-opacity(i) > 0.01;
-            x: root.particle-x(i) - 3px;
-            y: root.particle-y(i) - 3px;
-            width: root.particle-size(i) + 6px;
-            height: root.particle-size(i) + 6px;
-            border-radius: (root.particle-size(i) + 6px) / 2;
-            background: root.particle-glow(i);
-            opacity: root.particle-opacity(i);
-        }
-        for i in 48: Rectangle {
-            visible: Math.mod(i, 24) < root.particle_count_per_side
-                && root.particle-opacity(i) > 0.01;
+        // Original radial suction dots: clean circles, no tails or glow layer.
+        for i in 180: Rectangle {
+            visible: i < root.particle_count && root.particle-opacity(i) > 0.01;
             x: root.particle-x(i);
             y: root.particle-y(i);
-            width: root.particle-size(i);
-            height: root.particle-size(i);
-            border-radius: root.particle-size(i) / 2;
-            background: root.particle-color(i);
+            width: root.particle-size(i) * 2;
+            height: root.particle-size(i) * 2;
+            border-radius: root.particle-size(i);
+            background: root.speed_color;
             opacity: root.particle-opacity(i);
         }
 
         Text {
-            x: 48px;
-            y: 134px;
-            width: 364px;
-            height: 170px;
+            x: 0px;
+            y: 118px;
+            width: 460px;
+            height: 190px;
             text: Math.round(root.speed);
-            font-size: 150px;
+            font-size: 156px;
             font-weight: 900;
             color: root.speed_color;
             horizontal-alignment: center;
