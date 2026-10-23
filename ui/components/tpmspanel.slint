@@ -23,152 +23,104 @@ export component TpmsPanel inherits Rectangle {
     callback map_pan(length, length);
     callback map_zoom_by(float, length, length);
     callback map_follow();
-            width: 410px;
-            height: 480px;
-            background: #000000;
+    width: 410px;
+    height: 480px;
+    background: #000000;
 
-            if root.tpms_enabled: Rectangle {
+    if root.tpms_enabled: Rectangle {
                 // Header
                 Text {
-                    x: 20px;
-                    y: 16px;
-                    text: "TIRE PRESSURE TELEMETRY";
-                    font-size: 11px;
-                    font-weight: 700;
-                    letter-spacing: 1.2px;
-                    color: #64748b;
-                }
+            x: 20px;
+            y: 16px;
+            text: "TIRE PRESSURE TELEMETRY";
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.2px;
+            color: #64748b;
+        }
 
-                // Center Car Graphic
+        // Center Car Graphic
                 CarChassis {
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2 + 10px;
-                }
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2 + 10px;
+        }
 
-                // 4 Tire Badges
+        // 4 Tire Badges
                 // Front Left
                 TireBadge {
-                    x: 18px;
-                    y: 65px;
-                    wheel_name: "FL";
-                    pressure: root.fl_pressure;
-                    temperature: root.fl_temp;
-                    alert_pressure: root.alert_pressure;
-                    alert_temp: root.alert_temp;
-                }
+            x: 18px;
+            y: 65px;
+            wheel_name: "FL";
+            pressure: root.fl_pressure;
+            temperature: root.fl_temp;
+            alert_pressure: root.alert_pressure;
+            alert_temp: root.alert_temp;
+        }
                 // Front Right
                 TireBadge {
-                    x: parent.width - self.width - 18px;
-                    y: 65px;
-                    wheel_name: "FR";
-                    pressure: root.fr_pressure;
-                    temperature: root.fr_temp;
-                    alert_pressure: root.alert_pressure;
-                    alert_temp: root.alert_temp;
-                }
+            x: parent.width - self.width - 18px;
+            y: 65px;
+            wheel_name: "FR";
+            pressure: root.fr_pressure;
+            temperature: root.fr_temp;
+            alert_pressure: root.alert_pressure;
+            alert_temp: root.alert_temp;
+        }
                 // Rear Left
                 TireBadge {
-                    x: 18px;
-                    y: 250px;
-                    wheel_name: "RL";
-                    pressure: root.rl_pressure;
-                    temperature: root.rl_temp;
-                    alert_pressure: root.alert_pressure;
-                    alert_temp: root.alert_temp;
-                }
+            x: 18px;
+            y: 250px;
+            wheel_name: "RL";
+            pressure: root.rl_pressure;
+            temperature: root.rl_temp;
+            alert_pressure: root.alert_pressure;
+            alert_temp: root.alert_temp;
+        }
                 // Rear Right
                 TireBadge {
-                    x: parent.width - self.width - 18px;
-                    y: 250px;
-                    wheel_name: "RR";
-                    pressure: root.rr_pressure;
-                    temperature: root.rr_temp;
-                    alert_pressure: root.alert_pressure;
-                    alert_temp: root.alert_temp;
-                }
-            }
+            x: parent.width - self.width - 18px;
+            y: 250px;
+            wheel_name: "RR";
+            pressure: root.rr_pressure;
+            temperature: root.rr_temp;
+            alert_pressure: root.alert_pressure;
+            alert_temp: root.alert_temp;
+        }
+    }
 
-            if !root.tpms_enabled: Rectangle {
-                MapEmbed {
-                    x: 14px;
-                    y: 24px;
-                    width: 382px;
-                    height: 396px;
-                    latitude <=> root.map_latitude;
-                    longitude <=> root.map_longitude;
-                    zoom <=> root.map_zoom;
-                    tiles: root.map_tiles;
-                    pan(dx, dy) => { root.map_pan(dx, dy); }
-                    zoom-by(delta, anchor_x, anchor_y) => {
-                        root.map_zoom_by(delta, anchor_x, anchor_y);
-                    }
-                }
+    if !root.tpms_enabled: Rectangle {
+        MapEmbed {
+            x: 14px;
+            y: 24px;
+            width: 382px;
+            height: 396px;
+            latitude <=> root.map_latitude;
+            longitude <=> root.map_longitude;
+            zoom <=> root.map_zoom;
+            tiles: root.map_tiles;
+        }
 
-                // The camera follows GPS, so the vehicle remains at the map center.
-                if root.map_following: Rectangle {
-                    x: 198px;
-                    y: 215px;
-                    width: 14px;
-                    height: 14px;
-                    background: #06b6d4;
-                    border-radius: 7px;
-                    border-width: 2px;
-                    border-color: #f8fafc;
-                }
-
+        // Vehicle GPS position marker (permanently centered)
                 Rectangle {
-                    x: parent.width - 70px;
-                    y: 16px;
-                    width: 54px;
-                    height: 24px;
-                    background: #07090ee8;
-                    border-radius: 6px;
-                    Text {
-                        width: parent.width;
-                        height: parent.height;
-                        text: "G · CENTER";
-                        color: #e2e8f0;
-                        font-size: 9px;
-                        font-weight: 700;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                    TouchArea {
-                        width: parent.width;
-                        height: parent.height;
-                        clicked => { root.map_follow(); }
-                    }
-                }
+            x: 194px;
+            y: 211px;
+            width: 22px;
+            height: 22px;
+            border-radius: 11px;
+            background: #06b6d422;
+            border-width: 1px;
+            border-color: #06b6d466;
 
-                Rectangle {
-                    x: 16px;
-                    y: 424px;
-                    width: parent.width - 32px;
-                    height: 40px;
-                    background: #07090ee8;
-                    border-radius: 8px;
-                    VerticalLayout {
-                        padding-left: 8px;
-                        padding-right: 8px;
-                        padding-top: 4px;
-                        padding-bottom: 4px;
-                        spacing: 2px;
-                        Text {
-                            text: root.map_tiles_available
-                                ? (root.gps_connected ? "GPS FIX · OFFLINE MAP" : "OFFLINE MAP · GPS SEARCHING")
-                                : "NO MAP TILES · SET ICARMETER_MAP_TILES";
-                            color: root.map_tiles_available ? #10b981 : #f59e0b;
-                            font-size: 10px;
-                            font-weight: 700;
-                            horizontal-alignment: center;
-                        }
-                        Text {
-                            text: "© OpenStreetMap contributors · [G] center · [M] TPMS";
-                            color: #94a3b8;
-                            font-size: 9px;
-                            horizontal-alignment: center;
-                        }
-                    }
-                }
+            Rectangle {
+                x: 4px;
+                y: 4px;
+                width: 14px;
+                height: 14px;
+                background: #06b6d4;
+                border-radius: 7px;
+                border-width: 2px;
+                border-color: #ffffff;
             }
         }
+    }
+}

@@ -7,7 +7,6 @@ use crate::models::vehicle::VehicleState;
 use crate::services::{TelemetryService, init_signal_handlers, is_app_running};
 use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel};
 use slint_mapping::TileSource;
-use slint_mapping::camera;
 use slint_mapping::sources::FileTileSource;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -99,49 +98,22 @@ impl AppController {
         ui.on_map_pan({
             let ui = ui.as_weak();
             let runtime = runtime.clone();
-            move |dx, dy| {
+            move |_dx, _dy| {
+                // Map is permanently GPS locked; pan does not disconnect follow
                 let Some(ui) = ui.upgrade() else { return };
-                let mut runtime = runtime.borrow_mut();
-                let map = &mut runtime.map;
-                map.follow_gps = false;
-                ui.set_map_following(false);
-                (map.longitude, map.latitude) = camera::pan(
-                    map.longitude,
-                    map.latitude,
-                    map.zoom,
-                    f64::from(dx),
-                    f64::from(dy),
-                    map.source.tile_size(),
-                );
-                refresh_map(&ui, map);
+                let runtime = runtime.borrow();
+                refresh_map(&ui, &runtime.map);
             }
         });
         ui.on_map_zoom_by({
             let ui = ui.as_weak();
             let runtime = runtime.clone();
-            move |delta, anchor_x, anchor_y| {
+            move |_delta, _anchor_x, _anchor_y| {
+                // Fixed zoom level - ignore zoom gestures
                 let Some(ui) = ui.upgrade() else { return };
                 let mut runtime = runtime.borrow_mut();
-                let map = &mut runtime.map;
-                map.follow_gps = false;
-                ui.set_map_following(false);
-                let (longitude, latitude, zoom) = camera::zoom_anchored(
-                    map.longitude,
-                    map.latitude,
-                    map.zoom,
-                    f64::from(delta),
-                    f64::from(anchor_x),
-                    f64::from(anchor_y),
-                    f64::from(MAP_VIEWPORT_WIDTH),
-                    f64::from(MAP_VIEWPORT_HEIGHT),
-                    map.source.tile_size(),
-                    map.source.min_zoom(),
-                    map.source.max_zoom(),
-                );
-                map.longitude = longitude;
-                map.latitude = latitude;
-                map.zoom = zoom;
-                refresh_map(&ui, map);
+                runtime.map.zoom = FIXED_MAP_ZOOM;
+                refresh_map(&ui, &runtime.map);
             }
         });
         ui.on_map_follow({
@@ -151,9 +123,12 @@ impl AppController {
                 let Some(ui) = ui.upgrade() else { return };
                 let mut runtime = runtime.borrow_mut();
                 runtime.map.follow_gps = true;
+                runtime.map.zoom = FIXED_MAP_ZOOM;
+                if runtime.state.gps_connected {
+                    runtime.map.latitude = runtime.state.gps_latitude;
+                    runtime.map.longitude = runtime.state.gps_longitude;
+                }
                 ui.set_map_following(true);
-                runtime.map.latitude = runtime.state.gps_latitude;
-                runtime.map.longitude = runtime.state.gps_longitude;
                 refresh_map(&ui, &runtime.map);
                 runtime.last_map_update = Some(Instant::now());
             }
@@ -189,8 +164,11 @@ impl AppController {
                 }
                 runtime.state.update_trip(dt);
                 if should_refresh_map(&runtime) {
-                    runtime.map.latitude = runtime.state.gps_latitude;
-                    runtime.map.longitude = runtime.state.gps_longitude;
+                    if runtime.state.gps_connected {
+                        runtime.map.latitude = runtime.state.gps_latitude;
+                        runtime.map.longitude = runtime.state.gps_longitude;
+                    }
+                    runtime.map.zoom = FIXED_MAP_ZOOM;
                     refresh_map(&ui, &runtime.map);
                     runtime.last_map_update = Some(Instant::now());
                 }
@@ -221,9 +199,11 @@ struct RuntimeState {
 }
 
 // Keep these in sync with MapEmbed's 382×396 rectangle in tpmspanel.slint.
+// Keep these in sync with MapEmbed's 382×396 rectangle in tpmspanel.slint.
 const MAP_VIEWPORT_WIDTH: f32 = 382.0;
 const MAP_VIEWPORT_HEIGHT: f32 = 396.0;
-const MAP_FOLLOW_INTERVAL: Duration = Duration::from_millis(500);
+const MAP_FOLLOW_INTERVAL: Duration = Duration::from_millis(200);
+const FIXED_MAP_ZOOM: f64 = 14.0;
 
 struct MapRuntime {
     source: FileTileSource,
@@ -234,24 +214,19 @@ struct MapRuntime {
     follow_gps: bool,
 }
 
+const MAP_TILES_DIR: &str = "/opt/icarmeter/maps/tiles";
+
 impl MapRuntime {
     fn new() -> Self {
-        let root = std::env::var_os("ICARMETER_MAP_TILES")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| "/opt/icarmeter/maps/tiles".into());
-        let extension = std::env::var("ICARMETER_MAP_TILE_EXTENSION")
-            .unwrap_or_else(|_| "png".to_string())
-            .trim_start_matches('.')
-            .to_string();
-        let source = FileTileSource::new(root)
-            .with_extension(extension)
+        let source = FileTileSource::new(MAP_TILES_DIR)
+            .with_extension("png")
             .with_zoom_range(0, 16);
         Self {
             source,
             tiles: Rc::new(VecModel::from(Vec::new())),
             latitude: 21.0285,
             longitude: 105.8542,
-            zoom: 12.0,
+            zoom: FIXED_MAP_ZOOM,
             follow_gps: true,
         }
     }
@@ -285,20 +260,21 @@ fn refresh_map(ui: &AppWindow, map: &MapRuntime) {
 }
 
 fn should_refresh_map(runtime: &RuntimeState) -> bool {
-    if !runtime.map.follow_gps || !runtime.state.gps_connected {
-        return false;
-    }
     let Some(last_update) = runtime.last_map_update else {
         return true;
     };
     if last_update.elapsed() < MAP_FOLLOW_INTERVAL {
         return false;
     }
-    let latitude_delta = (runtime.state.gps_latitude - runtime.map.latitude) * 111_320.0;
-    let longitude_delta = (runtime.state.gps_longitude - runtime.map.longitude)
-        * 111_320.0
-        * runtime.map.latitude.to_radians().cos();
-    latitude_delta.hypot(longitude_delta) >= 5.0
+    if runtime.state.gps_connected {
+        let latitude_delta = (runtime.state.gps_latitude - runtime.map.latitude) * 111_320.0;
+        let longitude_delta = (runtime.state.gps_longitude - runtime.map.longitude)
+            * 111_320.0
+            * runtime.map.latitude.to_radians().cos();
+        latitude_delta.hypot(longitude_delta) >= 1.0 || (runtime.map.zoom - FIXED_MAP_ZOOM).abs() > 0.01
+    } else {
+        false
+    }
 }
 
 fn update_config(runtime: &mut RuntimeState) {

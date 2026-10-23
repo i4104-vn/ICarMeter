@@ -18,19 +18,87 @@ export component SpeedPanel inherits Rectangle {
     height: 480px;
     background: #000000;
 
-    function bracket-x(index: int, right: bool) -> length {
-        let t = index / 32.0;
+    property <float> particle_tick: 0.0;
+
+    Timer {
+        interval: 16ms;
+        running: emo.gps_screen;
+        triggered => {
+            let speed_mult = 0.007 + root.fill_progress * 0.015;
+            root.particle_tick = Math.mod(root.particle_tick + speed_mult, 1.0);
+        }
+    }
+
+    function bracket-pos-x(t: float, right: bool) -> length {
         let u = 1.0 - t;
         let left_x = u * u * u * 120.0 + 3.0 * u * u * t * 40.0
             + 3.0 * u * t * t * 40.0 + t * t * t * 120.0;
         return (right ? 460.0 - left_x : left_x) * 1px;
     }
 
-    function bracket-y(index: int) -> length {
-        let t = index / 32.0;
+    function bracket-pos-y(t: float) -> length {
         let u = 1.0 - t;
         return (u * u * u * 348.0 + 3.0 * u * u * t * 305.0
             + 3.0 * u * t * t * 175.0 + t * t * t * 132.0) * 1px;
+    }
+
+    function particle-x(i: int) -> length {
+        let is_right = i >= 8;
+        let idx = is_right ? (i - 8) : i;
+        let p_phase = Math.mod(root.particle_tick + idx * 0.125 + (is_right ? 0.0625 : 0.0), 1.0);
+        let ease = p_phase * p_phase;
+        if is_right {
+            let x_start = 395.0 + (idx == 0 || idx == 4 ? 12.0 : (idx == 2 || idx == 6 ? -12.0 : 0.0));
+            let x_end = 352.0;
+            return (x_start - (x_start - x_end) * ease) * 1px;
+        } else {
+            let x_start = 65.0 + (idx == 0 || idx == 4 ? -12.0 : (idx == 2 || idx == 6 ? 12.0 : 0.0));
+            let x_end = 108.0;
+            return (x_start + (x_end - x_start) * ease) * 1px;
+        }
+    }
+
+    function particle-y(i: int) -> length {
+        let is_right = i >= 8;
+        let idx = is_right ? (i - 8) : i;
+        let p_phase = Math.mod(root.particle_tick + idx * 0.125 + (is_right ? 0.0625 : 0.0), 1.0);
+        let y_start = 145.0 + idx * 24.0;
+        let y_end = 215.0;
+        return (y_start + (y_end - y_start) * p_phase * 0.45) * 1px;
+    }
+
+    function particle-opacity(i: int) -> float {
+        let is_right = i >= 8;
+        let idx = is_right ? (i - 8) : i;
+        let p_phase = Math.mod(root.particle_tick + idx * 0.125 + (is_right ? 0.0625 : 0.0), 1.0);
+        let alpha = p_phase < 0.2
+            ? (p_phase / 0.2)
+            : (p_phase < 0.62
+            ? 1.0
+            : Math.max(0.0, (0.92 - p_phase) / 0.3));
+        return alpha;
+    }
+
+    function particle-color(i: int) -> color {
+        let is_right = i >= 8;
+        let idx = is_right ? (i - 8) : i;
+        let p_phase = Math.mod(root.particle_tick + idx * 0.125 + (is_right ? 0.0625 : 0.0), 1.0);
+        // Particle core blends from bright spark into vibrant speed_color
+        return #ffffff.mix(root.speed_color, Math.min(1.0, p_phase * 1.5));
+    }
+
+    function particle-glow(i: int) -> color {
+        return root.speed_color.transparentize(65%);
+    }
+
+    function particle-w(i: int) -> length {
+        let idx = Math.mod(i, 4);
+        return (idx == 0 ? 7.0 : (idx == 1 ? 5.0 : (idx == 2 ? 6.0 : 4.0))) * 1px;
+    }
+
+    function particle-h(i: int) -> length {
+        let idx = Math.mod(i, 4);
+        return (idx == 0 ? 3.0 : (idx == 1 ? 3.0 : (idx == 2 ? 4.0 : 2.5))) * 1px;
     }
 
     if root.show_bt_log: VerticalLayout {
@@ -38,7 +106,7 @@ export component SpeedPanel inherits Rectangle {
         spacing: 14px;
 
         Text {
-            text: "BLUETOOTH RFCOMM CONSOLE · [B] TO CLOSE";
+            text: "BLUETOOTH CONSOLE · [B] TO CLOSE";
             font-size: 11px;
             font-weight: 700;
             letter-spacing: 1.2px;
@@ -60,60 +128,107 @@ export component SpeedPanel inherits Rectangle {
         height: parent.height;
         background: #000000;
 
-        // Dim rails reproduce the original curved brackets.
-        for i in 33: Rectangle {
-            x: root.bracket-x(i, false) - 3px;
-            y: root.bracket-y(i) - 3px;
-            width: 6px;
-            height: 6px;
-            border-radius: 3px;
-            background: #30343a;
-        }
-        for i in 33: Rectangle {
-            x: root.bracket-x(i, true) - 3px;
-            y: root.bracket-y(i) - 3px;
-            width: 6px;
-            height: 6px;
-            border-radius: 3px;
-            background: #30343a;
+        // Smooth background curved brackets (continuous vector path, no dots)
+        Path {
+            width: 460px;
+            height: 480px;
+            stroke: #262930;
+            stroke-width: 5px;
+            stroke-line-cap: round;
+            fill: transparent;
+            commands: "M 120 132 C 40 175 40 305 120 348 M 340 132 C 420 175 420 305 340 348";
         }
 
-        // Color fill advances from each bracket's bottom toward its top.
-        for i in 33: Rectangle {
-            visible: root.fill_progress > 0.01 && i / 32.0 <= root.fill_progress;
-            x: root.bracket-x(i, false) - 8px;
-            y: root.bracket-y(i) - 8px;
-            width: 16px;
-            height: 16px;
-            border-radius: 8px;
-            background: root.speed_color.transparentize(78%);
+        // Smooth active color fill advancing from bottom to top
+        if root.fill_progress > 0.005: Rectangle {
+            x: 0px;
+            y: (348.0 - 216.0 * root.fill_progress - 6.0) * 1px;
+            width: 460px;
+            height: (216.0 * root.fill_progress + 14.0) * 1px;
+            clip: true;
+
+            // Outer glow path
+            Path {
+                x: 0px;
+                y: -(348.0 - 216.0 * root.fill_progress - 6.0) * 1px;
+                width: 460px;
+                height: 480px;
+                stroke: root.speed_color.transparentize(72%);
+                stroke-width: 14px;
+                stroke-line-cap: round;
+                fill: transparent;
+                commands: "M 120 132 C 40 175 40 305 120 348 M 340 132 C 420 175 420 305 340 348";
+            }
+
+            // Core solid active stroke
+            Path {
+                x: 0px;
+                y: -(348.0 - 216.0 * root.fill_progress - 6.0) * 1px;
+                width: 460px;
+                height: 480px;
+                stroke: root.speed_color;
+                stroke-width: 5px;
+                stroke-line-cap: round;
+                fill: transparent;
+                commands: "M 120 132 C 40 175 40 305 120 348 M 340 132 C 420 175 420 305 340 348";
+            }
         }
-        for i in 33: Rectangle {
-            visible: root.fill_progress > 0.01 && i / 32.0 <= root.fill_progress;
-            x: root.bracket-x(i, true) - 8px;
-            y: root.bracket-y(i) - 8px;
-            width: 16px;
-            height: 16px;
-            border-radius: 8px;
-            background: root.speed_color.transparentize(78%);
+
+        // Leading tip glowing beads gliding along the curves
+        if root.fill_progress > 0.01: Rectangle {
+            x: root.bracket-pos-x(root.fill_progress, false) - 7px;
+            y: root.bracket-pos-y(root.fill_progress) - 7px;
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            background: root.speed_color.transparentize(65%);
         }
-        for i in 33: Rectangle {
-            visible: root.fill_progress > 0.01 && i / 32.0 <= root.fill_progress;
-            x: root.bracket-x(i, false) - 4px;
-            y: root.bracket-y(i) - 4px;
+        if root.fill_progress > 0.01: Rectangle {
+            x: root.bracket-pos-x(root.fill_progress, false) - 4px;
+            y: root.bracket-pos-y(root.fill_progress) - 4px;
             width: 8px;
             height: 8px;
             border-radius: 4px;
             background: root.speed_color;
         }
-        for i in 33: Rectangle {
-            visible: root.fill_progress > 0.01 && i / 32.0 <= root.fill_progress;
-            x: root.bracket-x(i, true) - 4px;
-            y: root.bracket-y(i) - 4px;
+
+        if root.fill_progress > 0.01: Rectangle {
+            x: root.bracket-pos-x(root.fill_progress, true) - 7px;
+            y: root.bracket-pos-y(root.fill_progress) - 7px;
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            background: root.speed_color.transparentize(65%);
+        }
+        if root.fill_progress > 0.01: Rectangle {
+            x: root.bracket-pos-x(root.fill_progress, true) - 4px;
+            y: root.bracket-pos-y(root.fill_progress) - 4px;
             width: 8px;
             height: 8px;
             border-radius: 4px;
             background: root.speed_color;
+        }
+
+        // Energy particles sucked towards the digits, fading out before touching the numbers
+        for i in 16: Rectangle {
+            visible: root.particle-opacity(i) > 0.01;
+            x: root.particle-x(i) - 2px;
+            y: root.particle-y(i) - 2px;
+            width: root.particle-w(i) + 4px;
+            height: root.particle-h(i) + 4px;
+            border-radius: (root.particle-h(i) + 4px) / 2;
+            background: root.particle-glow(i);
+            opacity: root.particle-opacity(i);
+        }
+        for i in 16: Rectangle {
+            visible: root.particle-opacity(i) > 0.01;
+            x: root.particle-x(i);
+            y: root.particle-y(i);
+            width: root.particle-w(i);
+            height: root.particle-h(i);
+            border-radius: root.particle-h(i) / 2;
+            background: root.particle-color(i);
+            opacity: root.particle-opacity(i);
         }
 
         Text {
