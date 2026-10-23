@@ -158,7 +158,7 @@ export component TpmsPanel inherits Rectangle {
                 width: 1.5px;
                 height: 3.5px;
                 background: #ffffff55;
-                visible: (self.y + self.height) <= 210px;
+                visible: root.chart_peak_visible && (self.y + self.height) <= 210px;
             }
 
             // Soft outer red glow for the outline only. The chart deliberately

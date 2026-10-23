@@ -124,19 +124,20 @@ impl AppController {
 
                 // Add the latest real speed sample to the rolling chart history.
                 let current_speed = runtime.state.current_speed;
-                runtime.wave_tracker.update(current_speed, dt);
-                let (stroke_path, peak_x, peak_y, peak_visible, y1, y2, y4, y5, y6) =
-                    runtime.wave_tracker.generate_paths();
+                if runtime.wave_tracker.update(current_speed, dt) {
+                    let (stroke_path, peak_x, peak_y, peak_visible, y1, y2, y4, y5, y6) =
+                        runtime.wave_tracker.generate_paths();
 
-                ui.set_chart_stroke_path(stroke_path.into());
-                ui.set_chart_peak_x(peak_x);
-                ui.set_chart_peak_y(peak_y);
-                ui.set_chart_peak_visible(peak_visible);
-                ui.set_chart_y1(y1);
-                ui.set_chart_y2(y2);
-                ui.set_chart_y4(y4);
-                ui.set_chart_y5(y5);
-                ui.set_chart_y6(y6);
+                    ui.set_chart_stroke_path(stroke_path.into());
+                    ui.set_chart_peak_x(peak_x);
+                    ui.set_chart_peak_y(peak_y);
+                    ui.set_chart_peak_visible(peak_visible);
+                    ui.set_chart_y1(y1);
+                    ui.set_chart_y2(y2);
+                    ui.set_chart_y4(y4);
+                    ui.set_chart_y5(y5);
+                    ui.set_chart_y6(y6);
+                }
 
                 sync_ui(&ui, &runtime.state);
             }
@@ -178,14 +179,14 @@ impl SpeedWaveTracker {
         }
     }
 
-    pub fn update(&mut self, target_speed: f32, dt: f32) {
+    pub fn update(&mut self, target_speed: f32, dt: f32) -> bool {
+        let mut chart_changed = false;
         if dt > 0.001 {
             // Smooth only the incoming value so the line remains readable while
             // still representing the vehicle speed rather than an independent wave.
             let target_speed = target_speed.max(0.0);
             let smoothing = (dt * 6.0).clamp(0.0, 1.0);
-            self.current_smoothed_speed +=
-                (target_speed - self.current_smoothed_speed) * smoothing;
+            self.current_smoothed_speed += (target_speed - self.current_smoothed_speed) * smoothing;
 
             self.sample_elapsed += dt;
             while self.sample_elapsed >= 0.12 {
@@ -193,8 +194,10 @@ impl SpeedWaveTracker {
                 self.samples.rotate_left(1);
                 let last = self.samples.len() - 1;
                 self.samples[last] = self.current_smoothed_speed;
+                chart_changed = true;
             }
         }
+        chart_changed
     }
 
     /// Converts the rolling speed samples into a smooth, outline-only chart.
@@ -222,7 +225,11 @@ impl SpeedWaveTracker {
 
         let mut stroke_path = format!("M {:.1} {:.1}", points[0].0, points[0].1);
         for index in 0..points.len() - 1 {
-            let p0 = if index == 0 { points[0] } else { points[index - 1] };
+            let p0 = if index == 0 {
+                points[0]
+            } else {
+                points[index - 1]
+            };
             let p1 = points[index];
             let p2 = points[index + 1];
             let p3 = if index + 2 >= points.len() {

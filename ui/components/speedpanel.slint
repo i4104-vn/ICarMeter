@@ -8,11 +8,12 @@ export component SpeedPanel inherits Rectangle {
 
     property <float> bounded_speed: Math.max(0.0, Math.min(root.speed, 100.0));
     property <float> fill_progress: root.bounded_speed / 100.0;
-    property <color> speed_color: root.bounded_speed < 42.0
-        ? #dcebf2.mix(#4adeD8, root.bounded_speed / 42.0)
-        : (root.bounded_speed < 72.0
-        ? #4adeD8.mix(#ffc15c, (root.bounded_speed - 42.0) / 30.0)
-        : #ffc15c.mix(#ff565c, (root.bounded_speed - 72.0) / 28.0));
+    // Speed scale: white -> blue -> yellow -> red.
+    property <color> speed_color: root.bounded_speed < 35.0
+        ? #ffffff.mix(#3b82f6, root.bounded_speed / 35.0)
+        : (root.bounded_speed < 70.0
+        ? #3b82f6.mix(#facc15, (root.bounded_speed - 35.0) / 35.0)
+        : #facc15.mix(#ef4444, (root.bounded_speed - 70.0) / 30.0));
 
     width: 460px;
     height: 480px;
