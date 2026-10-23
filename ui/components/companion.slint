@@ -29,9 +29,8 @@ export component EmoEyes {
     property <int> sprite-frame-height: root.sprite-frame-width == 274 ? 165 : 206;
 
     // Keep the sprite at its exact native frame resolution to avoid resampling blur and jitter.
-    // Keep the sprite at a stable, near-native resolution to avoid resampling blur.
-    width: 330px;
-    height: 206px;
+    width: root.sprite-frame-width * 1px;
+    height: root.sprite-frame-height * 1px;
 
     function random_int(limit: int) -> int {
         // Small integer LCG keeps the shuffle portable in Slint's integer type.
@@ -179,28 +178,27 @@ export component EmoEyes {
     Image {
         width: parent.width;
         height: parent.height;
-        source: root.expression_cell == 27 ? @image-url("../../assets/emotions/smile.svg")
-            : (root.expression_cell == 28 ? @image-url("../../assets/emotions/smirk.svg")
-            : (root.expression_cell == 19 ? @image-url("../../assets/emotions/nheo_mat.svg")
-            : (root.expression_cell == 10 ? @image-url("../../assets/emotions/gian_du.svg")
-            : (root.expression_cell == 6 ? @image-url("../../assets/emotions/demon_slayer.svg")
-            : (root.expression_cell == 7 ? @image-url("../../assets/emotions/devil.svg")
-            : (root.expression_cell == 3 ? @image-url("../../assets/emotions/cry.svg")
-            : (root.expression_cell == 5 ? @image-url("../../assets/emotions/cuoi.svg")
-            : (root.expression_cell == 29 ? @image-url("../../assets/emotions/squint.svg")
-            : (root.expression_cell == 34 ? @image-url("../../assets/emotions/UwU.svg")
-            : (root.expression_cell == 24 ? @image-url("../../assets/emotions/rainbow.svg")
-            : (root.expression_cell == 17 ? @image-url("../../assets/emotions/ngac_nhien.svg")
-            : (root.expression_cell == 2 ? @image-url("../../assets/emotions/chong_mat.svg")
-            : (root.expression_cell == 18 ? @image-url("../../assets/emotions/ngap.svg")
-            : @image-url("../../assets/emotions/sleepy.svg"))))))))))))));
-        // Sprite sheets use fixed 274px or 285px cells. A one-pixel inset
-        // avoids sampling antialiasing from the adjacent cell at frame edges.
-        source-clip-x: root.frame_index * root.sprite-frame-width + 1;
+        source: root.expression_cell == 27 ? @image-url("../../assets/emotions/smile.png")
+            : (root.expression_cell == 28 ? @image-url("../../assets/emotions/smirk.png")
+            : (root.expression_cell == 19 ? @image-url("../../assets/emotions/nheo_mat.png")
+            : (root.expression_cell == 10 ? @image-url("../../assets/emotions/gian_du.png")
+            : (root.expression_cell == 6 ? @image-url("../../assets/emotions/demon_slayer.png")
+            : (root.expression_cell == 7 ? @image-url("../../assets/emotions/devil.png")
+            : (root.expression_cell == 3 ? @image-url("../../assets/emotions/cry.png")
+            : (root.expression_cell == 5 ? @image-url("../../assets/emotions/cuoi.png")
+            : (root.expression_cell == 29 ? @image-url("../../assets/emotions/squint.png")
+            : (root.expression_cell == 34 ? @image-url("../../assets/emotions/UwU.png")
+            : (root.expression_cell == 24 ? @image-url("../../assets/emotions/rainbow.png")
+            : (root.expression_cell == 17 ? @image-url("../../assets/emotions/ngac_nhien.png")
+            : (root.expression_cell == 2 ? @image-url("../../assets/emotions/chong_mat.png")
+            : (root.expression_cell == 18 ? @image-url("../../assets/emotions/ngap.png")
+            : @image-url("../../assets/emotions/sleepy.png"))))))))))))));
+        // Exact frame bounds matching the spritesheet stride (285px or 274px)
+        source-clip-x: root.frame_index * root.sprite-frame-width;
         source-clip-y: 0;
-        source-clip-width: root.sprite-frame-width - 2;
+        source-clip-width: root.sprite-frame-width;
         source-clip-height: root.sprite-frame-height;
-        image-fit: contain;
+        image-fit: fill;
         image-rendering: smooth;
     }
 

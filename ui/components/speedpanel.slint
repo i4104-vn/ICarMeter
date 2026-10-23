@@ -143,8 +143,8 @@ export component SpeedPanel inherits Rectangle {
     }
 
     emo := EmoEyes {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
+        x: Math.round((parent.width - self.width) / 2px) * 1px;
+        y: Math.round((parent.height - self.height) / 2px) * 1px;
         speed: root.speed;
         random_seed: root.random_seed;
         enabled: !root.show_bt_log;
