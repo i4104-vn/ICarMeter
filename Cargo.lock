@@ -1710,7 +1710,6 @@ dependencies = [
  "serde_json",
  "slint",
  "slint-build",
- "slint-mapping",
  "zbus 4.4.0",
 ]
 
@@ -3656,18 +3655,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "spin_on",
-]
-
-[[package]]
-name = "slint-mapping"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7460e2ebc90f5eb34a6a5b81ddc3cacf901f6ecbed14b04f486a756582fb4ad4"
-dependencies = [
- "image",
- "slint",
- "slint-build",
- "thiserror 2.0.21",
 ]
 
 [[package]]

@@ -5,9 +5,7 @@ use crate::controllers::demo::DemoGps;
 use crate::models::bluetooth::BluetoothSharedState;
 use crate::models::vehicle::VehicleState;
 use crate::services::{TelemetryService, init_signal_handlers, is_app_running};
-use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel};
-use slint_mapping::TileSource;
-use slint_mapping::sources::FileTileSource;
+use slint::{ComponentHandle, Timer, TimerMode};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -47,20 +45,18 @@ impl AppController {
             .unwrap_or(1)
             .max(1);
         ui.set_emo_random_seed(emo_seed);
-        let map = MapRuntime::new();
-        ui.set_map_tiles(ModelRc::from(map.tiles.clone()));
-        ui.set_map_following(map.follow_gps);
-        refresh_map(&ui, &map);
+
+        let accel_tracker = AccelDynamicsTracker::new();
+
         let runtime = Rc::new(RefCell::new(RuntimeState {
             state,
             demo_gps,
             telemetry,
-            map,
+            accel_tracker,
             config,
             last_time: Instant::now(),
             last_config_check: Instant::now(),
             last_config_mtime: AppConfig::last_modified(),
-            last_map_update: None,
         }));
 
         ui.on_toggle_mode({
@@ -95,44 +91,6 @@ impl AppController {
                 }
             }
         });
-        ui.on_map_pan({
-            let ui = ui.as_weak();
-            let runtime = runtime.clone();
-            move |_dx, _dy| {
-                // Map is permanently GPS locked; pan does not disconnect follow
-                let Some(ui) = ui.upgrade() else { return };
-                let runtime = runtime.borrow();
-                refresh_map(&ui, &runtime.map);
-            }
-        });
-        ui.on_map_zoom_by({
-            let ui = ui.as_weak();
-            let runtime = runtime.clone();
-            move |_delta, _anchor_x, _anchor_y| {
-                // Fixed zoom level - ignore zoom gestures
-                let Some(ui) = ui.upgrade() else { return };
-                let mut runtime = runtime.borrow_mut();
-                runtime.map.zoom = FIXED_MAP_ZOOM;
-                refresh_map(&ui, &runtime.map);
-            }
-        });
-        ui.on_map_follow({
-            let ui = ui.as_weak();
-            let runtime = runtime.clone();
-            move || {
-                let Some(ui) = ui.upgrade() else { return };
-                let mut runtime = runtime.borrow_mut();
-                runtime.map.follow_gps = true;
-                runtime.map.zoom = FIXED_MAP_ZOOM;
-                if runtime.state.gps_connected {
-                    runtime.map.latitude = runtime.state.gps_latitude;
-                    runtime.map.longitude = runtime.state.gps_longitude;
-                }
-                ui.set_map_following(true);
-                refresh_map(&ui, &runtime.map);
-                runtime.last_map_update = Some(Instant::now());
-            }
-        });
 
         let timer = Timer::default();
         let target_fps = runtime.borrow().config.display.target_fps.clamp(15, 240);
@@ -163,15 +121,17 @@ impl AppController {
                     demo_gps.update(state, dt);
                 }
                 runtime.state.update_trip(dt);
-                if should_refresh_map(&runtime) {
-                    if runtime.state.gps_connected {
-                        runtime.map.latitude = runtime.state.gps_latitude;
-                        runtime.map.longitude = runtime.state.gps_longitude;
-                    }
-                    runtime.map.zoom = FIXED_MAP_ZOOM;
-                    refresh_map(&ui, &runtime.map);
-                    runtime.last_map_update = Some(Instant::now());
-                }
+
+                // Update acceleration/deceleration telemetry and dynamic waveform
+                let current_speed = runtime.state.current_speed;
+                runtime.accel_tracker.update(current_speed, dt);
+                let (stroke_path, fill_path, peak_x, peak_y) = runtime.accel_tracker.generate_paths();
+                ui.set_chart_stroke_path(stroke_path.into());
+                ui.set_chart_fill_path(fill_path.into());
+                ui.set_chart_peak_x(peak_x);
+                ui.set_chart_peak_y(peak_y);
+                ui.set_current_accel(runtime.accel_tracker.current_accel);
+
                 sync_ui(&ui, &runtime.state);
             }
         });
@@ -190,90 +150,66 @@ struct RuntimeState {
     state: VehicleState,
     demo_gps: DemoGps,
     telemetry: TelemetryService,
-    map: MapRuntime,
+    accel_tracker: AccelDynamicsTracker,
     config: AppConfig,
     last_time: Instant,
     last_config_check: Instant,
     last_config_mtime: Option<std::time::SystemTime>,
-    last_map_update: Option<Instant>,
 }
 
-// Keep these in sync with MapEmbed's 382×396 rectangle in tpmspanel.slint.
-// Keep these in sync with MapEmbed's 382×396 rectangle in tpmspanel.slint.
-const MAP_VIEWPORT_WIDTH: f32 = 382.0;
-const MAP_VIEWPORT_HEIGHT: f32 = 396.0;
-const MAP_FOLLOW_INTERVAL: Duration = Duration::from_millis(200);
-const FIXED_MAP_ZOOM: f64 = 14.0;
-
-struct MapRuntime {
-    source: FileTileSource,
-    tiles: Rc<VecModel<Tile>>,
-    latitude: f64,
-    longitude: f64,
-    zoom: f64,
-    follow_gps: bool,
+pub struct AccelDynamicsTracker {
+    pub last_speed: f32,
+    pub current_accel: f32,
+    pub wave_phase: f32,
 }
 
-const MAP_TILES_DIR: &str = "/opt/icarmeter/maps/tiles";
-
-impl MapRuntime {
-    fn new() -> Self {
-        let source = FileTileSource::new(MAP_TILES_DIR)
-            .with_extension("png")
-            .with_zoom_range(0, 16);
+impl AccelDynamicsTracker {
+    pub fn new() -> Self {
         Self {
-            source,
-            tiles: Rc::new(VecModel::from(Vec::new())),
-            latitude: 21.0285,
-            longitude: 105.8542,
-            zoom: FIXED_MAP_ZOOM,
-            follow_gps: true,
+            last_speed: 0.0,
+            current_accel: 0.0,
+            wave_phase: 0.0,
         }
     }
-}
 
-fn refresh_map(ui: &AppWindow, map: &MapRuntime) {
-    let visible = slint_mapping::viewport::visible_tiles(
-        map.longitude,
-        map.latitude,
-        map.zoom,
-        f64::from(MAP_VIEWPORT_WIDTH),
-        f64::from(MAP_VIEWPORT_HEIGHT),
-        map.source.tile_size(),
-    );
-    let tiles: Vec<Tile> = visible
-        .into_iter()
-        .filter_map(|placed| {
-            map.source.tile(placed.key).map(|image| Tile {
-                x: placed.x,
-                y: placed.y,
-                size: placed.size,
-                image,
-            })
-        })
-        .collect();
-    ui.set_map_tiles_available(!tiles.is_empty());
-    map.tiles.set_vec(tiles);
-    ui.set_map_latitude(map.latitude as f32);
-    ui.set_map_longitude(map.longitude as f32);
-    ui.set_map_zoom(map.zoom as f32);
-}
-
-fn should_refresh_map(runtime: &RuntimeState) -> bool {
-    let Some(last_update) = runtime.last_map_update else {
-        return true;
-    };
-    if last_update.elapsed() < MAP_FOLLOW_INTERVAL {
-        return false;
+    pub fn update(&mut self, current_speed: f32, dt: f32) {
+        if dt > 0.001 {
+            let speed_delta_ms = (current_speed - self.last_speed) / 3.6;
+            let raw_accel = speed_delta_ms / dt;
+            // Smooth EMA filter to produce organic, readable vehicle acceleration values
+            self.current_accel = self.current_accel * 0.88 + raw_accel.clamp(-7.0, 7.0) * 0.12;
+            self.wave_phase = (self.wave_phase + dt * 1.5).rem_euclid(std::f32::consts::TAU);
+        }
+        self.last_speed = current_speed;
     }
-    if runtime.state.gps_connected {
-        let latitude_delta = (runtime.state.gps_latitude - runtime.map.latitude) * 111_320.0;
-        let longitude_delta = (runtime.state.gps_longitude - runtime.map.longitude)
-            * 111_320.0
-            * runtime.map.latitude.to_radians().cos();
-        latitude_delta.hypot(longitude_delta) >= 1.0 || (runtime.map.zoom - FIXED_MAP_ZOOM).abs() > 0.01
-    } else {
-        false
+
+    /// Generates SVG path commands exactly reproducing the user's reference waveform
+    /// with glowing neon red curves and dynamic height response to acceleration/braking
+    pub fn generate_paths(&self) -> (String, String, f32, f32) {
+        let a = self.current_accel;
+        let p = (self.wave_phase).sin() * 1.5;
+
+        // Base wave node coordinates modeled directly after reference image
+        let y0 = 160.0 - a * 1.5 + p * 0.5;
+        let y1 = (120.0 - a * 5.5 + p).clamp(60.0, 180.0);
+        let y2 = 165.0 - a * 2.5 + p * 0.5;
+        let y3 = (50.0 - a * 11.0 - p * 1.2).clamp(20.0, 100.0); // Highest active peak with marker bead
+        let y4 = 135.0 - a * 3.5 + p * 0.8;
+        let y5 = (30.0 - a * 7.5 - p).clamp(15.0, 90.0);         // Secondary peak on the right
+        let y6 = 100.0 - a * 2.0 + p * 0.5;
+
+        let stroke_path = format!(
+            "M 0 {:.1} C 30 {:.1}, 45 {:.1}, 65 {:.1} C 85 {:.1}, 110 {:.1}, 130 {:.1} C 158 {:.1}, 175 {:.1}, 200 {:.1} C 225 {:.1}, 245 {:.1}, 260 {:.1} C 280 {:.1}, 300 {:.1}, 320 {:.1} C 342 {:.1}, 355 {:.1}, 370 {:.1}",
+            y0, y0, y1, y1,
+            y1, y2, y2,
+            y2, y3, y3,
+            y3, y4, y4,
+            y4, y5, y5,
+            y5, y6, y6
+        );
+
+        let fill_path = format!("{} L 370 220 L 0 220 Z", stroke_path);
+        (stroke_path, fill_path, 200.0, y3)
     }
 }
 
@@ -312,6 +248,8 @@ fn sync_ui(ui: &AppWindow, state: &VehicleState) {
     ui.set_rr_temp(state.tires.rr_temp);
     ui.set_alert_pressure(state.tires.low_pressure_alert);
     ui.set_alert_temp(state.tires.high_temp_alert);
+
+    // Connectivity status (matching trippanel style)
     ui.set_bt_active(state.bt_active);
     ui.set_bt_device_name(
         state

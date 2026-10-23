@@ -6,10 +6,6 @@ install -d -m 755 "${APP_DIR}"
 install -m 644 files/config.toml "${APP_DIR}/config.toml"
 install -d -m 755 "${ROOTFS_DIR}/etc/profile.d"
 install -m 644 files/icarmeter-dashboard.sh "${ROOTFS_DIR}/etc/profile.d/icarmeter-dashboard.sh"
-TILES_DIR="${APP_DIR}/maps/tiles"
-install -d -m 755 "${TILES_DIR}"
-echo "Downloading offline map tiles into ${TILES_DIR}..."
-python3 files/maps/download_tiles.py "${TILES_DIR}"
 
 if [ -f files/icarmeter ]; then
     echo "Installing precompiled icarmeter binary..."
