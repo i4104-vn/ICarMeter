@@ -10,6 +10,7 @@ export component AppWindow inherits Window {
     width: 1280px;
     height: 480px;
     background: #000000;
+    property <float> ui-scale: Math.min(root.width / 1280px, root.height / 480px);
 
     callback toggle_mode();
     callback toggle_bt_log();
@@ -72,6 +73,18 @@ export component AppWindow inherits Window {
     in property <bool> map_tiles_available: false;
     in-out property <bool> show_bt_log: false;
     in-out property <string> latest_bt_log: "Bluetooth RFCOMM service running.";
+
+    // LinuxKMS renders fullscreen at the display's native resolution. Scale the
+    // fixed 1280×480 dashboard as one canvas so all panel geometry stays aligned.
+    Rectangle {
+        x: (root.width - self.width * root.ui-scale) / 2;
+        y: (root.height - self.height * root.ui-scale) / 2;
+        width: 1280px;
+        height: 480px;
+        background: #000000;
+        transform-origin: { x: 0px, y: 0px };
+        transform-scale-x: root.ui-scale;
+        transform-scale-y: root.ui-scale;
 
     // Original 1280×480 three-column layout: map, speed/emotions, trip stats.
     TpmsPanel {
@@ -141,5 +154,6 @@ export component AppWindow inherits Window {
         bt_active: root.bt_active;
         bt_device_name: root.bt_device_name;
         gps_connected: root.gps_connected;
+    }
     }
 }
