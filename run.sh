@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Car Digital Dashboard - Khởi chạy trực tiếp trên Raspberry Pi OS (Debian)
-# Xuất hình qua Linux Framebuffer (/dev/fb0) trên Console TTY thuần túy
+# Car Digital Dashboard - Raspberry Pi OS with Slint LinuxKMS
 # ==============================================================================
 
 set -e
@@ -19,30 +18,25 @@ echo -e "${CYAN}================================================================
 echo -e "${PURPLE}       CAR DIGITAL DASHBOARD - RASPBERRY PI OS EMBEDDED UI          ${NC}"
 echo -e "${CYAN}====================================================================${NC}"
 echo -e "  * Kích thước táp-lô : ${GREEN}1280 x 480 pixels${NC} (7 inch)"
-echo -e "  * Nền tảng mục tiêu : ${YELLOW}Raspberry Pi OS (Debian) Console TTY${NC}"
-echo -e "  * Driver hiển thị   : ${YELLOW}Linux Framebuffer (/dev/fb0)${NC}"
-echo -e "  * Thoát chương trình: ${GREEN}Bấm [q / Q / Esc / Ctrl+C]${NC}"
+echo -e "  * Nền tảng mục tiêu : ${YELLOW}Raspberry Pi OS (DRM/KMS)${NC}"
+echo -e "  * Giao diện         : ${YELLOW}Slint LinuxKMS${NC}"
+echo -e "  * Thoát chương trình: ${GREEN}Bấm [q / Q / Ctrl+C]${NC}"
 echo -e "${CYAN}====================================================================${NC}"
 
-FB_DEV="/dev/fb0"
-if [[ ! -e "$FB_DEV" ]]; then
-    echo -e "\033[0;31mLỗi: Không tìm thấy $FB_DEV. Hãy đảm bảo driver đồ họa (vc4-kms-v3d) đã được bật trong /boot/firmware/config.txt.\033[0m"
+DRM_DEV="/dev/dri/card0"
+if [[ ! -e "$DRM_DEV" ]]; then
+    echo -e "\033[0;31mLỗi: Không tìm thấy $DRM_DEV. Hãy bật driver đồ họa KMS (vc4-kms-v3d).\033[0m"
     exit 1
 fi
 
 echo -e "${YELLOW}[1/2] Đang biên dịch release...${NC}"
-cargo build --release
+cargo build --release --target aarch64-unknown-linux-gnu
 
-BIN_PATH="$SCRIPT_DIR/target/release/icarmeter"
+BIN_PATH="$SCRIPT_DIR/target/aarch64-unknown-linux-gnu/release/icarmeter"
 if [[ ! -f "$BIN_PATH" ]]; then
     echo -e "\033[0;31mKhông tìm thấy file thực thi: $BIN_PATH\033[0m"
     exit 1
 fi
 
-echo -e "${GREEN}[2/2] Khởi chạy Car Dashboard trên $FB_DEV...${NC}"
-if [[ ! -w "$FB_DEV" && $EUID -ne 0 ]]; then
-    echo -e "${YELLOW}-> Yêu cầu quyền ghi $FB_DEV (chạy với sudo)...${NC}"
-    sudo "$BIN_PATH"
-else
-    "$BIN_PATH"
-fi
+echo -e "${GREEN}[2/2] Khởi chạy Car Dashboard qua $DRM_DEV...${NC}"
+"$BIN_PATH"

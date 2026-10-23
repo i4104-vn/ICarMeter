@@ -1,6 +1,2 @@
 [build]
 target = "aarch64-unknown-linux-gnu"
-
-[env]
-# Use MapLibre Native's prebuilt core for both local and CI cross builds.
-MLN_PRECOMPILE = "1"

@@ -241,12 +241,9 @@ jobs:
             bash -euo pipefail -c '
               apt-get update
               apt-get install -y --no-install-recommends \
-                ca-certificates cmake gcc g++ pkg-config python3 \
-                libcurl4-openssl-dev libegl1-mesa-dev libgl-dev \
-                libicu-dev libjpeg62-turbo-dev libpng-dev \
-                libssl-dev libuv1-dev libwebp-dev zlib1g-dev
-              gcc -O2 -fPIC -c compat/glibc_compat.c -o /tmp/glibc_compat.o
-              RUSTFLAGS="-C link-arg=/tmp/glibc_compat.o" cargo build --release --target aarch64-unknown-linux-gnu
+                ca-certificates gcc g++ pkg-config \
+                libinput-dev libseat-dev libudev-dev libxkbcommon-dev
+              cargo build --release --target aarch64-unknown-linux-gnu
             '
 
           # Fix permissions from container build so actions/cache can save target/ and .cargo/
@@ -255,15 +252,14 @@ jobs:
       - name: Stage compiled binary
         run: |
           mkdir -p dist_bin
-          BIN_PATH=$(find target/aarch64-unknown-linux-gnu/release -maxdepth 1 -type f \( -name "icarmeter" -o -name "car_dashboard" \) | head -n 1)
+          BIN_PATH="target/aarch64-unknown-linux-gnu/release/icarmeter"
           if [ -z "$BIN_PATH" ]; then
             echo "ERROR: Compiled binary not found in target/aarch64-unknown-linux-gnu/release" >&2
             exit 1
           fi
           echo "Found compiled binary: $BIN_PATH"
           cp -v "$BIN_PATH" dist_bin/icarmeter
-          cp -v "$BIN_PATH" dist_bin/car_dashboard
-          chmod +x dist_bin/*
+          chmod +x dist_bin/icarmeter
           ls -lah dist_bin/
           file dist_bin/icarmeter
 
@@ -295,12 +291,6 @@ jobs:
           wait
           echo "Cleaned disk space:"
           df -h
-
-      - name: Cache Vietnam Offline MBTiles
-        uses: actions/cache@v4
-        with:
-          path: pi-image/stage-icarmeter/02-app-install/files/maps/vietnam.mbtiles
-          key: ${{ runner.os }}-vietnam-mbtiles-v1
 
       - name: Download compiled binary artifact
         uses: actions/download-artifact@v6
