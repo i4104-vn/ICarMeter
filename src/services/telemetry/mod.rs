@@ -2,12 +2,11 @@
 
 pub mod bt_log;
 pub mod gps;
-pub mod tpms;
 
 use crate::configs::app::AppConfig;
-use crate::models::bluetooth::state::BluetoothSharedState;
-use crate::models::tpms::pressures::TirePressures;
-use crate::models::vehicle::state::VehicleState;
+use crate::models::bluetooth::BluetoothSharedState;
+use crate::models::tpms::TirePressures;
+use crate::models::vehicle::VehicleState;
 use crate::services::is_app_running;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,9 +17,8 @@ use std::time::{Duration, Instant};
 
 pub use bt_log::BtLogReader;
 pub use gps::GpsReceiver;
-pub use tpms::TpmsReceiver;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct TelemetrySnapshot {
     pub current_speed: Option<f32>,
     pub gps_latitude: f64,
@@ -89,7 +87,7 @@ impl TelemetryService {
             state.gps_heading = guard.gps_heading;
             state.gps_altitude = guard.gps_altitude;
             state.gps_connected = guard.gps_connected;
-            state.tires = guard.tires.clone();
+            state.tires = guard.tires;
             state.bt_active = guard.bt_active;
             state.bt_device_name = guard.bt_device_name.clone();
             if state.show_bt_log && !guard.bt_logs.is_empty() {
@@ -114,15 +112,9 @@ fn run_telemetry_loop(
         None
     };
 
-    let mut sensors = if config.tpms.enabled {
-        Some(TpmsReceiver::new(&config.tpms))
-    } else {
-        None
-    };
-
     let mut bt_log_reader = BtLogReader::new();
     let mut last_tpms_publish = Instant::now();
-    let mut current_tires = TirePressures::default();
+    let current_tires = TirePressures::default();
     let mut current_speed: Option<f32> = None;
     let mut current_lat = 21.0285;
     let mut current_lon = 105.8542;
@@ -149,14 +141,6 @@ fn run_telemetry_loop(
                     }
                 }
                 false => gps = None,
-            }
-
-            match new_config.tpms.enabled {
-                true => match sensors.as_mut() {
-                    Some(s) => s.update_config(&new_config.tpms),
-                    None => sensors = Some(TpmsReceiver::new(&new_config.tpms)),
-                },
-                false => sensors = None,
             }
 
             current_config = new_config;
@@ -243,15 +227,7 @@ fn run_telemetry_loop(
             bt_device_name = connected;
         }
 
-        // 4. Poll TPMS sensors
-        if let Some(ref mut s) = sensors {
-            let mut temp_state = VehicleState::default();
-            temp_state.tires = current_tires.clone();
-            s.poll(&mut temp_state);
-            current_tires = temp_state.tires;
-        }
-
-        // 5. Expose real-time TPMS telemetry to native Bluetooth server
+        // 4. Expose TPMS telemetry to native Bluetooth server
         if last_tpms_publish.elapsed() >= Duration::from_millis(250) {
             last_tpms_publish = Instant::now();
             if let Some(ref bt) = bt_state {
@@ -259,14 +235,14 @@ fn run_telemetry_loop(
             }
         }
 
-        // 6. Poll Bluetooth logs if enabled
+        // 5. Poll Bluetooth logs if enabled
         let bt_logs = if log_view_enabled.load(Ordering::Relaxed) {
             bt_log_reader.poll(30).to_vec()
         } else {
             Vec::new()
         };
 
-        // 7. Publish snapshot for main UI thread
+        // 6. Publish snapshot for main UI thread
         if let Ok(mut lock) = snapshot.lock() {
             lock.current_speed = current_speed;
             lock.gps_latitude = current_lat;
@@ -274,7 +250,7 @@ fn run_telemetry_loop(
             lock.gps_heading = current_heading;
             lock.gps_altitude = current_altitude;
             lock.gps_connected = gps_connected;
-            lock.tires = current_tires.clone();
+            lock.tires = current_tires;
             lock.bt_active = bt_active;
             lock.bt_device_name = bt_device_name.clone();
             if !bt_logs.is_empty() {

@@ -1,5 +1,7 @@
 //! Application configuration model and public configuration API.
 
+const DEFAULT_TARGET_FPS: u64 = 60;
+
 #[derive(Debug, Clone)]
 pub struct GpsConfig {
     pub device: String,
@@ -22,7 +24,6 @@ pub struct TpmsConfig {
 
 #[derive(Debug, Clone)]
 pub struct DisplayConfig {
-    pub framebuffer_device: String,
     pub target_fps: u64,
 }
 
@@ -53,8 +54,7 @@ impl Default for AppConfig {
                 high_temp_alert: 70.0,
             },
             display: DisplayConfig {
-                framebuffer_device: "/dev/fb0".to_string(),
-                target_fps: crate::configs::display::TARGET_FPS,
+                target_fps: DEFAULT_TARGET_FPS,
             },
         }
     }

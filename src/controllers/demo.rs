@@ -1,6 +1,6 @@
 //! GPS and speed simulation for exercising the dashboard without live telemetry.
 
-use crate::models::vehicle::state::VehicleState;
+use crate::models::vehicle::VehicleState;
 
 const SPEED_CYCLE_SECONDS: f32 = 70.0;
 const EARTH_RADIUS_M: f64 = 6_371_000.0;

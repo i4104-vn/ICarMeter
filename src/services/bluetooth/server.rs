@@ -14,9 +14,10 @@ use super::adapter;
 use super::handler;
 use super::protocol;
 use super::socket::RfcommStream;
-use crate::models::bluetooth::address::RFCOMM_CHANNEL_DEFAULT;
-use crate::models::bluetooth::state::BluetoothSharedState;
+use crate::models::bluetooth::BluetoothSharedState;
 use crate::services::telemetry::bt_log::log_bt;
+
+const RFCOMM_CHANNEL_DEFAULT: u8 = 1;
 
 pub struct Broadcaster {
     clients: Mutex<Vec<RfcommStream>>,

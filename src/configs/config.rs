@@ -34,8 +34,6 @@ low_pressure_alert = 2.2
 high_temp_alert = 70.0
 
 [display]
-# Đường dẫn Framebuffer hiển thị TTY
-framebuffer_device = "/dev/fb0"
 target_fps = 60
 "#;
 
@@ -219,7 +217,6 @@ fn apply_value(config: &mut AppConfig, section: &str, key: &str, value: String) 
             _ => {}
         },
         "display" => match key {
-            "framebuffer_device" => config.display.framebuffer_device = value,
             "target_fps" => set_if_parses(&value, |fps| config.display.target_fps = fps),
             _ => {}
         },

@@ -3,17 +3,9 @@
 mod configs;
 mod controllers;
 mod models;
-mod render;
 mod services;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Disable libuv's io_uring backend to prevent SIGABRT on Linux kernels/containers
-    // where io_uring returns EBADF on io_uring_enter during MapLibre event loop init.
-    // Standard epoll is universally compatible and rock-solid across all Linux environments.
-    unsafe {
-        std::env::set_var("UV_USE_IO_URING", "0");
-    }
-
     // Install panic hook to log any unhandled crashes with diagnostic details
     std::panic::set_hook(Box::new(|info| {
         let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column())).unwrap_or_else(|| "unknown".into());

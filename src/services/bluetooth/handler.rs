@@ -9,8 +9,8 @@ use super::adapter;
 use super::protocol;
 use super::server::Broadcaster;
 use super::socket::RfcommStream;
-use crate::models::bluetooth::state::BluetoothSharedState;
-use crate::models::gps::phone::PhoneGpsData;
+use crate::models::bluetooth::BluetoothSharedState;
+use crate::models::gps::PhoneGpsData;
 use crate::services::telemetry::bt_log::{log_bt, read_recent_bt_logs};
 
 pub fn handle_client(

@@ -1,0 +1,93 @@
+export component TripPanel inherits Rectangle {
+    in property <string> driving_time;
+    in property <string> distance;
+    in property <string> max_speed;
+    in property <string> avg_speed;
+    in property <bool> bt_active;
+    in property <string> bt_device_name;
+    in property <bool> gps_connected;
+
+    width: 410px;
+    height: 480px;
+    background: #000000;
+
+    for row[row_index] in [
+        { label: "Driving Time", value: root.driving_time },
+        { label: "Distance (Session)", value: root.distance },
+        { label: "Max Speed", value: root.max_speed },
+        { label: "Avg Speed", value: root.avg_speed },
+    ]: HorizontalLayout {
+        x: 34px;
+        y: 116px + row_index * 65px;
+        width: 305px;
+        height: 36px;
+        Text {
+            text: row.label;
+            font-size: 20px;
+            color: #a0a0a5;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Text {
+            text: row.value;
+            font-size: 23px;
+            font-weight: 700;
+            color: #ffffff;
+            width: 120px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+    }
+
+    for i in 3: Rectangle {
+        x: 34px;
+        y: 172px + i * 65px;
+        width: 305px;
+        height: 1px;
+        background: #1c1c20;
+    }
+
+    HorizontalLayout {
+        x: 34px;
+        y: 425px;
+        width: 340px;
+        height: 28px;
+        spacing: 24px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: center;
+            Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: root.bt_active ? #ffffff : #55555b;
+            }
+            Text {
+                text: root.bt_device_name;
+                font-size: 13px;
+                font-weight: 700;
+                color: root.bt_active ? #ffffff : #6e6e78;
+                vertical-alignment: center;
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: center;
+            Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: root.gps_connected ? #ffffff : #55555b;
+            }
+            Text {
+                text: root.gps_connected ? "GPS" : "GPS SEARCHING";
+                font-size: 13px;
+                font-weight: 700;
+                color: root.gps_connected ? #ffffff : #6e6e78;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

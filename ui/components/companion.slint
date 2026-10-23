@@ -1,0 +1,212 @@
+// Slint owns the companion mood cycle and sprite-sheet animation.
+export component EmoEyes {
+    in property <float> speed;
+    in property <int> random_seed: 1;
+    in property <bool> enabled: true;
+
+    property <bool> initialized: false;
+    property <bool> was_moving: false;
+    property <int> rng_state: 1;
+    property <[int]> mood_order: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+    property <int> mood_cursor: 15;
+    property <int> last_mood_index: -1;
+    property <int> random_target: 10;
+    property <int> random_shown: 0;
+    property <int> phase: 0; // 0 waiting, 1 yawning, 2 waking, 3 random, 4 yawning, 5 sleeping
+    property <int> active_cell: 27;
+    property <int> frame_index: 0;
+    property <float> phase_elapsed: 0;
+    property <float> mood_elapsed: 0;
+    property <float> frame_elapsed: 0;
+
+    out property <int> expression_cell: root.phase == 1 || root.phase == 4 ? 18
+        : (root.phase == 2 ? 27
+        : (root.phase == 5 ? 26 : root.active_cell));
+    out property <bool> gps_screen: root.speed > 0.5 || root.phase == 0;
+    property <int> sprite-frame-width: root.expression_cell == 28
+        || root.expression_cell == 5 || root.expression_cell == 29
+        || root.expression_cell == 34 || root.expression_cell == 24 ? 274 : 285;
+    property <int> sprite-frame-height: root.sprite-frame-width == 274 ? 165 : 206;
+
+    // Keep the sprite at its exact native frame resolution to avoid resampling blur and jitter.
+    // Keep the sprite at a stable, near-native resolution to avoid resampling blur.
+    width: 330px;
+    height: 206px;
+
+    function random_int(limit: int) -> int {
+        // Small integer LCG keeps the shuffle portable in Slint's integer type.
+        root.rng_state = Math.mod(root.rng_state * 251 + 1, 65521);
+        return Math.mod(root.rng_state, limit);
+    }
+
+    function shuffle_step(i: int) {
+        if i > 0 {
+            let j = root.random_int(i + 1);
+            let value = root.mood_order[i];
+            root.mood_order[i] = root.mood_order[j];
+            root.mood_order[j] = value;
+        }
+    }
+
+    function start-random-cycle() {
+        root.phase = 3;
+        root.mood_elapsed = 0;
+        root.mood_cursor = root.mood_order.length;
+        root.random_shown = 0;
+        root.random_target = 8 + root.random_int(6);
+        root.apply-random-mood();
+    }
+
+    function apply-random-mood() {
+        if root.mood_cursor >= root.mood_order.length {
+            root.shuffle_step(14);
+            root.shuffle_step(13);
+            root.shuffle_step(12);
+            root.shuffle_step(11);
+            root.shuffle_step(10);
+            root.shuffle_step(9);
+            root.shuffle_step(8);
+            root.shuffle_step(7);
+            root.shuffle_step(6);
+            root.shuffle_step(5);
+            root.shuffle_step(4);
+            root.shuffle_step(3);
+            root.shuffle_step(2);
+            root.shuffle_step(1);
+            if root.mood_order[0] == root.last_mood_index {
+                let value = root.mood_order[0];
+                root.mood_order[0] = root.mood_order[1];
+                root.mood_order[1] = value;
+            }
+            root.mood_cursor = 0;
+        }
+        let mood = root.mood_order[root.mood_cursor];
+        root.mood_cursor += 1;
+        root.last_mood_index = mood;
+        root.random_shown += 1;
+        root.active_cell = mood == 0 ? 27
+            : (mood == 1 ? 28
+            : (mood == 2 ? 19
+            : (mood == 3 ? 10
+            : (mood == 4 ? 6
+            : (mood == 5 ? 7
+            : (mood == 6 ? 3
+            : (mood == 7 ? 19
+            : (mood == 8 ? 5
+            : (mood == 9 ? 29
+            : (mood == 10 ? 34
+            : (mood == 11 ? 24
+            : (mood == 12 ? 17
+            : (mood == 13 ? 34 : 2)))))))))))));
+        root.frame_index = 0;
+        root.frame_elapsed = 0;
+    }
+
+    function tick() {
+        let dt = 0.016;
+        if !root.enabled {
+            return;
+        }
+        if !root.initialized {
+            root.rng_state = Math.mod(root.random_seed, 65521);
+            if root.rng_state <= 0 {
+                root.rng_state = 1;
+            }
+            root.initialized = true;
+        }
+        if root.speed > 0.5 {
+            if !root.was_moving {
+                root.was_moving = true;
+                root.phase = 0;
+                root.phase_elapsed = 0;
+                root.mood_elapsed = 0;
+            }
+            return;
+        }
+        if root.was_moving {
+            root.was_moving = false;
+            root.phase = 0;
+            root.phase_elapsed = 0;
+            root.mood_elapsed = 0;
+            root.frame_index = 0;
+            root.frame_elapsed = 0;
+        }
+        root.phase_elapsed += dt;
+        root.frame_elapsed += dt;
+        if root.frame_elapsed >= 0.1667 {
+            root.frame_elapsed -= 0.1667;
+            if root.phase == 5 || root.active_cell == 26 || root.frame_index < 23 {
+                root.frame_index = Math.mod(root.frame_index + 1, 24);
+            }
+        }
+        if root.phase == 0 && root.phase_elapsed >= 4 {
+            root.phase = 1;
+            root.phase_elapsed = 0;
+            root.active_cell = 18;
+            root.frame_index = 0;
+            root.frame_elapsed = 0;
+            return;
+        }
+        if root.phase_elapsed < 4 {
+            return;
+        }
+        root.phase_elapsed = 0;
+
+        if root.phase == 1 {
+            root.phase = 2;
+            root.active_cell = 27;
+            root.frame_index = 0;
+            root.frame_elapsed = 0;
+        } else if root.phase == 2 {
+            root.start-random-cycle();
+        } else if root.phase == 3 && root.random_shown >= root.random_target {
+            root.phase = 4;
+            root.active_cell = 18;
+            root.frame_index = 0;
+            root.frame_elapsed = 0;
+        } else if root.phase == 3 {
+            root.apply-random-mood();
+        } else if root.phase == 4 {
+            root.phase = 5;
+            root.active_cell = 26;
+            root.frame_index = 0;
+            root.frame_elapsed = 0;
+        } else if root.phase == 5 {
+            root.active_cell = 26;
+        }
+    }
+
+    Image {
+        width: parent.width;
+        height: parent.height;
+        source: root.expression_cell == 27 ? @image-url("../../assets/emotions/smile.svg")
+            : (root.expression_cell == 28 ? @image-url("../../assets/emotions/smirk.svg")
+            : (root.expression_cell == 19 ? @image-url("../../assets/emotions/nheo_mat.svg")
+            : (root.expression_cell == 10 ? @image-url("../../assets/emotions/gian_du.svg")
+            : (root.expression_cell == 6 ? @image-url("../../assets/emotions/demon_slayer.svg")
+            : (root.expression_cell == 7 ? @image-url("../../assets/emotions/devil.svg")
+            : (root.expression_cell == 3 ? @image-url("../../assets/emotions/cry.svg")
+            : (root.expression_cell == 5 ? @image-url("../../assets/emotions/cuoi.svg")
+            : (root.expression_cell == 29 ? @image-url("../../assets/emotions/squint.svg")
+            : (root.expression_cell == 34 ? @image-url("../../assets/emotions/UwU.svg")
+            : (root.expression_cell == 24 ? @image-url("../../assets/emotions/rainbow.svg")
+            : (root.expression_cell == 17 ? @image-url("../../assets/emotions/ngac_nhien.svg")
+            : (root.expression_cell == 2 ? @image-url("../../assets/emotions/chong_mat.svg")
+            : (root.expression_cell == 18 ? @image-url("../../assets/emotions/ngap.svg")
+            : @image-url("../../assets/emotions/sleepy.svg"))))))))))))));
+        // Sprite sheets use fixed 274px or 285px cells. A one-pixel inset
+        // avoids sampling antialiasing from the adjacent cell at frame edges.
+        source-clip-x: root.frame_index * root.sprite-frame-width + 1;
+        source-clip-y: 0;
+        source-clip-width: root.sprite-frame-width - 2;
+        source-clip-height: root.sprite-frame-height;
+        image-fit: contain;
+        image-rendering: smooth;
+    }
+
+    Timer {
+        interval: 16ms;
+        running: true;
+        triggered => { root.tick(); }
+    }
+}

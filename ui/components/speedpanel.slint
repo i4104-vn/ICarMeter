@@ -1,0 +1,153 @@
+import { EmoEyes } from "companion.slint";
+
+export component SpeedPanel inherits Rectangle {
+    in property <float> speed;
+    in property <int> random_seed;
+    in property <bool> show_bt_log;
+    in property <string> latest_bt_log;
+
+    property <float> bounded_speed: Math.max(0.0, Math.min(root.speed, 100.0));
+    property <float> fill_progress: root.bounded_speed / 100.0;
+    property <color> speed_color: root.bounded_speed < 42.0
+        ? #dcebf2.mix(#4adeD8, root.bounded_speed / 42.0)
+        : (root.bounded_speed < 72.0
+        ? #4adeD8.mix(#ffc15c, (root.bounded_speed - 42.0) / 30.0)
+        : #ffc15c.mix(#ff565c, (root.bounded_speed - 72.0) / 28.0));
+
+    width: 460px;
+    height: 480px;
+    background: #000000;
+
+    function bracket-x(index: int, right: bool) -> length {
+        let t = index / 32.0;
+        let u = 1.0 - t;
+        let left_x = u * u * u * 120.0 + 3.0 * u * u * t * 40.0
+            + 3.0 * u * t * t * 40.0 + t * t * t * 120.0;
+        return (right ? 460.0 - left_x : left_x) * 1px;
+    }
+
+    function bracket-y(index: int) -> length {
+        let t = index / 32.0;
+        let u = 1.0 - t;
+        return (u * u * u * 348.0 + 3.0 * u * u * t * 305.0
+            + 3.0 * u * t * t * 175.0 + t * t * t * 132.0) * 1px;
+    }
+
+    if root.show_bt_log: VerticalLayout {
+        padding: 24px;
+        spacing: 14px;
+
+        Text {
+            text: "BLUETOOTH RFCOMM CONSOLE · [B] TO CLOSE";
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.2px;
+            color: #38bdf8;
+        }
+
+        Text {
+            text: root.latest_bt_log;
+            font-size: 12px;
+            font-family: "monospace";
+            color: #a5f3fc;
+            wrap: word-wrap;
+            vertical-alignment: top;
+        }
+    }
+
+    if !root.show_bt_log && emo.gps_screen: Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: #000000;
+
+        // Dim rails reproduce the original curved brackets.
+        for i in 33: Rectangle {
+            x: root.bracket-x(i, false) - 3px;
+            y: root.bracket-y(i) - 3px;
+            width: 6px;
+            height: 6px;
+            border-radius: 3px;
+            background: #30343a;
+        }
+        for i in 33: Rectangle {
+            x: root.bracket-x(i, true) - 3px;
+            y: root.bracket-y(i) - 3px;
+            width: 6px;
+            height: 6px;
+            border-radius: 3px;
+            background: #30343a;
+        }
+
+        // Color fill advances from each bracket's bottom toward its top.
+        for i in 33: Rectangle {
+            visible: root.fill_progress > 0.01 && i / 32.0 <= root.fill_progress;
+            x: root.bracket-x(i, false) - 8px;
+            y: root.bracket-y(i) - 8px;
+            width: 16px;
+            height: 16px;
+            border-radius: 8px;
+            background: root.speed_color.transparentize(78%);
+        }
+        for i in 33: Rectangle {
+            visible: root.fill_progress > 0.01 && i / 32.0 <= root.fill_progress;
+            x: root.bracket-x(i, true) - 8px;
+            y: root.bracket-y(i) - 8px;
+            width: 16px;
+            height: 16px;
+            border-radius: 8px;
+            background: root.speed_color.transparentize(78%);
+        }
+        for i in 33: Rectangle {
+            visible: root.fill_progress > 0.01 && i / 32.0 <= root.fill_progress;
+            x: root.bracket-x(i, false) - 4px;
+            y: root.bracket-y(i) - 4px;
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: root.speed_color;
+        }
+        for i in 33: Rectangle {
+            visible: root.fill_progress > 0.01 && i / 32.0 <= root.fill_progress;
+            x: root.bracket-x(i, true) - 4px;
+            y: root.bracket-y(i) - 4px;
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: root.speed_color;
+        }
+
+        Text {
+            x: 100px;
+            y: 118px;
+            width: 260px;
+            height: 190px;
+            text: Math.round(root.speed);
+            font-size: 156px;
+            font-weight: 900;
+            color: root.speed_color;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        Text {
+            x: 150px;
+            y: 304px;
+            width: 160px;
+            text: "km/h";
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            color: #a0a0a5;
+            horizontal-alignment: center;
+        }
+    }
+
+    emo := EmoEyes {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        speed: root.speed;
+        random_seed: root.random_seed;
+        enabled: !root.show_bt_log;
+        visible: !root.show_bt_log && !self.gps_screen;
+    }
+}

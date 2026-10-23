@@ -1,6 +1,6 @@
 // NMEA 0183 protocol parser for GPS speed, coordinates, and heading ($GPRMC, $GPVTG)
 
-use crate::models::gps::update::GpsUpdate;
+use crate::models::gps::GpsUpdate;
 
 /// Parses an NMEA sentence ($GPRMC, $GNRMC, $GPVTG, $GNVTG) for full telemetry update
 pub fn parse_nmea_update(line: &str) -> Option<GpsUpdate> {

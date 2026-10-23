@@ -1,7 +1,7 @@
 //! JSON messaging protocol between ICarMeter and mobile companion app.
 
 use crate::configs::app::AppConfig;
-use crate::models::tpms::pressures::TirePressures;
+use crate::models::tpms::TirePressures;
 use serde_json::{Value, json};
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -32,7 +32,6 @@ pub fn read_config_json() -> Value {
             "baud_rate": cfg.gps.baud_rate
         },
         "display": {
-            "framebuffer_device": cfg.display.framebuffer_device,
             "target_fps": cfg.display.target_fps
         }
     })

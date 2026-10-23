@@ -2,7 +2,7 @@
 
 pub mod nmea;
 
-use crate::models::gps::update::GpsUpdate;
+use crate::models::gps::GpsUpdate;
 use nmea::parse_nmea_update;
 use std::fs::{File, OpenOptions};
 use std::os::unix::io::AsRawFd;

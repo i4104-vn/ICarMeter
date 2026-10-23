@@ -1,0 +1,49 @@
+// Reusable trip-stat row.
+
+export component StatRow {
+    in property <string> label: "";
+    in property <string> value: "";
+    in property <string> icon_glyph: "";
+
+    height: 64px;
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 4px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: center;
+
+            Text {
+                text: root.icon_glyph;
+                font-size: 16px;
+                color: #38bdf8;
+                width: 22px;
+                vertical-alignment: center;
+            }
+
+            Text {
+                text: root.label;
+                font-size: 13px;
+                font-weight: 500;
+                color: #94a3b8;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+
+            Text {
+                text: root.value;
+                font-size: 18px;
+                font-weight: 700;
+                color: #f8fafc;
+                vertical-alignment: center;
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #1e293b;
+        }
+    }
+}
