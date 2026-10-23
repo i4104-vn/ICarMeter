@@ -65,9 +65,10 @@ export component AppWindow inherits Window {
 
     // Dynamic Speed Waveform Chart Properties
     in-out property <string> chart_stroke_path: "M 0 205 L 370 205";
-    in-out property <float> chart_peak_x: 370.0;
-    in-out property <float> chart_peak_y: 205.0;
-    in-out property <bool> chart_peak_visible: false;
+    in-out property <string> chart_area_path: "M 0 205 L 370 205 L 370 205 L 0 205 Z";
+    in-out property <float> chart_endpoint_x: 370.0;
+    in-out property <float> chart_endpoint_y: 205.0;
+    in-out property <bool> chart_endpoint_visible: false;
     in-out property <float> chart_y1: 205.0;
     in-out property <float> chart_y2: 205.0;
     in-out property <float> chart_y4: 205.0;
@@ -96,9 +97,10 @@ export component AppWindow inherits Window {
         bt_device_name: root.bt_device_name;
         speed: root.speed;
         chart_stroke_path: root.chart_stroke_path;
-        chart_peak_x: root.chart_peak_x;
-        chart_peak_y: root.chart_peak_y;
-        chart_peak_visible: root.chart_peak_visible;
+        chart_area_path: root.chart_area_path;
+        chart_endpoint_x: root.chart_endpoint_x;
+        chart_endpoint_y: root.chart_endpoint_y;
+        chart_endpoint_visible: root.chart_endpoint_visible;
         chart_y1: root.chart_y1;
         chart_y2: root.chart_y2;
         chart_y4: root.chart_y4;

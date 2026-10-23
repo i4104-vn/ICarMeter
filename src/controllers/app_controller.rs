@@ -4,7 +4,7 @@ use crate::configs::app::AppConfig;
 use crate::controllers::demo::DemoGps;
 use crate::models::bluetooth::BluetoothSharedState;
 use crate::models::vehicle::VehicleState;
-use crate::services::{TelemetryService, init_signal_handlers, is_app_running};
+use crate::services::{init_signal_handlers, is_app_running, TelemetryService};
 use slint::{ComponentHandle, Timer, TimerMode};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -125,13 +125,24 @@ impl AppController {
                 // Add the latest real speed sample to the rolling chart history.
                 let current_speed = runtime.state.current_speed;
                 if runtime.wave_tracker.update(current_speed, dt) {
-                    let (stroke_path, peak_x, peak_y, peak_visible, y1, y2, y4, y5, y6) =
-                        runtime.wave_tracker.generate_paths();
+                    let (
+                        stroke_path,
+                        area_path,
+                        endpoint_x,
+                        endpoint_y,
+                        endpoint_visible,
+                        y1,
+                        y2,
+                        y4,
+                        y5,
+                        y6,
+                    ) = runtime.wave_tracker.generate_paths();
 
                     ui.set_chart_stroke_path(stroke_path.into());
-                    ui.set_chart_peak_x(peak_x);
-                    ui.set_chart_peak_y(peak_y);
-                    ui.set_chart_peak_visible(peak_visible);
+                    ui.set_chart_area_path(area_path.into());
+                    ui.set_chart_endpoint_x(endpoint_x);
+                    ui.set_chart_endpoint_y(endpoint_y);
+                    ui.set_chart_endpoint_visible(endpoint_visible);
                     ui.set_chart_y1(y1);
                     ui.set_chart_y2(y2);
                     ui.set_chart_y4(y4);
@@ -200,9 +211,10 @@ impl SpeedWaveTracker {
         chart_changed
     }
 
-    /// Converts the rolling speed samples into a smooth, outline-only chart.
+    /// Converts the rolling speed samples into a smooth chart and a very
+    /// transparent shadow area below it.
     /// A zero-speed history therefore stays exactly on the bottom baseline.
-    pub fn generate_paths(&self) -> (String, f32, f32, bool, f32, f32, f32, f32, f32) {
+    pub fn generate_paths(&self) -> (String, String, f32, f32, bool, f32, f32, f32, f32, f32) {
         const CHART_WIDTH: f32 = 370.0;
         const CHART_BASELINE: f32 = 205.0;
         const CHART_TOP: f32 = 26.0;
@@ -245,18 +257,12 @@ impl SpeedWaveTracker {
             ));
         }
 
-        let (peak_index, peak_speed) = self.samples.iter().enumerate().fold(
-            (0usize, 0.0f32),
-            |(best_index, best_speed), (index, speed)| {
-                if *speed > best_speed {
-                    (index, *speed)
-                } else {
-                    (best_index, best_speed)
-                }
-            },
+        let endpoint_x = points.last().map(|point| point.0).unwrap_or(CHART_WIDTH);
+        let endpoint_y = points.last().map(|point| point.1).unwrap_or(CHART_BASELINE);
+        let area_path = format!(
+            "{} L {:.1} {:.1} L 0 {:.1} Z",
+            stroke_path, CHART_WIDTH, CHART_BASELINE, CHART_BASELINE
         );
-        let peak_x = points[peak_index].0;
-        let peak_y = points[peak_index].1;
         let chart_y_at = |x: f32| {
             let index = ((x / CHART_WIDTH) * (self.samples.len() - 1) as f32)
                 .round()
@@ -266,9 +272,10 @@ impl SpeedWaveTracker {
 
         (
             stroke_path,
-            peak_x,
-            peak_y,
-            peak_speed > 0.5,
+            area_path,
+            endpoint_x,
+            endpoint_y,
+            self.current_smoothed_speed > 0.5,
             chart_y_at(65.0),
             chart_y_at(130.0),
             chart_y_at(260.0),

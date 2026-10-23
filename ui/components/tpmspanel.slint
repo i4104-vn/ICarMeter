@@ -19,9 +19,10 @@ export component TpmsPanel inherits Rectangle {
     // Dynamic Speed Waveform Chart Properties
     in property <float> speed: 0.0;
     in property <string> chart_stroke_path: "M 0 205 L 370 205";
-    in property <float> chart_peak_x: 370.0;
-    in property <float> chart_peak_y: 205.0;
-    in property <bool> chart_peak_visible: false;
+    in property <string> chart_area_path: "M 0 205 L 370 205 L 370 205 L 0 205 Z";
+    in property <float> chart_endpoint_x: 370.0;
+    in property <float> chart_endpoint_y: 205.0;
+    in property <bool> chart_endpoint_visible: false;
     in property <float> chart_y1: 205.0;
     in property <float> chart_y2: 205.0;
     in property <float> chart_y4: 205.0;
@@ -151,18 +152,40 @@ export component TpmsPanel inherits Rectangle {
                 visible: (self.y + self.height) <= 210px;
             }
 
-            // 6. Active Highlight Peak Drop Line (follows chart_peak_x and chart_peak_y)
-            for i in 30: Rectangle {
-                x: (root.chart_peak_x - 0.75) * 1px;
-                y: (root.chart_peak_y + 11.0 + i * 6.0) * 1px;
-                width: 1.5px;
-                height: 3.5px;
-                background: #ffffff55;
-                visible: root.chart_peak_visible && (self.y + self.height) <= 210px;
+            // A very soft area shadow gives the line depth without becoming a
+            // solid filled graph.
+            Path {
+                x: 0px;
+                y: 0px;
+                width: 370px;
+                height: 220px;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 370;
+                viewbox-height: 220;
+                stroke: transparent;
+                stroke-width: 0px;
+                fill: #ff1e380b;
+                commands: root.chart_area_path;
             }
 
-            // Soft outer red glow for the outline only. The chart deliberately
-            // stays transparent underneath, like a CPU history graph.
+            Path {
+                x: 0px;
+                y: 0px;
+                width: 370px;
+                height: 220px;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 370;
+                viewbox-height: 220;
+                stroke: #ff1e3814;
+                stroke-width: 18px;
+                stroke-line-cap: round;
+                fill: transparent;
+                commands: root.chart_stroke_path;
+            }
+
+            // Soft outer red glow for the outline only.
             Path {
                 x: 0px;
                 y: 0px;
@@ -196,24 +219,25 @@ export component TpmsPanel inherits Rectangle {
                 commands: root.chart_stroke_path;
             }
 
-            if root.chart_peak_visible: Rectangle {
-                // Peak marker follows the highest real speed sample.
-                x: (Math.max(11.0, Math.min(359.0, root.chart_peak_x)) - 11.0) * 1px;
-                y: (root.chart_peak_y - 11.0) * 1px;
-                width: 22px;
-                height: 22px;
-                border-radius: 11px;
-                background: #000000dd;
+            if root.chart_endpoint_visible: Rectangle {
+                // The live marker is anchored to the right edge: it represents
+                // the newest sample, never the historical peak.
+                x: (root.chart_endpoint_x - 5.5) * 1px;
+                y: (root.chart_endpoint_y - 5.5) * 1px;
+                width: 11px;
+                height: 11px;
+                border-radius: 5.5px;
+                background: #000000;
                 border-width: 2px;
-                border-color: #cbd5e1;
+                border-color: #ff1e38;
 
                 Rectangle {
-                    x: (parent.width - 8px) / 2;
-                    y: (parent.height - 8px) / 2;
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 4px;
-                    background: #ffffff;
+                    x: (parent.width - 4px) / 2;
+                    y: (parent.height - 4px) / 2;
+                    width: 4px;
+                    height: 4px;
+                    border-radius: 2px;
+                    background: #ff1e38;
                 }
             }
         }
