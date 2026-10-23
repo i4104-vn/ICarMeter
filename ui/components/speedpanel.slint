@@ -31,8 +31,10 @@ export component SpeedPanel inherits Rectangle {
 
     function bracket-pos-x(t: float, right: bool) -> length {
         let u = 1.0 - t;
-        let left_x = u * u * u * 120.0 + 3.0 * u * u * t * 40.0
-            + 3.0 * u * t * t * 40.0 + t * t * t * 120.0;
+        // Keep both brackets comfortably inside the center panel so the
+        // glow/particles do not visually touch the column dividers.
+        let left_x = u * u * u * 142.0 + 3.0 * u * u * t * 66.0
+            + 3.0 * u * t * t * 66.0 + t * t * t * 142.0;
         return (right ? 460.0 - left_x : left_x) * 1px;
     }
 
@@ -43,34 +45,34 @@ export component SpeedPanel inherits Rectangle {
     }
 
     function particle-x(i: int) -> length {
-        let is_right = i >= 8;
-        let idx = is_right ? (i - 8) : i;
-        let p_phase = Math.mod(root.particle_tick + idx * 0.125 + (is_right ? 0.0625 : 0.0), 1.0);
+        let is_right = i >= 14;
+        let idx = is_right ? (i - 14) : i;
+        let p_phase = Math.mod(root.particle_tick + idx * 0.0714 + (is_right ? 0.035 : 0.0), 1.0);
         let ease = p_phase * p_phase;
         if is_right {
-            let x_start = 395.0 + (idx == 0 || idx == 4 ? 12.0 : (idx == 2 || idx == 6 ? -12.0 : 0.0));
-            let x_end = 352.0;
+            let x_start = 378.0 + (idx == 0 || idx == 7 ? 12.0 : (idx == 3 || idx == 10 ? -12.0 : 0.0));
+            let x_end = 335.0;
             return (x_start - (x_start - x_end) * ease) * 1px;
         } else {
-            let x_start = 65.0 + (idx == 0 || idx == 4 ? -12.0 : (idx == 2 || idx == 6 ? 12.0 : 0.0));
-            let x_end = 108.0;
+            let x_start = 82.0 + (idx == 0 || idx == 7 ? -12.0 : (idx == 3 || idx == 10 ? 12.0 : 0.0));
+            let x_end = 125.0;
             return (x_start + (x_end - x_start) * ease) * 1px;
         }
     }
 
     function particle-y(i: int) -> length {
-        let is_right = i >= 8;
-        let idx = is_right ? (i - 8) : i;
-        let p_phase = Math.mod(root.particle_tick + idx * 0.125 + (is_right ? 0.0625 : 0.0), 1.0);
-        let y_start = 145.0 + idx * 24.0;
+        let is_right = i >= 14;
+        let idx = is_right ? (i - 14) : i;
+        let p_phase = Math.mod(root.particle_tick + idx * 0.0714 + (is_right ? 0.035 : 0.0), 1.0);
+        let y_start = 128.0 + idx * 13.5;
         let y_end = 215.0;
-        return (y_start + (y_end - y_start) * p_phase * 0.45) * 1px;
+        return (y_start + (y_end - y_start) * p_phase * 0.6) * 1px;
     }
 
     function particle-opacity(i: int) -> float {
-        let is_right = i >= 8;
-        let idx = is_right ? (i - 8) : i;
-        let p_phase = Math.mod(root.particle_tick + idx * 0.125 + (is_right ? 0.0625 : 0.0), 1.0);
+        let is_right = i >= 14;
+        let idx = is_right ? (i - 14) : i;
+        let p_phase = Math.mod(root.particle_tick + idx * 0.0714 + (is_right ? 0.035 : 0.0), 1.0);
         let alpha = p_phase < 0.2
             ? (p_phase / 0.2)
             : (p_phase < 0.62
@@ -80,9 +82,9 @@ export component SpeedPanel inherits Rectangle {
     }
 
     function particle-color(i: int) -> color {
-        let is_right = i >= 8;
-        let idx = is_right ? (i - 8) : i;
-        let p_phase = Math.mod(root.particle_tick + idx * 0.125 + (is_right ? 0.0625 : 0.0), 1.0);
+        let is_right = i >= 14;
+        let idx = is_right ? (i - 14) : i;
+        let p_phase = Math.mod(root.particle_tick + idx * 0.0714 + (is_right ? 0.035 : 0.0), 1.0);
         // Particle core blends from bright spark into vibrant speed_color
         return #ffffff.mix(root.speed_color, Math.min(1.0, p_phase * 1.5));
     }
@@ -128,7 +130,8 @@ export component SpeedPanel inherits Rectangle {
         height: parent.height;
         background: #000000;
 
-        // Smooth background curved brackets (continuous vector path, no dots)
+        // Smooth background curved brackets (pulled slightly inward from the
+        // panel edges, continuous vector path, no dots).
         Path {
             width: 460px;
             height: 480px;
@@ -136,7 +139,7 @@ export component SpeedPanel inherits Rectangle {
             stroke-width: 5px;
             stroke-line-cap: round;
             fill: transparent;
-            commands: "M 120 132 C 40 175 40 305 120 348 M 340 132 C 420 175 420 305 340 348";
+            commands: "M 142 132 C 66 175 66 305 142 348 M 318 132 C 394 175 394 305 318 348";
         }
 
         // Smooth active color fill advancing from bottom to top
@@ -157,7 +160,7 @@ export component SpeedPanel inherits Rectangle {
                 stroke-width: 14px;
                 stroke-line-cap: round;
                 fill: transparent;
-                commands: "M 120 132 C 40 175 40 305 120 348 M 340 132 C 420 175 420 305 340 348";
+                commands: "M 142 132 C 66 175 66 305 142 348 M 318 132 C 394 175 394 305 318 348";
             }
 
             // Core solid active stroke
@@ -170,7 +173,7 @@ export component SpeedPanel inherits Rectangle {
                 stroke-width: 5px;
                 stroke-line-cap: round;
                 fill: transparent;
-                commands: "M 120 132 C 40 175 40 305 120 348 M 340 132 C 420 175 420 305 340 348";
+                commands: "M 142 132 C 66 175 66 305 142 348 M 318 132 C 394 175 394 305 318 348";
             }
         }
 
@@ -210,7 +213,7 @@ export component SpeedPanel inherits Rectangle {
         }
 
         // Energy particles sucked towards the digits, fading out before touching the numbers
-        for i in 16: Rectangle {
+        for i in 28: Rectangle {
             visible: root.particle-opacity(i) > 0.01;
             x: root.particle-x(i) - 2px;
             y: root.particle-y(i) - 2px;
@@ -220,7 +223,7 @@ export component SpeedPanel inherits Rectangle {
             background: root.particle-glow(i);
             opacity: root.particle-opacity(i);
         }
-        for i in 16: Rectangle {
+        for i in 28: Rectangle {
             visible: root.particle-opacity(i) > 0.01;
             x: root.particle-x(i);
             y: root.particle-y(i);

@@ -122,16 +122,16 @@ impl AppController {
                 }
                 runtime.state.update_trip(dt);
 
-                // Update speed-driven undulating dynamic waveform (never stationary)
+                // Add the latest real speed sample to the rolling chart history.
                 let current_speed = runtime.state.current_speed;
                 runtime.wave_tracker.update(current_speed, dt);
-                let (stroke_path, fill_path, peak_x, peak_y, y1, y2, y4, y5, y6) =
+                let (stroke_path, peak_x, peak_y, peak_visible, y1, y2, y4, y5, y6) =
                     runtime.wave_tracker.generate_paths();
 
                 ui.set_chart_stroke_path(stroke_path.into());
-                ui.set_chart_fill_path(fill_path.into());
                 ui.set_chart_peak_x(peak_x);
                 ui.set_chart_peak_y(peak_y);
+                ui.set_chart_peak_visible(peak_visible);
                 ui.set_chart_y1(y1);
                 ui.set_chart_y2(y2);
                 ui.set_chart_y4(y4);
@@ -165,56 +165,109 @@ struct RuntimeState {
 
 pub struct SpeedWaveTracker {
     pub current_smoothed_speed: f32,
-    pub wave_phase: f32,
+    sample_elapsed: f32,
+    samples: Vec<f32>,
 }
 
 impl SpeedWaveTracker {
     pub fn new() -> Self {
         Self {
             current_smoothed_speed: 0.0,
-            wave_phase: 0.0,
+            sample_elapsed: 0.0,
+            samples: vec![0.0; 48],
         }
     }
 
     pub fn update(&mut self, target_speed: f32, dt: f32) {
         if dt > 0.001 {
-            // Smooth speed transitions
-            self.current_smoothed_speed =
-                self.current_smoothed_speed * 0.90 + target_speed * 0.10;
-            // The wave ripples and flows continuously; flow rate accelerates with speed
-            let flow_speed = 1.8 + (self.current_smoothed_speed / 15.0);
-            self.wave_phase =
-                (self.wave_phase + dt * flow_speed).rem_euclid(std::f32::consts::TAU * 100.0);
+            // Smooth only the incoming value so the line remains readable while
+            // still representing the vehicle speed rather than an independent wave.
+            let target_speed = target_speed.max(0.0);
+            let smoothing = (dt * 6.0).clamp(0.0, 1.0);
+            self.current_smoothed_speed +=
+                (target_speed - self.current_smoothed_speed) * smoothing;
+
+            self.sample_elapsed += dt;
+            while self.sample_elapsed >= 0.12 {
+                self.sample_elapsed -= 0.12;
+                self.samples.rotate_left(1);
+                let last = self.samples.len() - 1;
+                self.samples[last] = self.current_smoothed_speed;
+            }
         }
     }
 
-    /// Generates SVG path commands matching the preview waveform geometry exactly,
-    /// undulating and responding smoothly to vehicle speed in real-time.
-    pub fn generate_paths(&self) -> (String, String, f32, f32, f32, f32, f32, f32, f32) {
-        let speed_factor = (self.current_smoothed_speed / 100.0).clamp(0.0, 1.2);
-        let t = self.wave_phase;
+    /// Converts the rolling speed samples into a smooth, outline-only chart.
+    /// A zero-speed history therefore stays exactly on the bottom baseline.
+    pub fn generate_paths(&self) -> (String, f32, f32, bool, f32, f32, f32, f32, f32) {
+        const CHART_WIDTH: f32 = 370.0;
+        const CHART_BASELINE: f32 = 205.0;
+        const CHART_TOP: f32 = 26.0;
+        const CHART_SCALE_SPEED: f32 = 60.0;
 
-        // Waveform coordinates calibrated to match the preview and reference design
-        let y3 = (50.0 - speed_factor * 18.0 + (t * 1.5).sin() * 4.5).clamp(20.0, 140.0);
-        let y5 = (30.0 - speed_factor * 12.0 + (t * 1.5 + 4.5).sin() * 4.0).clamp(15.0, 130.0);
-        let y1 = (120.0 - speed_factor * 20.0 + (t * 1.5 + 1.2).sin() * 3.5).clamp(60.0, 160.0);
-        let y2 = (165.0 - speed_factor * 15.0 + (t * 1.5 + 2.4).sin() * 3.0).clamp(110.0, 185.0);
-        let y4 = (135.0 - speed_factor * 15.0 + (t * 1.5 + 3.6).sin() * 3.0).clamp(90.0, 175.0);
-        let y0 = (160.0 - speed_factor * 15.0 + (t * 1.5).cos() * 3.0).clamp(110.0, 185.0);
-        let y6 = (100.0 - speed_factor * 15.0 + (t * 1.5 + 1.0).cos() * 3.0).clamp(60.0, 160.0);
+        let y_for_speed = |speed: f32| {
+            CHART_BASELINE
+                - (speed.max(0.0) / CHART_SCALE_SPEED).clamp(0.0, 1.0)
+                    * (CHART_BASELINE - CHART_TOP)
+        };
+        let points: Vec<(f32, f32)> = self
+            .samples
+            .iter()
+            .enumerate()
+            .map(|(index, speed)| {
+                let x = index as f32 * CHART_WIDTH / (self.samples.len() - 1) as f32;
+                (x, y_for_speed(*speed))
+            })
+            .collect();
 
-        let stroke_path = format!(
-            "M 0 {:.1} C 30 {:.1}, 45 {:.1}, 65 {:.1} C 85 {:.1}, 110 {:.1}, 130 {:.1} C 158 {:.1}, 175 {:.1}, 200 {:.1} C 225 {:.1}, 245 {:.1}, 260 {:.1} C 280 {:.1}, 300 {:.1}, 320 {:.1} C 342 {:.1}, 355 {:.1}, 370 {:.1}",
-            y0, y0, y1, y1,
-            y1, y2, y2,
-            y2, y3, y3,
-            y3, y4, y4,
-            y4, y5, y5,
-            y5, y6, y6
+        let mut stroke_path = format!("M {:.1} {:.1}", points[0].0, points[0].1);
+        for index in 0..points.len() - 1 {
+            let p0 = if index == 0 { points[0] } else { points[index - 1] };
+            let p1 = points[index];
+            let p2 = points[index + 1];
+            let p3 = if index + 2 >= points.len() {
+                points[points.len() - 1]
+            } else {
+                points[index + 2]
+            };
+            let c1 = (p1.0 + (p2.0 - p0.0) / 6.0, p1.1 + (p2.1 - p0.1) / 6.0);
+            let c2 = (p2.0 - (p3.0 - p1.0) / 6.0, p2.1 - (p3.1 - p1.1) / 6.0);
+            stroke_path.push_str(&format!(
+                " C {:.1} {:.1}, {:.1} {:.1}, {:.1} {:.1}",
+                c1.0, c1.1, c2.0, c2.1, p2.0, p2.1
+            ));
+        }
+
+        let (peak_index, peak_speed) = self.samples.iter().enumerate().fold(
+            (0usize, 0.0f32),
+            |(best_index, best_speed), (index, speed)| {
+                if *speed > best_speed {
+                    (index, *speed)
+                } else {
+                    (best_index, best_speed)
+                }
+            },
         );
+        let peak_x = points[peak_index].0;
+        let peak_y = points[peak_index].1;
+        let chart_y_at = |x: f32| {
+            let index = ((x / CHART_WIDTH) * (self.samples.len() - 1) as f32)
+                .round()
+                .clamp(0.0, (self.samples.len() - 1) as f32) as usize;
+            points[index].1
+        };
 
-        let fill_path = format!("{} L 370 210 L 0 210 Z", stroke_path);
-        (stroke_path, fill_path, 200.0, y3, y1, y2, y4, y5, y6)
+        (
+            stroke_path,
+            peak_x,
+            peak_y,
+            peak_speed > 0.5,
+            chart_y_at(65.0),
+            chart_y_at(130.0),
+            chart_y_at(260.0),
+            chart_y_at(320.0),
+            chart_y_at(370.0),
+        )
     }
 }
 

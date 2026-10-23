@@ -2,7 +2,7 @@
 
 use crate::models::vehicle::VehicleState;
 
-const SPEED_CYCLE_SECONDS: f32 = 70.0;
+const SPEED_CYCLE_SECONDS: f32 = 100.0;
 const EARTH_RADIUS_M: f64 = 6_371_000.0;
 
 const HANOI_LOOP: &[(f64, f64)] = &[
