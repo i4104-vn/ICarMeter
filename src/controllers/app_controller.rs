@@ -188,28 +188,20 @@ impl SpeedWaveTracker {
         }
     }
 
-    /// Generates SVG path commands exactly reproducing the user's reference waveform
-    /// which undulates and scales with vehicle speed in real-time (never stationary)
+    /// Generates SVG path commands matching the preview waveform geometry exactly,
+    /// undulating and responding smoothly to vehicle speed in real-time.
     pub fn generate_paths(&self) -> (String, String, f32, f32, f32, f32, f32, f32, f32) {
         let speed_factor = (self.current_smoothed_speed / 100.0).clamp(0.0, 1.2);
         let t = self.wave_phase;
 
-        let baseline = 210.0;
-        // Peaks rise higher as speed increases, and undulate smoothly with wave_phase
-        let y3 = (baseline - (48.0 + speed_factor * 115.0) + (t * 2.0).sin() * 7.0)
-            .clamp(20.0, 175.0); // Highest active peak with marker bead
-        let y1 = (baseline - (28.0 + speed_factor * 65.0) + (t * 2.0 + 1.2).sin() * 5.0)
-            .clamp(40.0, 185.0);
-        let y2 = (baseline - (12.0 + speed_factor * 30.0) + (t * 2.0 + 2.4).sin() * 4.0)
-            .clamp(50.0, 195.0);
-        let y4 = (baseline - (16.0 + speed_factor * 38.0) + (t * 2.0 + 3.6).sin() * 4.0)
-            .clamp(50.0, 195.0);
-        let y5 = (baseline - (36.0 + speed_factor * 85.0) + (t * 2.0 + 4.8).sin() * 6.0)
-            .clamp(25.0, 180.0);
-        let y0 = (baseline - (18.0 + speed_factor * 40.0) + (t * 2.0).cos() * 4.0)
-            .clamp(40.0, 195.0);
-        let y6 = (baseline - (22.0 + speed_factor * 50.0) + (t * 2.0 + 1.0).cos() * 4.0)
-            .clamp(40.0, 195.0);
+        // Waveform coordinates calibrated to match the preview and reference design
+        let y3 = (50.0 - speed_factor * 18.0 + (t * 1.5).sin() * 4.5).clamp(20.0, 140.0);
+        let y5 = (30.0 - speed_factor * 12.0 + (t * 1.5 + 4.5).sin() * 4.0).clamp(15.0, 130.0);
+        let y1 = (120.0 - speed_factor * 20.0 + (t * 1.5 + 1.2).sin() * 3.5).clamp(60.0, 160.0);
+        let y2 = (165.0 - speed_factor * 15.0 + (t * 1.5 + 2.4).sin() * 3.0).clamp(110.0, 185.0);
+        let y4 = (135.0 - speed_factor * 15.0 + (t * 1.5 + 3.6).sin() * 3.0).clamp(90.0, 175.0);
+        let y0 = (160.0 - speed_factor * 15.0 + (t * 1.5).cos() * 3.0).clamp(110.0, 185.0);
+        let y6 = (100.0 - speed_factor * 15.0 + (t * 1.5 + 1.0).cos() * 3.0).clamp(60.0, 160.0);
 
         let stroke_path = format!(
             "M 0 {:.1} C 30 {:.1}, 45 {:.1}, 65 {:.1} C 85 {:.1}, 110 {:.1}, 130 {:.1} C 158 {:.1}, 175 {:.1}, 200 {:.1} C 225 {:.1}, 245 {:.1}, 260 {:.1} C 280 {:.1}, 300 {:.1}, 320 {:.1} C 342 {:.1}, 355 {:.1}, 370 {:.1}",

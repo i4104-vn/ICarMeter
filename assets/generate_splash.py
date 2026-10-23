@@ -113,16 +113,10 @@ def main():
     puff_lower_bbox = puff_lower_raw.getbbox()
     puff_lower = puff_lower_raw.crop(puff_lower_bbox) if puff_lower_bbox else puff_lower_raw
 
-    # Aspect ratio compensation factor for ultra-wide / stretched displays.
-    # The physical display / capture pipeline stretches horizontally by ~1.77x (16:9 stretch).
-    # Pre-squeezing horizontally by ASPECT_CORRECTION ensures the cat displays perfectly round (1:1).
-    ASPECT_CORRECTION = 1.75
-
-    # Scale cat to height 320 on 1280x480 canvas
+    # Scale uniformly to height 320 so the source image keeps its aspect ratio.
     target_h = 320
-    scale_y = target_h / float(ch)
-    scale_x = scale_y / float(ASPECT_CORRECTION)
-    target_w = int(round(cw * scale_x))
+    base_scale = target_h / float(ch)
+    target_w = int(round(cw * base_scale))
 
     base_x = (CANVAS_W - target_w) // 2
     base_y = (CANVAS_H - target_h) // 2
@@ -132,8 +126,8 @@ def main():
     smoke_center_x = (smoke_bbox[0] + smoke_bbox[2]) / 2.0
     smoke_lower_y = (mid_sy + smoke_bbox[3]) / 2.0
 
-    ref_dx = int((smoke_center_x - cat_bbox[0]) * scale_x)
-    ref_lower_dy = int((smoke_lower_y - cat_bbox[1]) * scale_y)
+    ref_dx = int((smoke_center_x - cat_bbox[0]) * base_scale)
+    ref_lower_dy = int((smoke_lower_y - cat_bbox[1]) * base_scale)
 
     # Prepare smoke sprites
     puff_sprites = [puff_lower, puff_upper]
@@ -146,11 +140,10 @@ def main():
         # Breathing wave (Cosine ease-in-out)
         b = 0.5 - 0.5 * math.cos(phase * 2.0 * math.pi)
         dy = -5.0 * b
-        scale_y = 1.0 + 0.042 * b
-        scale_x = 1.0 + 0.022 * b
+        breathe_scale = 1.0 + 0.042 * b
 
-        fw = int(round(target_w * scale_x))
-        fh = int(round(target_h * scale_y))
+        fw = int(round(target_w * breathe_scale))
+        fh = int(round(target_h * breathe_scale))
 
         scaled_cat = cropped_cat.resize((fw, fh), Image.Resampling.LANCZOS)
 
@@ -168,9 +161,9 @@ def main():
         # Position: Rising along the left cheek/ear/cup area as in user's image
         # NO SMOKE ON THE RIGHT!
         # ----------------------------------------------------------------------
-        smoke_base_x = cat_px + ref_dx + int(15 / ASPECT_CORRECTION)
-        smoke_base_y = cat_py + ref_lower_dy + int(20 * scale_y) - 15
-        rise_distance = int(140 * scale_y)
+        smoke_base_x = cat_px + ref_dx + 15
+        smoke_base_y = cat_py + ref_lower_dy + int(20 * breathe_scale) - 15
+        rise_distance = int(140 * breathe_scale)
 
         for k in range(3):
             p = (phase + k / 3.0) % 1.0
@@ -179,11 +172,10 @@ def main():
             puff_y = smoke_base_y - (p * rise_distance)
 
             # X-position: gentle wavy drift (swaying slightly left then back)
-            puff_x = smoke_base_x - math.sin(p * math.pi * 1.5) * (14.0 * scale_x)
+            puff_x = smoke_base_x - math.sin(p * math.pi * 1.5) * (14.0 * breathe_scale)
 
             # Scale: starts around 0.85, grows slightly to 1.15
-            puff_scale_y = scale_y * (0.85 + 0.30 * p)
-            puff_scale_x = scale_x * (0.85 + 0.30 * p)
+            puff_scale = breathe_scale * (0.85 + 0.30 * p)
 
             # Rotation: gentle tilt
             puff_angle = -12.0 + p * 24.0
@@ -199,8 +191,8 @@ def main():
             if op > 0.02:
                 # Select sprite (alternating between lower and upper puff shapes)
                 raw_sprite = puff_sprites[k % 2]
-                pw = max(1, int(round(raw_sprite.width * puff_scale_x)))
-                ph = max(1, int(round(raw_sprite.height * puff_scale_y)))
+                pw = max(1, int(round(raw_sprite.width * puff_scale)))
+                ph = max(1, int(round(raw_sprite.height * puff_scale)))
 
                 sp = raw_sprite.resize((pw, ph), Image.Resampling.LANCZOS)
                 if abs(puff_angle) > 1.0:
