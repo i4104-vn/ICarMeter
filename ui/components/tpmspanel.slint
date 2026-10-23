@@ -16,12 +16,17 @@ export component TpmsPanel inherits Rectangle {
     in property <bool> bt_active: true;
     in property <string> bt_device_name: "Bluetooth";
 
-    // Dynamic Waveform Chart Properties
-    in property <float> current_accel: 0.0;
+    // Dynamic Speed Waveform Chart Properties
+    in property <float> speed: 0.0;
     in property <string> chart_stroke_path: "M 0 160 C 30 160, 45 120, 65 120 C 85 120, 110 165, 130 165 C 158 165, 175 50, 200 50 C 225 50, 245 135, 260 135 C 280 135, 300 30, 320 30 C 342 30, 355 90, 370 100";
-    in property <string> chart_fill_path: "M 0 160 C 30 160, 45 120, 65 120 C 85 120, 110 165, 130 165 C 158 165, 175 50, 200 50 C 225 50, 245 135, 260 135 C 280 135, 300 30, 320 30 C 342 30, 355 90, 370 100 L 370 220 L 0 220 Z";
+    in property <string> chart_fill_path: "M 0 160 C 30 160, 45 120, 65 120 C 85 120, 110 165, 130 165 C 158 165, 175 50, 200 50 C 225 50, 245 135, 260 135 C 280 135, 300 30, 320 30 C 342 30, 355 90, 370 100 L 370 210 L 0 210 Z";
     in property <float> chart_peak_x: 200.0;
     in property <float> chart_peak_y: 50.0;
+    in property <float> chart_y1: 120.0;
+    in property <float> chart_y2: 165.0;
+    in property <float> chart_y4: 135.0;
+    in property <float> chart_y5: 30.0;
+    in property <float> chart_y6: 100.0;
 
     callback toggle_mode();
 
@@ -58,6 +63,7 @@ export component TpmsPanel inherits Rectangle {
             alert_pressure: root.alert_pressure;
             alert_temp: root.alert_temp;
         }
+
         TireBadge {
             x: parent.width - self.width - 18px;
             y: 65px;
@@ -67,6 +73,7 @@ export component TpmsPanel inherits Rectangle {
             alert_pressure: root.alert_pressure;
             alert_temp: root.alert_temp;
         }
+
         TireBadge {
             x: 18px;
             y: 250px;
@@ -76,6 +83,7 @@ export component TpmsPanel inherits Rectangle {
             alert_pressure: root.alert_pressure;
             alert_temp: root.alert_temp;
         }
+
         TireBadge {
             x: parent.width - self.width - 18px;
             y: 250px;
@@ -87,31 +95,20 @@ export component TpmsPanel inherits Rectangle {
         }
     }
 
-    // VIEW 2: ACCEL/DECEL CURVE CHART & STATUS (IDENTICAL APP BACKGROUND)
+    // VIEW 2: DYNAMIC SPEED WAVEFORM CHART & STATUS
     if !root.tpms_enabled: Rectangle {
         width: 100%;
         height: 100%;
         background: #000000;
 
-        // Header Title (Clean, no boxes)
-        Text {
-            x: 34px;
-            y: 24px;
-            text: "DYNAMICS TELEMETRY";
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 1.2px;
-            color: #64748b;
-        }
-
         // ==========================================
-        // 1. MAIN CURVE CHART (Pure Black Background)
+        // 1. DYNAMIC SPEED WAVEFORM CHART
         // ==========================================
         Rectangle {
             x: 20px;
-            y: 75px;
+            y: 60px;
             width: 370px;
-            height: 250px;
+            height: 220px;
             background: #000000;
 
             // Gradient Fill beneath the red curve (red fading down into #000000)
@@ -119,7 +116,7 @@ export component TpmsPanel inherits Rectangle {
                 x: 0px;
                 y: 0px;
                 width: 370px;
-                height: 240px;
+                height: 220px;
                 fill: @linear-gradient(180deg, #ff1d38bb 0%, #b91c1c55 35%, #7f1d1d18 70%, #00000000 100%);
                 stroke: transparent;
                 commands: root.chart_fill_path;
@@ -127,63 +124,63 @@ export component TpmsPanel inherits Rectangle {
 
             // Vertical Dashed Drop Lines matching reference image
             // 1. Left Hill Drop line (x = 65)
-            for i in 15: Rectangle {
+            for i in 22: Rectangle {
                 x: 65px;
-                y: 120px + i * 7px;
+                y: (root.chart_y1 + 4.0 + i * 6.5) * 1px;
                 width: 1.5px;
                 height: 3.5px;
                 background: #ffffff2e;
-                visible: (self.y + self.height) <= 220px;
+                visible: (self.y + self.height) <= 210px;
             }
 
             // 2. First Trough Drop line (x = 130)
-            for i in 9: Rectangle {
+            for i in 15: Rectangle {
                 x: 130px;
-                y: 165px + i * 7px;
+                y: (root.chart_y2 + 4.0 + i * 6.5) * 1px;
                 width: 1.5px;
                 height: 3.5px;
                 background: #ffffff2e;
-                visible: (self.y + self.height) <= 220px;
+                visible: (self.y + self.height) <= 210px;
             }
 
             // 3. Second Trough Drop line (x = 260)
-            for i in 13: Rectangle {
+            for i in 18: Rectangle {
                 x: 260px;
-                y: 135px + i * 7px;
+                y: (root.chart_y4 + 4.0 + i * 6.5) * 1px;
                 width: 1.5px;
                 height: 3.5px;
                 background: #ffffff2e;
-                visible: (self.y + self.height) <= 220px;
+                visible: (self.y + self.height) <= 210px;
             }
 
             // 4. Right Hill Drop line (x = 320)
             for i in 28: Rectangle {
                 x: 320px;
-                y: 30px + i * 7px;
+                y: (root.chart_y5 + 4.0 + i * 6.5) * 1px;
                 width: 1.5px;
                 height: 3.5px;
                 background: #ffffff2e;
-                visible: (self.y + self.height) <= 220px;
+                visible: (self.y + self.height) <= 210px;
             }
 
             // 5. Far Right End Drop line (x = 370)
-            for i in 18: Rectangle {
+            for i in 20: Rectangle {
                 x: 369px;
-                y: 100px + i * 7px;
+                y: (root.chart_y6 + 4.0 + i * 6.5) * 1px;
                 width: 1.5px;
                 height: 3.5px;
                 background: #ffffff2e;
-                visible: (self.y + self.height) <= 220px;
+                visible: (self.y + self.height) <= 210px;
             }
 
             // 6. Active Highlight Peak Drop Line (follows chart_peak_x and chart_peak_y)
             for i in 30: Rectangle {
                 x: (root.chart_peak_x - 0.75) * 1px;
-                y: (root.chart_peak_y + 10.0 + i * 6.5) * 1px;
+                y: (root.chart_peak_y + 11.0 + i * 6.0) * 1px;
                 width: 1.5px;
                 height: 3.5px;
                 background: #ffffff55;
-                visible: (self.y + self.height) <= 220px;
+                visible: (self.y + self.height) <= 210px;
             }
 
             // Soft Outer Red Glow for the curve line
@@ -191,7 +188,7 @@ export component TpmsPanel inherits Rectangle {
                 x: 0px;
                 y: 0px;
                 width: 370px;
-                height: 240px;
+                height: 220px;
                 stroke: #ff1d3844;
                 stroke-width: 9px;
                 stroke-line-cap: round;
@@ -204,7 +201,7 @@ export component TpmsPanel inherits Rectangle {
                 x: 0px;
                 y: 0px;
                 width: 370px;
-                height: 240px;
+                height: 220px;
                 stroke: #ff1e38;
                 stroke-width: 3px;
                 stroke-line-cap: round;
@@ -236,49 +233,73 @@ export component TpmsPanel inherits Rectangle {
             }
         }
 
-        // ========================================================
-        // 2. STATUS ROW (EXACTLY MATCHING TRIPPANEL STYLE, NO BADGES)
-        // ========================================================
-        HorizontalLayout {
-            x: 34px;
-            y: 425px;
-            width: 340px;
-            height: 28px;
-            spacing: 24px;
+        // =========================================================================
+        // 2. STATUS ROW (COMPACT, CLOSE TOGETHER, TUCKED AT BOTTOM-RIGHT OF CHART)
+        // =========================================================================
 
-            // Bluetooth Status (Dot + Text)
+        // Header Title
+        HorizontalLayout {
+            x: 20px;
+            y: 280px;
+            width: 370px;
+            height: 20px;
+
+            Text {
+                text: round(root.speed) + " KM/H";
+                font-size: 13px;
+                font-weight: 800;
+                color: #ff2238;
+                vertical-alignment: center;
+            }
+        }
+
+        HorizontalLayout {
+            x: 20px;
+            y: 280px;
+            width: 370px;
+            height: 18px;
+            alignment: end;
+            spacing: 14px;
+
+            // Bluetooth Status (Dot + Text compact and strictly inline)
             HorizontalLayout {
-                spacing: 8px;
+                spacing: 5px;
                 alignment: center;
+
                 Rectangle {
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 4px;
+                    y: (parent.height - self.height) / 2;
+                    width: 5px;
+                    height: 5px;
+                    border-radius: 2.5px;
                     background: root.bt_active ? #ffffff : #55555b;
                 }
+
                 Text {
                     text: root.bt_device_name;
-                    font-size: 13px;
-                    font-weight: 700;
+                    font-size: 10px;
+                    font-weight: 600;
                     color: root.bt_active ? #ffffff : #6e6e78;
                     vertical-alignment: center;
                 }
             }
 
-            // GPS Status (Dot + Text)
+            // GPS Status (Dot + Text compact and strictly inline)
             HorizontalLayout {
-                spacing: 8px;
+                spacing: 5px;
                 alignment: center;
+
                 Rectangle {
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 4px;
+                    y: (parent.height - self.height) / 2;
+                    width: 5px;
+                    height: 5px;
+                    border-radius: 2.5px;
                     background: root.gps_connected ? #ffffff : #55555b;
                 }
+
                 Text {
-                    text: root.gps_connected ? "GPS" : "GPS SEARCHING";
-                    font-size: 13px;
-                    font-weight: 700;
+                    text: root.gps_connected ? "GPS" : "GPS";
+                    font-size: 10px;
+                    font-weight: 600;
                     color: root.gps_connected ? #ffffff : #6e6e78;
                     vertical-alignment: center;
                 }

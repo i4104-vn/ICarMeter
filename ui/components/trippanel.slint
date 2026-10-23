@@ -3,9 +3,6 @@ export component TripPanel inherits Rectangle {
     in property <string> distance;
     in property <string> max_speed;
     in property <string> avg_speed;
-    in property <bool> bt_active;
-    in property <string> bt_device_name;
-    in property <bool> gps_connected;
 
     width: 410px;
     height: 480px;
@@ -45,49 +42,5 @@ export component TripPanel inherits Rectangle {
         width: 305px;
         height: 1px;
         background: #1c1c20;
-    }
-
-    HorizontalLayout {
-        x: 34px;
-        y: 425px;
-        width: 340px;
-        height: 28px;
-        spacing: 24px;
-
-        HorizontalLayout {
-            spacing: 8px;
-            alignment: center;
-            Rectangle {
-                width: 8px;
-                height: 8px;
-                border-radius: 4px;
-                background: root.bt_active ? #ffffff : #55555b;
-            }
-            Text {
-                text: root.bt_device_name;
-                font-size: 13px;
-                font-weight: 700;
-                color: root.bt_active ? #ffffff : #6e6e78;
-                vertical-alignment: center;
-            }
-        }
-
-        HorizontalLayout {
-            spacing: 8px;
-            alignment: center;
-            Rectangle {
-                width: 8px;
-                height: 8px;
-                border-radius: 4px;
-                background: root.gps_connected ? #ffffff : #55555b;
-            }
-            Text {
-                text: root.gps_connected ? "GPS" : "GPS SEARCHING";
-                font-size: 13px;
-                font-weight: 700;
-                color: root.gps_connected ? #ffffff : #6e6e78;
-                vertical-alignment: center;
-            }
-        }
     }
 }

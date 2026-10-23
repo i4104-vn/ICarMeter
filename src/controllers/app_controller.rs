@@ -46,13 +46,13 @@ impl AppController {
             .max(1);
         ui.set_emo_random_seed(emo_seed);
 
-        let accel_tracker = AccelDynamicsTracker::new();
+        let wave_tracker = SpeedWaveTracker::new();
 
         let runtime = Rc::new(RefCell::new(RuntimeState {
             state,
             demo_gps,
             telemetry,
-            accel_tracker,
+            wave_tracker,
             config,
             last_time: Instant::now(),
             last_config_check: Instant::now(),
@@ -122,15 +122,21 @@ impl AppController {
                 }
                 runtime.state.update_trip(dt);
 
-                // Update acceleration/deceleration telemetry and dynamic waveform
+                // Update speed-driven undulating dynamic waveform (never stationary)
                 let current_speed = runtime.state.current_speed;
-                runtime.accel_tracker.update(current_speed, dt);
-                let (stroke_path, fill_path, peak_x, peak_y) = runtime.accel_tracker.generate_paths();
+                runtime.wave_tracker.update(current_speed, dt);
+                let (stroke_path, fill_path, peak_x, peak_y, y1, y2, y4, y5, y6) =
+                    runtime.wave_tracker.generate_paths();
+
                 ui.set_chart_stroke_path(stroke_path.into());
                 ui.set_chart_fill_path(fill_path.into());
                 ui.set_chart_peak_x(peak_x);
                 ui.set_chart_peak_y(peak_y);
-                ui.set_current_accel(runtime.accel_tracker.current_accel);
+                ui.set_chart_y1(y1);
+                ui.set_chart_y2(y2);
+                ui.set_chart_y4(y4);
+                ui.set_chart_y5(y5);
+                ui.set_chart_y6(y6);
 
                 sync_ui(&ui, &runtime.state);
             }
@@ -150,53 +156,60 @@ struct RuntimeState {
     state: VehicleState,
     demo_gps: DemoGps,
     telemetry: TelemetryService,
-    accel_tracker: AccelDynamicsTracker,
+    wave_tracker: SpeedWaveTracker,
     config: AppConfig,
     last_time: Instant,
     last_config_check: Instant,
     last_config_mtime: Option<std::time::SystemTime>,
 }
 
-pub struct AccelDynamicsTracker {
-    pub last_speed: f32,
-    pub current_accel: f32,
+pub struct SpeedWaveTracker {
+    pub current_smoothed_speed: f32,
     pub wave_phase: f32,
 }
 
-impl AccelDynamicsTracker {
+impl SpeedWaveTracker {
     pub fn new() -> Self {
         Self {
-            last_speed: 0.0,
-            current_accel: 0.0,
+            current_smoothed_speed: 0.0,
             wave_phase: 0.0,
         }
     }
 
-    pub fn update(&mut self, current_speed: f32, dt: f32) {
+    pub fn update(&mut self, target_speed: f32, dt: f32) {
         if dt > 0.001 {
-            let speed_delta_ms = (current_speed - self.last_speed) / 3.6;
-            let raw_accel = speed_delta_ms / dt;
-            // Smooth EMA filter to produce organic, readable vehicle acceleration values
-            self.current_accel = self.current_accel * 0.88 + raw_accel.clamp(-7.0, 7.0) * 0.12;
-            self.wave_phase = (self.wave_phase + dt * 1.5).rem_euclid(std::f32::consts::TAU);
+            // Smooth speed transitions
+            self.current_smoothed_speed =
+                self.current_smoothed_speed * 0.90 + target_speed * 0.10;
+            // The wave ripples and flows continuously; flow rate accelerates with speed
+            let flow_speed = 1.8 + (self.current_smoothed_speed / 15.0);
+            self.wave_phase =
+                (self.wave_phase + dt * flow_speed).rem_euclid(std::f32::consts::TAU * 100.0);
         }
-        self.last_speed = current_speed;
     }
 
     /// Generates SVG path commands exactly reproducing the user's reference waveform
-    /// with glowing neon red curves and dynamic height response to acceleration/braking
-    pub fn generate_paths(&self) -> (String, String, f32, f32) {
-        let a = self.current_accel;
-        let p = (self.wave_phase).sin() * 1.5;
+    /// which undulates and scales with vehicle speed in real-time (never stationary)
+    pub fn generate_paths(&self) -> (String, String, f32, f32, f32, f32, f32, f32, f32) {
+        let speed_factor = (self.current_smoothed_speed / 100.0).clamp(0.0, 1.2);
+        let t = self.wave_phase;
 
-        // Base wave node coordinates modeled directly after reference image
-        let y0 = 160.0 - a * 1.5 + p * 0.5;
-        let y1 = (120.0 - a * 5.5 + p).clamp(60.0, 180.0);
-        let y2 = 165.0 - a * 2.5 + p * 0.5;
-        let y3 = (50.0 - a * 11.0 - p * 1.2).clamp(20.0, 100.0); // Highest active peak with marker bead
-        let y4 = 135.0 - a * 3.5 + p * 0.8;
-        let y5 = (30.0 - a * 7.5 - p).clamp(15.0, 90.0);         // Secondary peak on the right
-        let y6 = 100.0 - a * 2.0 + p * 0.5;
+        let baseline = 210.0;
+        // Peaks rise higher as speed increases, and undulate smoothly with wave_phase
+        let y3 = (baseline - (48.0 + speed_factor * 115.0) + (t * 2.0).sin() * 7.0)
+            .clamp(20.0, 175.0); // Highest active peak with marker bead
+        let y1 = (baseline - (28.0 + speed_factor * 65.0) + (t * 2.0 + 1.2).sin() * 5.0)
+            .clamp(40.0, 185.0);
+        let y2 = (baseline - (12.0 + speed_factor * 30.0) + (t * 2.0 + 2.4).sin() * 4.0)
+            .clamp(50.0, 195.0);
+        let y4 = (baseline - (16.0 + speed_factor * 38.0) + (t * 2.0 + 3.6).sin() * 4.0)
+            .clamp(50.0, 195.0);
+        let y5 = (baseline - (36.0 + speed_factor * 85.0) + (t * 2.0 + 4.8).sin() * 6.0)
+            .clamp(25.0, 180.0);
+        let y0 = (baseline - (18.0 + speed_factor * 40.0) + (t * 2.0).cos() * 4.0)
+            .clamp(40.0, 195.0);
+        let y6 = (baseline - (22.0 + speed_factor * 50.0) + (t * 2.0 + 1.0).cos() * 4.0)
+            .clamp(40.0, 195.0);
 
         let stroke_path = format!(
             "M 0 {:.1} C 30 {:.1}, 45 {:.1}, 65 {:.1} C 85 {:.1}, 110 {:.1}, 130 {:.1} C 158 {:.1}, 175 {:.1}, 200 {:.1} C 225 {:.1}, 245 {:.1}, 260 {:.1} C 280 {:.1}, 300 {:.1}, 320 {:.1} C 342 {:.1}, 355 {:.1}, 370 {:.1}",
@@ -208,8 +221,8 @@ impl AccelDynamicsTracker {
             y5, y6, y6
         );
 
-        let fill_path = format!("{} L 370 220 L 0 220 Z", stroke_path);
-        (stroke_path, fill_path, 200.0, y3)
+        let fill_path = format!("{} L 370 210 L 0 210 Z", stroke_path);
+        (stroke_path, fill_path, 200.0, y3, y1, y2, y4, y5, y6)
     }
 }
 
@@ -249,7 +262,7 @@ fn sync_ui(ui: &AppWindow, state: &VehicleState) {
     ui.set_alert_pressure(state.tires.low_pressure_alert);
     ui.set_alert_temp(state.tires.high_temp_alert);
 
-    // Connectivity status (matching trippanel style)
+    // Connectivity status (placed on left below speed chart)
     ui.set_bt_active(state.bt_active);
     ui.set_bt_device_name(
         state

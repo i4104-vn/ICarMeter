@@ -41,7 +41,7 @@ export component AppWindow inherits Window {
     in-out property <string> max_speed: "0 km/h";
     in-out property <string> avg_speed: "0 km/h";
 
-    // Mode Toggle (TPMS vs Accel Chart)
+    // Mode Toggle (TPMS vs Speed Waveform Chart)
     in-out property <bool> tpms_enabled: false;
 
     // TPMS Properties
@@ -56,21 +56,25 @@ export component AppWindow inherits Window {
     in-out property <float> alert_pressure: 2.2;
     in-out property <float> alert_temp: 70.0;
 
-    // Connectivity & Position
+    // Connectivity & Position (shown on left below chart)
     in-out property <bool> bt_active: true;
     in-out property <string> bt_device_name: "Bluetooth";
     in-out property <bool> gps_connected: false;
     in-out property <bool> show_bt_log: false;
     in-out property <string> latest_bt_log: "Bluetooth RFCOMM service running.";
 
-    // Acceleration & Dynamic Chart Properties
-    in-out property <float> current_accel: 0.0;
+    // Dynamic Speed Waveform Chart Properties
     in-out property <string> chart_stroke_path: "M 0 160 C 30 160, 45 120, 65 120 C 85 120, 110 165, 130 165 C 158 165, 175 50, 200 50 C 225 50, 245 135, 260 135 C 280 135, 300 30, 320 30 C 342 30, 355 90, 370 100";
-    in-out property <string> chart_fill_path: "M 0 160 C 30 160, 45 120, 65 120 C 85 120, 110 165, 130 165 C 158 165, 175 50, 200 50 C 225 50, 245 135, 260 135 C 280 135, 300 30, 320 30 C 342 30, 355 90, 370 100 L 370 220 L 0 220 Z";
+    in-out property <string> chart_fill_path: "M 0 160 C 30 160, 45 120, 65 120 C 85 120, 110 165, 130 165 C 158 165, 175 50, 200 50 C 225 50, 245 135, 260 135 C 280 135, 300 30, 320 30 C 342 30, 355 90, 370 100 L 370 210 L 0 210 Z";
     in-out property <float> chart_peak_x: 200.0;
     in-out property <float> chart_peak_y: 50.0;
+    in-out property <float> chart_y1: 120.0;
+    in-out property <float> chart_y2: 165.0;
+    in-out property <float> chart_y4: 135.0;
+    in-out property <float> chart_y5: 30.0;
+    in-out property <float> chart_y6: 100.0;
 
-    // 1280×480 three-column layout: Accel/TPMS Panel, Speed/Emotions, Trip stats.
+    // 1280×480 three-column layout: Speed Chart/TPMS, Center Speedometer/Emotions, Right Trip stats.
     TpmsPanel {
         x: 0px;
         y: 0px;
@@ -90,11 +94,16 @@ export component AppWindow inherits Window {
         gps_connected: root.gps_connected;
         bt_active: root.bt_active;
         bt_device_name: root.bt_device_name;
-        current_accel: root.current_accel;
+        speed: root.speed;
         chart_stroke_path: root.chart_stroke_path;
         chart_fill_path: root.chart_fill_path;
         chart_peak_x: root.chart_peak_x;
         chart_peak_y: root.chart_peak_y;
+        chart_y1: root.chart_y1;
+        chart_y2: root.chart_y2;
+        chart_y4: root.chart_y4;
+        chart_y5: root.chart_y5;
+        chart_y6: root.chart_y6;
     }
 
     Rectangle {
@@ -133,8 +142,5 @@ export component AppWindow inherits Window {
         distance: root.distance;
         max_speed: root.max_speed;
         avg_speed: root.avg_speed;
-        bt_active: root.bt_active;
-        bt_device_name: root.bt_device_name;
-        gps_connected: root.gps_connected;
     }
 }
