@@ -45,7 +45,7 @@ mod tests {
         let state = VehicleState::default();
         let panel = CarPanel::new();
         panel.draw(&mut pixmap, &fonts, &state);
-        pixmap.save_png("/home/i4104/.gemini/antigravity-ide/brain/0a3ae8d8-00e2-403c-a757-f5c7fbd8b467/car_error_preview.png").unwrap();
+        pixmap.save_png("../../car_error_preview.png").unwrap();
     }
 
     #[test]
@@ -69,7 +69,7 @@ mod tests {
         }
         renderer
             .pixmap()
-            .save_png("/home/i4104/.gemini/antigravity-ide/brain/0a3ae8d8-00e2-403c-a757-f5c7fbd8b467/dashboard_chart_preview.png")
+            .save_png("../../dashboard_chart_preview.png")
             .unwrap();
 
         // 2. Test TPMS mode (tpms_enabled = true)
@@ -85,7 +85,7 @@ mod tests {
         let _ = renderer.render(&state, 0.1);
         renderer
             .pixmap()
-            .save_png("/home/i4104/.gemini/antigravity-ide/brain/0a3ae8d8-00e2-403c-a757-f5c7fbd8b467/dashboard_tpms_preview.png")
+            .save_png("../../dashboard_tpms_preview.png")
             .unwrap();
     }
 }

@@ -117,9 +117,9 @@ impl ChartPanel {
         let font_size = 11.0;
         let text_w = fonts.measure_width(&fonts.bold, "GPS", font_size);
         let text_x = CHART_RIGHT - text_w;
-        let text_y = BASELINE_Y + 9.0; // 377.0
+        let text_y = BASELINE_Y + 8.0; // 377.0
         let icon_cx = text_x - 11.0;
-        let icon_cy = text_y - 4.0; // 373.0
+        let icon_cy = text_y - 2.0; // 373.0
 
         draw_gps_icon(pixmap, icon_cx, icon_cy, gps_color);
         fonts.draw_text(
