@@ -1,7 +1,7 @@
-// Dynamic speed telemetry waveform chart panel rendered with tiny-skia.
-// Features a single smooth red Catmull-Rom curve, subtle vertical
-// gradient area fill, a single glowing endpoint dot at the far right,
-// and a compact GPS status indicator (icon + "GPS") on the bottom right.
+// Real-time speed telemetry waveform chart panel rendered with tiny-skia.
+// Features a smooth Catmull-Rom spline curve tracking actual vehicle speed,
+// continuous sub-pixel scrolling, dynamic scale easing, pulsing endpoint aura,
+// subtle telemetry grid lines, and GPS status indicator.
 
 use crate::models::vehicle::state::VehicleState;
 use crate::render::core::FontRenderer;
@@ -14,48 +14,93 @@ use tiny_skia::{
 const CHART_LEFT: f32 = 35.0;
 const CHART_RIGHT: f32 = 390.0;
 const CHART_WIDTH: f32 = CHART_RIGHT - CHART_LEFT; // 355.0
-const CHART_TOP: f32 = 75.0;
+const CHART_TOP: f32 = 78.0;
 const BASELINE_Y: f32 = 365.0;
-const NUM_SAMPLE_POINTS: usize = 9;
+const CHART_HEIGHT: f32 = BASELINE_Y - CHART_TOP; // 287.0
+const NUM_SAMPLE_POINTS: usize = 72;
+const SAMPLE_INTERVAL: f32 = 0.1; // 100ms per sample (7.2s window)
 
 pub struct ChartPanel {
     samples: VecDeque<f32>,
-    phase: f32,
+    visual_speed: f32,
+    max_scale: f32,
     sample_timer: f32,
+    pulse_time: f32,
 }
 
 impl ChartPanel {
     pub fn new() -> Self {
         let mut samples = VecDeque::with_capacity(NUM_SAMPLE_POINTS);
-        // Initial undulating wave samples
-        let initial_vals = [25.0, 10.0, 38.0, 42.0, 52.0, 30.0, 75.0, 50.0, 58.0];
-        for &val in &initial_vals {
-            samples.push_back(val);
+        for _ in 0..NUM_SAMPLE_POINTS {
+            samples.push_back(0.0);
         }
 
         Self {
             samples,
-            phase: 0.0,
+            visual_speed: 0.0,
+            max_scale: 60.0,
             sample_timer: 0.0,
+            pulse_time: 0.0,
         }
     }
 
-    pub fn draw(&mut self, pixmap: &mut Pixmap, fonts: &FontRenderer, state: &VehicleState, dt: f32) {
+    pub fn update(&mut self, speed: f32, dt: f32) {
+        let dt = dt.clamp(0.0, 0.1);
+        self.pulse_time = (self.pulse_time + dt).rem_euclid(1000.0);
+
+        // Smoothly filter incoming vehicle speed to eliminate sensor jitter while remaining responsive
+        let target_speed = speed.max(0.0);
+        let speed_response = 1.0 - (-dt * 12.0).exp();
+        self.visual_speed += (target_speed - self.visual_speed) * speed_response;
+        if target_speed <= 0.01 && self.visual_speed < 0.05 {
+            self.visual_speed = 0.0;
+        }
+
+        // Smoothly adjust max scale ceiling (at least 60 km/h, expands up if vehicle goes faster)
+        let current_peak = self
+            .samples
+            .iter()
+            .copied()
+            .fold(self.visual_speed, |a, b| a.max(b));
+        let target_max = current_peak.max(60.0);
+        let scale_rate = if target_max > self.max_scale { 3.5 } else { 1.2 };
+        self.max_scale += (target_max - self.max_scale) * (dt * scale_rate).min(1.0);
+
+        // Continuous time-based sampling
+        self.sample_timer += dt;
+        while self.sample_timer >= SAMPLE_INTERVAL {
+            self.sample_timer -= SAMPLE_INTERVAL;
+            self.samples.pop_front();
+            self.samples.push_back(self.visual_speed);
+        }
+    }
+
+    pub fn draw(
+        &mut self,
+        pixmap: &mut Pixmap,
+        fonts: &FontRenderer,
+        state: &VehicleState,
+        dt: f32,
+    ) {
         self.update(state.current_speed, dt);
 
-        // 1. Compute control points from samples for the active speed wave
+        // 1. Draw header and telemetry grid
+        self.draw_header(pixmap, fonts);
+        self.draw_grid(pixmap, fonts);
+
+        // 2. Compute screen coordinates
         let coords = self.compute_screen_coords();
 
-        // 2. Build smooth Catmull-Rom spline path
+        // 3. Build smooth Catmull-Rom spline path
         if let Some((stroke_path, area_path)) = build_spline_paths(&coords) {
-            // Draw red gradient area under the curve
+            // Draw gradient area under the curve
             let mut area_paint = Paint::default();
             area_paint.anti_alias = true;
             if let Some(shader) = LinearGradient::new(
                 Point::from_xy(0.0, CHART_TOP),
                 Point::from_xy(0.0, BASELINE_Y),
                 vec![
-                    GradientStop::new(0.0, Color::from_rgba8(244, 63, 94, 125)),
+                    GradientStop::new(0.0, Color::from_rgba8(244, 63, 94, 120)),
                     GradientStop::new(0.45, Color::from_rgba8(225, 29, 72, 45)),
                     GradientStop::new(0.85, Color::from_rgba8(159, 18, 57, 10)),
                     GradientStop::new(1.0, Color::from_rgba8(76, 5, 25, 0)),
@@ -73,53 +118,131 @@ impl ChartPanel {
                 );
             }
 
-            // Draw soft outer red glow
+            // Draw outer red glow
             let mut glow_paint = Paint::default();
-            glow_paint.set_color(Color::from_rgba8(244, 63, 94, 65));
+            glow_paint.set_color(Color::from_rgba8(244, 63, 94, 55));
             glow_paint.anti_alias = true;
             glow_paint.blend_mode = BlendMode::Screen;
             let glow_stroke = Stroke {
-                width: 8.0,
+                width: 7.0,
                 line_cap: LineCap::Round,
                 line_join: LineJoin::Round,
                 ..Default::default()
             };
-            pixmap.stroke_path(&stroke_path, &glow_paint, &glow_stroke, Transform::identity(), None);
+            pixmap.stroke_path(
+                &stroke_path,
+                &glow_paint,
+                &glow_stroke,
+                Transform::identity(),
+                None,
+            );
 
-            // Draw solid core vibrant red stroke
+            // Draw crisp core vibrant red stroke
             let mut core_paint = Paint::default();
-            core_paint.set_color(Color::from_rgba8(255, 45, 75, 255));
+            core_paint.set_color(Color::from_rgba8(255, 45, 80, 255));
             core_paint.anti_alias = true;
             let core_stroke = Stroke {
-                width: 3.5,
+                width: 2.8,
                 line_cap: LineCap::Round,
                 line_join: LineJoin::Round,
                 ..Default::default()
             };
-            pixmap.stroke_path(&stroke_path, &core_paint, &core_stroke, Transform::identity(), None);
+            pixmap.stroke_path(
+                &stroke_path,
+                &core_paint,
+                &core_stroke,
+                Transform::identity(),
+                None,
+            );
         }
 
-        // 3. Draw ONLY the single glowing red endpoint dot at the far right
+        // 4. Draw glowing animated endpoint dot and vertical telemetry drop-line
         if let Some(&(last_x, last_y)) = coords.last() {
-            draw_circle(pixmap, last_x, last_y, 9.0, Color::from_rgba8(255, 45, 75, 75), true);
-            draw_circle(pixmap, last_x, last_y, 5.0, Color::from_rgba8(255, 70, 95, 255), true);
+            // Vertical indicator drop-line down to baseline
+            if last_y < BASELINE_Y - 2.0 {
+                let mut pb = PathBuilder::new();
+                pb.move_to(last_x, last_y + 3.0);
+                pb.line_to(last_x, BASELINE_Y);
+                if let Some(path) = pb.finish() {
+                    let mut line_paint = Paint::default();
+                    line_paint.set_color(Color::from_rgba8(255, 65, 95, 55));
+                    line_paint.anti_alias = true;
+                    let stroke = Stroke {
+                        width: 1.2,
+                        ..Default::default()
+                    };
+                    pixmap.stroke_path(&path, &line_paint, &stroke, Transform::identity(), None);
+                }
+            }
+
+            // Pulsing halo aura
+            let pulse = (self.pulse_time * 4.0).sin() * 0.5 + 0.5;
+            let speed_factor = (self.visual_speed / 50.0).clamp(0.0, 1.0);
+            let halo_r = 7.0 + pulse * 3.5 + speed_factor * 2.0;
+            let halo_alpha = (40.0 + pulse * 35.0 + speed_factor * 30.0) as u8;
+
+            draw_circle(
+                pixmap,
+                last_x,
+                last_y,
+                halo_r,
+                Color::from_rgba8(255, 45, 80, halo_alpha),
+                true,
+                BlendMode::Screen,
+            );
+            draw_circle(
+                pixmap,
+                last_x,
+                last_y,
+                4.5,
+                Color::from_rgba8(255, 75, 105, 200),
+                true,
+                BlendMode::SourceOver,
+            );
+            draw_circle(
+                pixmap,
+                last_x,
+                last_y,
+                2.6,
+                Color::from_rgba8(255, 240, 245, 255),
+                true,
+                BlendMode::SourceOver,
+            );
         }
 
-        // 4. GPS Status Indicator directly below chart on the right:
-        // Clear bright white if connected, dimmed translucent if not connected.
-        // Displays only the GPS icon and the text "GPS".
+        // 5. Bottom Status: Realtime indicator on left, GPS status on right
+        draw_circle(
+            pixmap,
+            CHART_LEFT + 3.0,
+            BASELINE_Y + 16.0,
+            2.8,
+            Color::from_rgba8(34, 197, 94, 210),
+            true,
+            BlendMode::SourceOver,
+        );
+        fonts.draw_text(
+            pixmap,
+            &fonts.bold,
+            "REALTIME",
+            CHART_LEFT + 11.0,
+            BASELINE_Y + 20.0,
+            10.0,
+            Color::from_rgba8(148, 163, 184, 170),
+        );
+
+        // GPS Status Indicator
         let gps_color = if state.gps_connected {
-            Color::from_rgba8(255, 255, 255, 255) // Màu trắng rõ nếu đã connect
+            Color::from_rgba8(255, 255, 255, 255)
         } else {
-            Color::from_rgba8(95, 100, 110, 255) // Hiển thị mờ nếu chưa connect
+            Color::from_rgba8(95, 100, 110, 255)
         };
 
         let font_size = 11.0;
         let text_w = fonts.measure_width(&fonts.bold, "GPS", font_size);
         let text_x = CHART_RIGHT - text_w;
-        let text_y = BASELINE_Y + 8.0; // 377.0
+        let text_y = BASELINE_Y + 20.0;
         let icon_cx = text_x - 11.0;
-        let icon_cy = text_y - 2.0; // 373.0
+        let icon_cy = text_y - 2.0;
 
         draw_gps_icon(pixmap, icon_cx, icon_cy, gps_color);
         fonts.draw_text(
@@ -133,48 +256,133 @@ impl ChartPanel {
         );
     }
 
-    fn update(&mut self, speed: f32, dt: f32) {
-        self.phase = (self.phase + dt * 1.5).rem_euclid(std::f32::consts::TAU * 4.0);
-        self.sample_timer += dt;
+    fn draw_header(&self, pixmap: &mut Pixmap, fonts: &FontRenderer) {
+        // Title on the left
+        fonts.draw_text(
+            pixmap,
+            &fonts.bold,
+            "SPEED TELEMETRY",
+            CHART_LEFT,
+            54.0,
+            11.5,
+            Color::from_rgba8(148, 163, 184, 180),
+        );
 
-        // Sample speed at periodic intervals (~0.25s) to scroll waveform smoothly
-        if self.sample_timer >= 0.25 {
-            self.sample_timer -= 0.25;
-            self.samples.pop_front();
-            // Wave amplitude dynamically scales with vehicle movement
-            let base_speed = speed.max(10.0);
-            let wave_amp = (speed * 0.35 + 8.0).min(30.0);
-            let ripple = (self.phase * 2.1).sin() * wave_amp + (self.phase * 3.6).cos() * (wave_amp * 0.35);
-            let target_sample = (base_speed + ripple).max(5.0);
-            self.samples.push_back(target_sample);
-        } else if let Some(last) = self.samples.back_mut() {
-            let base_speed = speed.max(10.0);
-            let wave_amp = (speed * 0.35 + 8.0).min(30.0);
-            let ripple = (self.phase * 2.1).sin() * wave_amp + (self.phase * 3.6).cos() * (wave_amp * 0.35);
-            let target = (base_speed + ripple).max(5.0);
-            *last += (target - *last) * (dt * 8.0).min(1.0);
+        // Current speed badge on the right of the header
+        let speed_val = self.visual_speed.round() as i32;
+        let speed_str = format!("{} KM/H", speed_val);
+        let speed_color = if self.visual_speed > 0.5 {
+            Color::from_rgba8(255, 65, 95, 230)
+        } else {
+            Color::from_rgba8(107, 114, 128, 180)
+        };
+        let text_w = fonts.measure_width(&fonts.bold, &speed_str, 12.0);
+        fonts.draw_text(
+            pixmap,
+            &fonts.bold,
+            &speed_str,
+            CHART_RIGHT - text_w,
+            54.0,
+            12.0,
+            speed_color,
+        );
+    }
+
+    fn draw_grid(&self, pixmap: &mut Pixmap, fonts: &FontRenderer) {
+        // 1. Baseline axis
+        let mut base_pb = PathBuilder::new();
+        base_pb.move_to(CHART_LEFT, BASELINE_Y);
+        base_pb.line_to(CHART_RIGHT, BASELINE_Y);
+        if let Some(path) = base_pb.finish() {
+            let mut paint = Paint::default();
+            paint.set_color(Color::from_rgba8(55, 65, 81, 140));
+            paint.anti_alias = true;
+            let stroke = Stroke {
+                width: 1.2,
+                line_cap: LineCap::Round,
+                ..Default::default()
+            };
+            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
         }
+
+        // 2. Mid reference line (50% max scale)
+        let mid_y = BASELINE_Y - 0.5 * CHART_HEIGHT;
+        let mut mid_pb = PathBuilder::new();
+        mid_pb.move_to(CHART_LEFT, mid_y);
+        mid_pb.line_to(CHART_RIGHT, mid_y);
+        if let Some(path) = mid_pb.finish() {
+            let mut paint = Paint::default();
+            paint.set_color(Color::from_rgba8(75, 85, 99, 45));
+            paint.anti_alias = true;
+            let stroke = Stroke {
+                width: 1.0,
+                ..Default::default()
+            };
+            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+        }
+
+        // 3. Scale text labels
+        let font_size = 9.0;
+        let label_color = Color::from_rgba8(107, 114, 128, 120);
+
+        let mid_val = (self.max_scale * 0.5).round() as i32;
+        let mid_text = format!("{}", mid_val);
+        fonts.draw_text(
+            pixmap,
+            &fonts.regular,
+            &mid_text,
+            CHART_LEFT,
+            mid_y - 3.0,
+            font_size,
+            label_color,
+        );
+
+        let max_val = self.max_scale.round() as i32;
+        let max_text = format!("{}", max_val);
+        fonts.draw_text(
+            pixmap,
+            &fonts.regular,
+            &max_text,
+            CHART_LEFT,
+            CHART_TOP - 3.0,
+            font_size,
+            label_color,
+        );
     }
 
     fn compute_screen_coords(&self) -> Vec<(f32, f32)> {
         let n = self.samples.len().max(2);
-        let max_val = self
-            .samples
-            .iter()
-            .cloned()
-            .fold(50.0f32, |a, b| a.max(b))
-            .max(50.0);
+        let step_x = CHART_WIDTH / (n - 1) as f32;
+        let sub_offset = (self.sample_timer / SAMPLE_INTERVAL).clamp(0.0, 1.0);
+        let scale = self.max_scale.max(10.0);
 
-        self.samples
-            .iter()
-            .enumerate()
-            .map(|(i, &val)| {
-                let x = CHART_LEFT + (i as f32 / (n - 1) as f32) * CHART_WIDTH;
-                let ratio = (val / (max_val * 1.18)).clamp(0.08, 0.92);
-                let y = BASELINE_Y - ratio * (BASELINE_Y - CHART_TOP);
-                (x, y)
-            })
-            .collect()
+        let mut raw_pts = Vec::with_capacity(n + 1);
+        for (i, &val) in self.samples.iter().enumerate() {
+            let x = CHART_LEFT + (i as f32 - sub_offset) * step_x;
+            let ratio = (val / scale).clamp(0.0, 1.0);
+            let y = BASELINE_Y - ratio * CHART_HEIGHT;
+            raw_pts.push((x, y));
+        }
+
+        // Live endpoint currently at CHART_RIGHT
+        let live_ratio = (self.visual_speed / scale).clamp(0.0, 1.0);
+        let live_y = BASELINE_Y - live_ratio * CHART_HEIGHT;
+        raw_pts.push((CHART_RIGHT, live_y));
+
+        // Ensure the left-most point starts cleanly at CHART_LEFT
+        if raw_pts[0].0 < CHART_LEFT && raw_pts.len() > 1 {
+            let (x0, y0) = raw_pts[0];
+            let (x1, y1) = raw_pts[1];
+            let t = if (x1 - x0).abs() > 0.001 {
+                ((CHART_LEFT - x0) / (x1 - x0)).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let y_at_left = y0 + t * (y1 - y0);
+            raw_pts[0] = (CHART_LEFT, y_at_left);
+        }
+
+        raw_pts
     }
 }
 
@@ -196,11 +404,11 @@ fn build_spline_paths(pts: &[(f32, f32)]) -> Option<(Path, Path)> {
         let p2 = pts[i + 1];
         let p3 = if i + 2 < pts.len() { pts[i + 2] } else { p2 };
 
-        // Standard Catmull-Rom to cubic Bezier conversion
-        let c1_x = p1.0 + (p2.0 - p0.0) / 6.0;
-        let c1_y = p1.1 + (p2.1 - p0.1) / 6.0;
-        let c2_x = p2.0 - (p3.0 - p1.0) / 6.0;
-        let c2_y = p2.1 - (p3.1 - p1.1) / 6.0;
+        // Standard Catmull-Rom to cubic Bezier conversion with bounded clamp
+        let c1_x = (p1.0 + (p2.0 - p0.0) / 6.0).clamp(CHART_LEFT, CHART_RIGHT);
+        let c1_y = (p1.1 + (p2.1 - p0.1) / 6.0).clamp(CHART_TOP, BASELINE_Y);
+        let c2_x = (p2.0 - (p3.0 - p1.0) / 6.0).clamp(CHART_LEFT, CHART_RIGHT);
+        let c2_y = (p2.1 - (p3.1 - p1.1) / 6.0).clamp(CHART_TOP, BASELINE_Y);
 
         stroke_pb.cubic_to(c1_x, c1_y, c2_x, c2_y, p2.0, p2.1);
         area_pb.cubic_to(c1_x, c1_y, c2_x, c2_y, p2.0, p2.1);
@@ -214,13 +422,22 @@ fn build_spline_paths(pts: &[(f32, f32)]) -> Option<(Path, Path)> {
     Some((stroke_pb.finish()?, area_pb.finish()?))
 }
 
-fn draw_circle(pixmap: &mut Pixmap, cx: f32, cy: f32, r: f32, color: Color, filled: bool) {
+fn draw_circle(
+    pixmap: &mut Pixmap,
+    cx: f32,
+    cy: f32,
+    r: f32,
+    color: Color,
+    filled: bool,
+    blend_mode: BlendMode,
+) {
     let mut pb = PathBuilder::new();
     pb.push_circle(cx, cy, r);
     if let Some(path) = pb.finish() {
         let mut paint = Paint::default();
         paint.set_color(color);
         paint.anti_alias = true;
+        paint.blend_mode = blend_mode;
         if filled {
             pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
         } else {
@@ -248,3 +465,67 @@ fn draw_gps_icon(pixmap: &mut Pixmap, cx: f32, cy: f32, color: Color) {
         pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chart_panel_initial_state() {
+        let chart = ChartPanel::new();
+        assert_eq!(chart.samples.len(), NUM_SAMPLE_POINTS);
+        assert_eq!(chart.visual_speed, 0.0);
+        for &s in &chart.samples {
+            assert_eq!(s, 0.0);
+        }
+
+        let coords = chart.compute_screen_coords();
+        assert!(!coords.is_empty());
+        for &(x, y) in &coords {
+            assert!(x >= CHART_LEFT - 0.01 && x <= CHART_RIGHT + 0.01);
+            assert_eq!(y, BASELINE_Y);
+        }
+    }
+
+    #[test]
+    fn test_chart_panel_tracks_speed() {
+        let mut chart = ChartPanel::new();
+        // Simulate vehicle accelerating to 40 km/h over 1 second
+        for _ in 0..60 {
+            chart.update(40.0, 1.0 / 60.0);
+        }
+
+        assert!(chart.visual_speed > 35.0, "Visual speed should track actual speed");
+        assert!(chart.samples.back().copied().unwrap() > 30.0);
+
+        let coords = chart.compute_screen_coords();
+        for &(x, y) in &coords {
+            assert!(!x.is_nan());
+            assert!(!y.is_nan());
+            assert!(x >= CHART_LEFT - 0.01 && x <= CHART_RIGHT + 0.01);
+            assert!(y >= CHART_TOP && y <= BASELINE_Y);
+        }
+
+        let paths = build_spline_paths(&coords);
+        assert!(paths.is_some());
+    }
+
+    #[test]
+    fn test_chart_panel_brakes_to_zero() {
+        let mut chart = ChartPanel::new();
+        // First accelerate
+        for _ in 0..60 {
+            chart.update(50.0, 1.0 / 60.0);
+        }
+        // Then brake to 0 and wait 8 seconds
+        for _ in 0..480 {
+            chart.update(0.0, 1.0 / 60.0);
+        }
+
+        assert_eq!(chart.visual_speed, 0.0);
+        for &s in &chart.samples {
+            assert_eq!(s, 0.0);
+        }
+    }
+}
+

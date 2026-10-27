@@ -53,23 +53,32 @@ mod tests {
         use crate::render::DashboardRenderer;
         let mut renderer = DashboardRenderer::new().unwrap();
         
-        // 1. Test Chart mode (tpms_enabled = false) with active speed
+        // 1. Test Chart mode (tpms_enabled = false) with realistic acceleration curve
         let mut state = VehicleState::default();
         state.tpms_enabled = false;
-        state.current_speed = 52.0;
         state.gps_connected = true;
         state.driving_time_secs = 1420.0;
         state.distance_km = 18.5;
         state.max_speed = 88.0;
         state.avg_speed = 46.8;
         
-        // Run several ticks so the speed chart advances and stabilizes
-        for _ in 0..10 {
-            let _ = renderer.render(&state, 0.2);
+        // Simulate 4 seconds of driving at 60 FPS (accel 0 -> 65 km/h, cruise, slight curve)
+        let total_frames = 240;
+        for frame in 0..total_frames {
+            let t = frame as f32 / 60.0;
+            state.current_speed = if t < 1.0 {
+                0.0
+            } else if t < 2.5 {
+                let p = (t - 1.0) / 1.5;
+                p * p * (3.0 - 2.0 * p) * 65.0
+            } else {
+                65.0 + ((t - 2.5) * 2.0).sin() * 5.0
+            };
+            let _ = renderer.render(&state, 1.0 / 60.0);
         }
         renderer
             .pixmap()
-            .save_png("../../dashboard_chart_preview.png")
+            .save_png("dashboard_chart_preview.png")
             .unwrap();
 
         // 2. Test TPMS mode (tpms_enabled = true)
@@ -85,7 +94,7 @@ mod tests {
         let _ = renderer.render(&state, 0.1);
         renderer
             .pixmap()
-            .save_png("../../dashboard_tpms_preview.png")
+            .save_png("dashboard_tpms_preview.png")
             .unwrap();
     }
 }

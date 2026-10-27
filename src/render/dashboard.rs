@@ -50,6 +50,7 @@ impl DashboardRenderer {
 
         // 2. Render Left Panel (Vector Car + Wheels + TPMS if enabled, otherwise Speed Waveform Chart)
         if state.tpms_enabled {
+            self.chart_panel.update(state.current_speed, dt);
             self.car_panel.draw(&mut self.pixmap, &self.fonts, state);
         } else {
             self.chart_panel.draw(&mut self.pixmap, &self.fonts, state, dt);
