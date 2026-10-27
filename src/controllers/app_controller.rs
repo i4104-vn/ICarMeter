@@ -2,7 +2,6 @@
 
 use crate::configs::app::AppConfig;
 use crate::controllers::demo::DemoGps;
-use crate::models::bluetooth::BluetoothSharedState;
 use crate::models::vehicle::VehicleState;
 use crate::services::{init_signal_handlers, is_app_running, TelemetryService};
 use slint::{ComponentHandle, Timer, TimerMode};
@@ -31,12 +30,8 @@ impl AppController {
         state.tires.high_temp_alert = config.tpms.high_temp_alert;
         let demo_gps = DemoGps::new();
 
-        // 2. Initialize native Bluetooth RFCOMM server for mobile companion app
-        let bt_shared_state = BluetoothSharedState::new();
-        let _bt_server = crate::services::BluetoothServer::start(bt_shared_state.clone());
-
-        // 3. Initialize real telemetry service (GPS & Bluetooth sensors)
-        let telemetry = TelemetryService::new(&config, Some(bt_shared_state.clone()));
+        // 2. Initialize real telemetry service (GPS & sensors)
+        let telemetry = TelemetryService::new(&config);
 
         let ui = AppWindow::new()?;
         let emo_seed = SystemTime::now()
@@ -64,13 +59,6 @@ impl AppController {
             move || {
                 let mut runtime = runtime.borrow_mut();
                 runtime.state.tpms_enabled = !runtime.state.tpms_enabled;
-            }
-        });
-        ui.on_toggle_bt_log({
-            let runtime = runtime.clone();
-            move || {
-                let mut runtime = runtime.borrow_mut();
-                runtime.state.show_bt_log = !runtime.state.show_bt_log;
             }
         });
         ui.on_demo_gps({
@@ -289,17 +277,6 @@ fn sync_ui(ui: &AppWindow, state: &VehicleState) {
     ui.set_alert_temp(state.tires.high_temp_alert);
 
     // Connectivity status (placed on left below speed chart)
-    ui.set_bt_active(state.bt_active);
-    ui.set_bt_device_name(
-        state
-            .bt_device_name
-            .as_deref()
-            .unwrap_or("Bluetooth")
-            .into(),
-    );
     ui.set_gps_connected(state.gps_connected);
-    ui.set_show_bt_log(state.show_bt_log);
-    if let Some(last_log) = state.bt_logs.last() {
-        ui.set_latest_bt_log(last_log.as_str().into());
-    }
 }
+

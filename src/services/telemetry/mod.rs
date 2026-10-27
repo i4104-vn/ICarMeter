@@ -1,21 +1,16 @@
 // Telemetry service coordinator running on dedicated background worker thread
 
-pub mod bt_log;
 pub mod gps;
 
 use crate::configs::app::AppConfig;
-use crate::models::bluetooth::BluetoothSharedState;
 use crate::models::tpms::TirePressures;
 use crate::models::vehicle::VehicleState;
 use crate::services::is_app_running;
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-pub use bt_log::BtLogReader;
 pub use gps::GpsReceiver;
 
 #[derive(Debug, Default)]
@@ -27,25 +22,19 @@ pub struct TelemetrySnapshot {
     pub gps_altitude: f32,
     pub gps_connected: bool,
     pub tires: TirePressures,
-    pub bt_active: bool,
-    pub bt_device_name: Option<String>,
-    pub bt_logs: Vec<String>,
 }
 
 pub struct TelemetryService {
     snapshot: Arc<Mutex<TelemetrySnapshot>>,
     config_tx: Sender<AppConfig>,
-    log_view_enabled: Arc<AtomicBool>,
 }
 
 impl TelemetryService {
-    pub fn new(config: &AppConfig, bt_state: Option<BluetoothSharedState>) -> Self {
+    pub fn new(config: &AppConfig) -> Self {
         let snapshot = Arc::new(Mutex::new(TelemetrySnapshot::default()));
-        let log_view_enabled = Arc::new(AtomicBool::new(false));
         let (config_tx, config_rx) = mpsc::channel::<AppConfig>();
 
         let thread_snapshot = Arc::clone(&snapshot);
-        let thread_log_view = Arc::clone(&log_view_enabled);
         let initial_config = config.clone();
 
         thread::Builder::new()
@@ -54,9 +43,7 @@ impl TelemetryService {
                 run_telemetry_loop(
                     initial_config,
                     config_rx,
-                    bt_state,
                     thread_snapshot,
-                    thread_log_view,
                 );
             })
             .expect("Failed to spawn telemetry-worker thread");
@@ -64,7 +51,6 @@ impl TelemetryService {
         Self {
             snapshot,
             config_tx,
-            log_view_enabled,
         }
     }
 
@@ -75,9 +61,6 @@ impl TelemetryService {
     /// Fast, non-blocking state sync called from main UI render thread.
     /// Performs zero I/O, zero syscalls, zero blocking locks.
     pub fn update(&mut self, state: &mut VehicleState) {
-        self.log_view_enabled
-            .store(state.show_bt_log, Ordering::Relaxed);
-
         if let Ok(guard) = self.snapshot.lock() {
             if let Some(speed) = guard.current_speed {
                 state.current_speed = speed;
@@ -88,23 +71,15 @@ impl TelemetryService {
             state.gps_altitude = guard.gps_altitude;
             state.gps_connected = guard.gps_connected;
             state.tires = guard.tires;
-            state.bt_active = guard.bt_active;
-            state.bt_device_name = guard.bt_device_name.clone();
-            if state.show_bt_log && !guard.bt_logs.is_empty() {
-                state.bt_logs = guard.bt_logs.clone();
-            }
         }
     }
 }
 
-/// Independent telemetry loop handling GPS serial I/O, TPMS updates,
-/// Bluetooth adapter status checking, and log reading off the main thread.
+/// Independent telemetry loop handling hardware GPS serial I/O off the main thread.
 fn run_telemetry_loop(
     config: AppConfig,
     config_rx: Receiver<AppConfig>,
-    bt_state: Option<BluetoothSharedState>,
     snapshot: Arc<Mutex<TelemetrySnapshot>>,
-    log_view_enabled: Arc<AtomicBool>,
 ) {
     let mut gps = if config.gps.enabled {
         Some(GpsReceiver::new(&config.gps.device, config.gps.baud_rate))
@@ -112,18 +87,13 @@ fn run_telemetry_loop(
         None
     };
 
-    let mut bt_log_reader = BtLogReader::new();
-    let mut last_tpms_publish = Instant::now();
     let current_tires = TirePressures::default();
     let mut current_speed: Option<f32> = None;
     let mut current_lat = 21.0285;
     let mut current_lon = 105.8542;
     let mut current_heading = 0.0;
-    let mut current_altitude = 18.0;
+    let current_altitude = 18.0;
     let mut gps_connected;
-    let mut bt_active = true;
-    let mut bt_device_name: Option<String> = None;
-    let mut current_config = config;
 
     while is_app_running() {
         // 1. Process dynamic config updates
@@ -142,12 +112,9 @@ fn run_telemetry_loop(
                 }
                 false => gps = None,
             }
-
-            current_config = new_config;
         }
 
-        // 2. Poll GPS: prioritize hardware GPS; take data from Bluetooth phone when configured
-        let mut has_hardware_fix = false;
+        // 2. Poll hardware GPS serial receiver
         if let Some(gps_ref) = gps.as_mut() {
             if let Some(update) = gps_ref.poll_update() {
                 if let Some(speed) = update.speed_kmh {
@@ -163,86 +130,12 @@ fn run_telemetry_loop(
                     current_heading = hdg;
                 }
             }
-            has_hardware_fix = gps_ref.is_connected();
-            gps_connected = has_hardware_fix;
+            gps_connected = gps_ref.is_connected();
         } else {
             gps_connected = false;
         }
 
-        if !has_hardware_fix {
-            if let Some(phone) = bt_state.as_ref().and_then(|b| b.get_phone_gps()) {
-                // Speed exception: companion phone speed is always adopted if present
-                if let Some(speed) = phone.spd {
-                    current_speed = Some(speed.max(0.0));
-                }
-
-                // GPS telemetry from Bluetooth phone according to config
-                if current_config.gps.enabled && current_config.gps.bluetooth {
-                    if let Some(lat) = phone.lat {
-                        current_lat = lat;
-                    }
-                    if let Some(lon) = phone.lon {
-                        current_lon = lon;
-                    }
-                    if let Some(alt) = phone.alt {
-                        current_altitude = alt;
-                    }
-                    if let Some(hdg) = phone.heading {
-                        current_heading = hdg;
-                    }
-                    gps_connected = true;
-                }
-            }
-        }
-
-        // 3. Update Bluetooth adapter state and connected peer
-        let was_active = bt_active;
-        bt_active = Path::new("/sys/class/bluetooth/hci0").exists();
-        if was_active != bt_active {
-            bt_log::log_bt(
-                "BT-PROBE",
-                &format!(
-                    "Bluetooth adapter hci0 state changed: {}",
-                    if bt_active {
-                        "Active"
-                    } else {
-                        "Inactive/Missing"
-                    }
-                ),
-            );
-        }
-
-        let connected = bt_state.as_ref().and_then(|b| b.connected_peer());
-        if bt_device_name != connected {
-            match &connected {
-                Some(dev) => {
-                    bt_log::log_bt("BT-SPP", &format!("Companion phone connected: {}", dev))
-                }
-                None => {
-                    if bt_device_name.is_some() {
-                        bt_log::log_bt("BT-SPP", "Companion phone disconnected");
-                    }
-                }
-            }
-            bt_device_name = connected;
-        }
-
-        // 4. Expose TPMS telemetry to native Bluetooth server
-        if last_tpms_publish.elapsed() >= Duration::from_millis(250) {
-            last_tpms_publish = Instant::now();
-            if let Some(ref bt) = bt_state {
-                bt.set_tires(&current_tires);
-            }
-        }
-
-        // 5. Poll Bluetooth logs if enabled
-        let bt_logs = if log_view_enabled.load(Ordering::Relaxed) {
-            bt_log_reader.poll(30).to_vec()
-        } else {
-            Vec::new()
-        };
-
-        // 6. Publish snapshot for main UI thread
+        // 3. Publish snapshot for main UI thread
         if let Ok(mut lock) = snapshot.lock() {
             lock.current_speed = current_speed;
             lock.gps_latitude = current_lat;
@@ -251,11 +144,6 @@ fn run_telemetry_loop(
             lock.gps_altitude = current_altitude;
             lock.gps_connected = gps_connected;
             lock.tires = current_tires;
-            lock.bt_active = bt_active;
-            lock.bt_device_name = bt_device_name.clone();
-            if !bt_logs.is_empty() {
-                lock.bt_logs = bt_logs;
-            }
         }
 
         thread::sleep(Duration::from_millis(50));

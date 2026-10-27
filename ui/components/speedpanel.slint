@@ -3,8 +3,6 @@ import { EmoEyes } from "companion.slint";
 export component SpeedPanel inherits Rectangle {
     in property <float> speed;
     in property <int> random_seed;
-    in property <bool> show_bt_log;
-    in property <string> latest_bt_log;
 
     property <float> bounded_speed: Math.max(0.0, Math.min(root.speed, 100.0));
     property <float> fill_progress: root.smooth-step(root.bounded_speed / 100.0);
@@ -191,29 +189,7 @@ export component SpeedPanel inherits Rectangle {
         return life_fade * edge_fade * digit_clear;
     }
 
-    if root.show_bt_log: VerticalLayout {
-        padding: 24px;
-        spacing: 14px;
-
-        Text {
-            text: "BLUETOOTH CONSOLE · [B] TO CLOSE";
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 1.2px;
-            color: #38bdf8;
-        }
-
-        Text {
-            text: root.latest_bt_log;
-            font-size: 12px;
-            font-family: "monospace";
-            color: #a5f3fc;
-            wrap: word-wrap;
-            vertical-alignment: top;
-        }
-    }
-
-    if !root.show_bt_log && emo.gps_screen: Rectangle {
+    if emo.gps_screen: Rectangle {
         width: parent.width;
         height: parent.height;
         background: #000000;
@@ -336,7 +312,8 @@ export component SpeedPanel inherits Rectangle {
         y: Math.round((parent.height - self.height) / 2px) * 1px;
         speed: root.speed;
         random_seed: root.random_seed;
-        enabled: !root.show_bt_log;
-        visible: !root.show_bt_log && !self.gps_screen;
+        enabled: true;
+        visible: !self.gps_screen;
     }
 }
+

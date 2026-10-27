@@ -7,7 +7,6 @@ pub struct GpsConfig {
     pub device: String,
     pub baud_rate: u32,
     pub enabled: bool,
-    pub bluetooth: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -41,7 +40,6 @@ impl Default for AppConfig {
                 device: "/dev/serial0".to_string(),
                 baud_rate: 9600,
                 enabled: true,
-                bluetooth: true,
             },
             tpms: TpmsConfig {
                 enabled: false,

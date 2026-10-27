@@ -20,9 +20,6 @@ device = "/dev/serial0"
 baud_rate = 9600
 enabled = true
 
-# Cho phép nhận dữ liệu GPS từ ứng dụng điện thoại qua kết nối Bluetooth RFCOMM
-bluetooth = true
-
 [tpms]
 # Kích hoạt hệ thống cảm biến áp suất lốp
 enabled = false
@@ -200,7 +197,6 @@ fn apply_value(config: &mut AppConfig, section: &str, key: &str, value: String) 
             "device" => config.gps.device = value,
             "baud_rate" => set_if_parses(&value, |baud_rate| config.gps.baud_rate = baud_rate),
             "enabled" => config.gps.enabled = value == "true",
-            "bluetooth" | "use_bluetooth" => config.gps.bluetooth = value == "true",
             _ => {}
         },
         "tpms" => match key {

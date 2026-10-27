@@ -11,7 +11,6 @@ export component AppWindow inherits Window {
     background: #000000;
 
     callback toggle_mode();
-    callback toggle_bt_log();
     callback demo_gps();
     callback quit();
     forward-focus: keyboard-focus;
@@ -22,8 +21,6 @@ export component AppWindow inherits Window {
         key-pressed(event) => {
             if (event.text == "m" || event.text == "M") {
                 root.toggle_mode();
-            } else if (event.text == "b" || event.text == "B") {
-                root.toggle_bt_log();
             } else if (event.text == "a" || event.text == "A") {
                 root.demo_gps();
             } else if (event.text == "q" || event.text == "Q") {
@@ -57,11 +54,7 @@ export component AppWindow inherits Window {
     in-out property <float> alert_temp: 70.0;
 
     // Connectivity & Position (shown on left below chart)
-    in-out property <bool> bt_active: true;
-    in-out property <string> bt_device_name: "Bluetooth";
     in-out property <bool> gps_connected: false;
-    in-out property <bool> show_bt_log: false;
-    in-out property <string> latest_bt_log: "Bluetooth RFCOMM service running.";
 
     // Dynamic Speed Waveform Chart Properties
     in-out property <string> chart_stroke_path: "M 0 205 L 370 205";
@@ -88,8 +81,6 @@ export component AppWindow inherits Window {
         alert_pressure: root.alert_pressure;
         alert_temp: root.alert_temp;
         gps_connected: root.gps_connected;
-        bt_active: root.bt_active;
-        bt_device_name: root.bt_device_name;
         speed: root.speed;
         chart_stroke_path: root.chart_stroke_path;
         chart_area_path: root.chart_area_path;
@@ -113,8 +104,6 @@ export component AppWindow inherits Window {
         height: 480px;
         speed: root.speed;
         random_seed: root.emo_random_seed;
-        show_bt_log: root.show_bt_log;
-        latest_bt_log: root.latest_bt_log;
     }
 
     Rectangle {

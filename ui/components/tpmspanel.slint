@@ -13,8 +13,6 @@ export component TpmsPanel inherits Rectangle {
     in property <float> alert_pressure;
     in property <float> alert_temp;
     in property <bool> gps_connected;
-    in property <bool> bt_active: true;
-    in property <string> bt_device_name: "Bluetooth";
 
     // Dynamic Speed Waveform Chart Properties
     in property <float> speed: 0.0;
@@ -213,28 +211,6 @@ export component TpmsPanel inherits Rectangle {
             height: 18px;
             alignment: end;
             spacing: 14px;
-
-            // Bluetooth Status (Dot + Text compact and strictly inline)
-            HorizontalLayout {
-                spacing: 5px;
-                alignment: center;
-
-                Rectangle {
-                    y: (parent.height - self.height) / 2;
-                    width: 5px;
-                    height: 5px;
-                    border-radius: 2.5px;
-                    background: root.bt_active ? #ffffff : #55555b;
-                }
-
-                Text {
-                    text: root.bt_device_name;
-                    font-size: 10px;
-                    font-weight: 600;
-                    color: root.bt_active ? #ffffff : #6e6e78;
-                    vertical-alignment: center;
-                }
-            }
 
             // GPS Status (Dot + Text compact and strictly inline)
             HorizontalLayout {
