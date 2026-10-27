@@ -1,4 +1,4 @@
-name: Build & Release ICarMeter (OS Image & Android APK)
+name: Build & Release ICarMeter (OS Image)
 
 on:
   push:
@@ -89,97 +89,7 @@ jobs:
           PY
 
   # ==============================================================================
-  # Job 1: Build Android Companion APK (Flutter)
-  # ==============================================================================
-  build-apk:
-    name: Build Android Companion APK (Flutter)
-    needs: [resolve-version]
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Setup Java JDK 17
-        uses: actions/setup-java@v6
-        with:
-          distribution: "temurin"
-          java-version: "17"
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: "stable"
-          cache: true
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-read-only: false
-
-      - name: Set Flutter app version
-        working-directory: mobile-app
-        env:
-          APP_VERSION: ${{ needs.resolve-version.outputs.version }}
-          BUILD_NUMBER: ${{ github.run_number }}
-        run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          import re
-
-          pubspec = Path("pubspec.yaml")
-          contents = pubspec.read_text()
-          version_line = f"version: {os.environ['APP_VERSION']}+{os.environ['BUILD_NUMBER']}"
-          if re.search(r"(?m)^version:\s*", contents):
-              contents = re.sub(r"(?m)^version:\s*.*$", version_line, contents, count=1)
-          else:
-              contents = re.sub(r"(?m)^environment:", version_line + "\n\nenvironment:", contents, count=1)
-          pubspec.write_text(contents)
-          print(f"Updated pubspec.yaml -> {version_line}")
-          PY
-
-      - name: Get Flutter dependencies
-        working-directory: mobile-app
-        run: flutter pub get
-
-      - name: Build Release APKs
-        working-directory: mobile-app
-        env:
-          APP_VERSION: ${{ needs.resolve-version.outputs.version }}
-          BUILD_NUMBER: ${{ github.run_number }}
-        run: flutter build apk --release --split-per-abi --build-name "$APP_VERSION" --build-number "$BUILD_NUMBER"
-
-      - name: Stage APK artifacts
-        run: |
-          mkdir -p apk_dist
-          V8A_APK=$(find mobile-app/build/app/outputs/flutter-apk -name '*arm64-v8a*release*.apk' 2>/dev/null | head -n 1)
-          V7A_APK=$(find mobile-app/build/app/outputs/flutter-apk -name '*armeabi-v7a*release*.apk' 2>/dev/null | head -n 1)
-
-          if [ -f "$V8A_APK" ]; then
-            cp -v "$V8A_APK" apk_dist/ICarMeter-arm64-v8a.apk
-            cp -v "$V8A_APK" apk_dist/ICarMeter.apk
-          else
-            echo "ERROR: Output arm64-v8a APK not found!" >&2
-            exit 1
-          fi
-
-          if [ -f "$V7A_APK" ]; then
-            cp -v "$V7A_APK" apk_dist/ICarMeter-armeabi-v7a.apk
-          else
-            echo "ERROR: Output armeabi-v7a APK not found!" >&2
-            exit 1
-          fi
-          ls -lah apk_dist/
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: icarmeter-apk
-          path: apk_dist/
-          retention-days: 7
-
-  # ==============================================================================
-  # Job 2: Build Rust Binary for Raspberry Pi (Debian Bookworm ARM64)
+  # Job 1: Build Rust Binary for Raspberry Pi (Debian Bookworm ARM64)
   # ==============================================================================
   build-binary:
     name: Build Cargo Binary (aarch64)
@@ -350,11 +260,11 @@ jobs:
           retention-days: 7
 
   # ==============================================================================
-  # Job 4: Publish GitHub Release (Both Image Zip & APK)
+  # Job 3: Publish GitHub Release (OS Image Zip)
   # ==============================================================================
   publish-release:
     name: Publish GitHub Release
-    needs: [resolve-version, build-apk, build-image]
+    needs: [resolve-version, build-image]
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -362,12 +272,6 @@ jobs:
 
       - name: Create release assets directory
         run: mkdir -p release_assets
-
-      - name: Download APK artifact
-        uses: actions/download-artifact@v6
-        with:
-          name: icarmeter-apk
-          path: release_assets/
 
       - name: Download OS Image artifact
         uses: actions/download-artifact@v6
@@ -380,7 +284,7 @@ jobs:
         run: |
           find . -mindepth 2 -type f -exec mv -v {} . \; || true
           rm -f SHA256SUMS.txt
-          sha256sum ICarMeter-arm64-v8a.apk ICarMeter-armeabi-v7a.apk ICarMeter.apk ICarMeter-RaspberryPiOS-arm64.zip 2>/dev/null | tee SHA256SUMS.txt || true
+          sha256sum ICarMeter-RaspberryPiOS-arm64.zip 2>/dev/null | tee SHA256SUMS.txt || true
           echo "=== Release Assets Ready ==="
           ls -lah
 
@@ -405,9 +309,6 @@ jobs:
           draft: ${{ github.event.inputs.draft == true }}
           prerelease: ${{ github.event.inputs.prerelease == true }}
           files: |
-            release_assets/ICarMeter-arm64-v8a.apk
-            release_assets/ICarMeter-armeabi-v7a.apk
-            release_assets/ICarMeter.apk
             release_assets/ICarMeter-RaspberryPiOS-arm64.zip
             release_assets/SHA256SUMS.txt
           generate_release_notes: true
@@ -415,8 +316,6 @@ jobs:
             ## ICarMeter Release ${{ needs.resolve-version.outputs.tag }}
 
             ### Tệp tải về / Downloads:
-            - **ICarMeter-arm64-v8a.apk**: Ứng dụng Android tối ưu cho thiết bị 64-bit (ARM64 / v8a)
-            - **ICarMeter-armeabi-v7a.apk**: Ứng dụng Android cho thiết bị 32-bit (ARM32 / v7a)
-            - **ICarMeter.apk**: Bản phát hành mặc định (arm64-v8a)
             - **ICarMeter-RaspberryPiOS-arm64.zip**: Hệ điều hành Raspberry Pi OS cho ICarMeter
             - **SHA256SUMS.txt**: Mã băm SHA256 để kiểm tra tính toàn vẹn của tệp tải về.
+
