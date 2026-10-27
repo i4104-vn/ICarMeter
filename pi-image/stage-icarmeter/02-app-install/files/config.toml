@@ -6,7 +6,6 @@
 device = "/dev/serial0"
 baud_rate = 9600
 enabled = true
-bluetooth = true
 
 [tpms]
 # Kích hoạt hệ thống cảm biến áp suất lốp
