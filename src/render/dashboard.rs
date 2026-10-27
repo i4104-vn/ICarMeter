@@ -1,7 +1,7 @@
 // Main Dashboard UI Renderer orchestrating panels and converting to pixel buffer
 
 use super::components::{
-    CarPanel, CardContainer, ChartPanel, FooterRenderer, SpeedometerPanel, StatsPanel,
+    CarPanel, CardContainer, ChartPanel, SpeedometerPanel, StatsPanel,
 };
 use super::core::FontRenderer;
 use super::pixel_buffer::PixelBuffer;
@@ -19,7 +19,6 @@ pub struct DashboardRenderer {
     chart_panel: ChartPanel,
     speed_panel: SpeedometerPanel,
     stats_panel: StatsPanel,
-    footer_panel: FooterRenderer,
     startup_elapsed: f32,
 }
 
@@ -32,7 +31,6 @@ impl DashboardRenderer {
         let chart_panel = ChartPanel::new();
         let speed_panel = SpeedometerPanel::new();
         let stats_panel = StatsPanel::new();
-        let footer_panel = FooterRenderer::new();
 
         Ok(Self {
             pixmap,
@@ -42,7 +40,6 @@ impl DashboardRenderer {
             chart_panel,
             speed_panel,
             stats_panel,
-            footer_panel,
             startup_elapsed: 0.0,
         })
     }
@@ -64,10 +61,6 @@ impl DashboardRenderer {
 
         // 4. Render Right Panel (Trip Statistics)
         self.stats_panel.draw(&mut self.pixmap, &self.fonts, state);
-
-        // 5. Render GPS connection footer
-        self.footer_panel
-            .draw(&mut self.pixmap, &self.fonts, state, dt);
 
         // Fade the complete dashboard in after initialization instead of
         // exposing a fully rendered frame abruptly.
