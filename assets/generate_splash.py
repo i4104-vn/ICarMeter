@@ -113,8 +113,8 @@ def main():
     puff_lower_bbox = puff_lower_raw.getbbox()
     puff_lower = puff_lower_raw.crop(puff_lower_bbox) if puff_lower_bbox else puff_lower_raw
 
-    # Scale uniformly to height 320 so the source image keeps its aspect ratio.
-    target_h = 320
+    # Scale uniformly to height 260 so the image has comfortable margins on the 1280x480 canvas.
+    target_h = 260
     base_scale = target_h / float(ch)
     target_w = int(round(cw * base_scale))
 
@@ -133,6 +133,8 @@ def main():
     puff_sprites = [puff_lower, puff_upper]
 
     frames = []
+
+    smoke_scale_factor = target_h / 320.0
 
     for f_idx in range(TOTAL_FRAMES):
         phase = f_idx / float(TOTAL_FRAMES)
@@ -161,9 +163,9 @@ def main():
         # Position: Rising along the left cheek/ear/cup area as in user's image
         # NO SMOKE ON THE RIGHT!
         # ----------------------------------------------------------------------
-        smoke_base_x = cat_px + ref_dx + 15
-        smoke_base_y = cat_py + ref_lower_dy + int(20 * breathe_scale) - 15
-        rise_distance = int(140 * breathe_scale)
+        smoke_base_x = cat_px + ref_dx + int(15 * smoke_scale_factor)
+        smoke_base_y = cat_py + ref_lower_dy + int(20 * breathe_scale * smoke_scale_factor) - int(15 * smoke_scale_factor)
+        rise_distance = int(120 * breathe_scale * smoke_scale_factor)
 
         for k in range(3):
             p = (phase + k / 3.0) % 1.0
@@ -172,10 +174,10 @@ def main():
             puff_y = smoke_base_y - (p * rise_distance)
 
             # X-position: gentle wavy drift (swaying slightly left then back)
-            puff_x = smoke_base_x - math.sin(p * math.pi * 1.5) * (14.0 * breathe_scale)
+            puff_x = smoke_base_x - math.sin(p * math.pi * 1.5) * (14.0 * breathe_scale * smoke_scale_factor)
 
-            # Scale: starts around 0.85, grows slightly to 1.15
-            puff_scale = breathe_scale * (0.85 + 0.30 * p)
+            # Scale: starts around 0.85, grows slightly to 1.15, scaled proportionally
+            puff_scale = breathe_scale * (0.85 + 0.30 * p) * smoke_scale_factor
 
             # Rotation: gentle tilt
             puff_angle = -12.0 + p * 24.0
