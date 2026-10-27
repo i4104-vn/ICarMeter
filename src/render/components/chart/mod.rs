@@ -8,17 +8,18 @@ use crate::render::core::FontRenderer;
 use std::collections::VecDeque;
 use tiny_skia::{
     BlendMode, Color, FillRule, GradientStop, LineCap, LineJoin, LinearGradient, Paint, Path,
-    PathBuilder, Pixmap, Point, SpreadMode, Stroke, Transform,
+    PathBuilder, Pixmap, Point, Rect, SpreadMode, Stroke, Transform,
 };
 
 const CHART_LEFT: f32 = 35.0;
 const CHART_RIGHT: f32 = 390.0;
 const CHART_WIDTH: f32 = CHART_RIGHT - CHART_LEFT; // 355.0
-const CHART_TOP: f32 = 78.0;
-const BASELINE_Y: f32 = 365.0;
-const CHART_HEIGHT: f32 = BASELINE_Y - CHART_TOP; // 287.0
+const BASELINE_Y: f32 = 350.0;
+const CHART_HEIGHT: f32 = 140.0; // Reduced height to keep comfortable headroom
+const CHART_TOP: f32 = BASELINE_Y - CHART_HEIGHT; // 210.0
 const NUM_SAMPLE_POINTS: usize = 72;
 const SAMPLE_INTERVAL: f32 = 0.1; // 100ms per sample (7.2s window)
+const BASE_MAX_SPEED: f32 = 140.0; // Fixed automotive scale ceiling (with headroom if exceeding)
 
 pub struct ChartPanel {
     samples: VecDeque<f32>,
@@ -38,7 +39,7 @@ impl ChartPanel {
         Self {
             samples,
             visual_speed: 0.0,
-            max_scale: 60.0,
+            max_scale: BASE_MAX_SPEED,
             sample_timer: 0.0,
             pulse_time: 0.0,
         }
@@ -56,13 +57,13 @@ impl ChartPanel {
             self.visual_speed = 0.0;
         }
 
-        // Smoothly adjust max scale ceiling (at least 60 km/h, expands up if vehicle goes faster)
+        // Fixed automotive baseline scale (140 km/h) with 25% headroom if vehicle exceeds 112 km/h
         let current_peak = self
             .samples
             .iter()
             .copied()
             .fold(self.visual_speed, |a, b| a.max(b));
-        let target_max = current_peak.max(60.0);
+        let target_max = (current_peak * 1.25).max(BASE_MAX_SPEED);
         let scale_rate = if target_max > self.max_scale { 3.5 } else { 1.2 };
         self.max_scale += (target_max - self.max_scale) * (dt * scale_rate).min(1.0);
 
@@ -84,26 +85,10 @@ impl ChartPanel {
     ) {
         self.update(state.current_speed, dt);
 
-        // 1. Draw subtle ground baseline axis
-        let mut base_pb = PathBuilder::new();
-        base_pb.move_to(CHART_LEFT, BASELINE_Y);
-        base_pb.line_to(CHART_RIGHT, BASELINE_Y);
-        if let Some(path) = base_pb.finish() {
-            let mut paint = Paint::default();
-            paint.set_color(Color::from_rgba8(55, 65, 81, 120));
-            paint.anti_alias = true;
-            let stroke = Stroke {
-                width: 1.0,
-                line_cap: LineCap::Round,
-                ..Default::default()
-            };
-            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
-        }
-
-        // 2. Compute screen coordinates
+        // 1. Compute screen coordinates
         let coords = self.compute_screen_coords();
 
-        // 3. Build smooth Catmull-Rom spline path
+        // 2. Build smooth Catmull-Rom spline path
         if let Some((stroke_path, area_path)) = build_spline_paths(&coords) {
             // Draw gradient area under the curve
             let mut area_paint = Paint::default();
@@ -168,7 +153,50 @@ impl ChartPanel {
             );
         }
 
-        // 4. Draw glowing animated endpoint dot and vertical telemetry drop-line
+        // 3. Left edge soft fade to black so the historical tail dissolves seamlessly
+        let fade_w = 40.0;
+        if let Some(rect) = Rect::from_xywh(
+            CHART_LEFT - 10.0,
+            CHART_TOP - 10.0,
+            fade_w + 10.0,
+            CHART_HEIGHT + 20.0,
+        ) {
+            let mut fade_paint = Paint::default();
+            if let Some(shader) = LinearGradient::new(
+                Point::from_xy(CHART_LEFT - 2.0, 0.0),
+                Point::from_xy(CHART_LEFT + fade_w, 0.0),
+                vec![
+                    GradientStop::new(0.0, Color::from_rgba8(0, 0, 0, 255)),
+                    GradientStop::new(0.35, Color::from_rgba8(0, 0, 0, 180)),
+                    GradientStop::new(0.7, Color::from_rgba8(0, 0, 0, 70)),
+                    GradientStop::new(1.0, Color::from_rgba8(0, 0, 0, 0)),
+                ],
+                SpreadMode::Pad,
+                Transform::identity(),
+            ) {
+                fade_paint.shader = shader;
+                fade_paint.anti_alias = true;
+                pixmap.fill_rect(rect, &fade_paint, Transform::identity(), None);
+            }
+        }
+
+        // 4. Draw subtle ground baseline axis
+        let mut base_pb = PathBuilder::new();
+        base_pb.move_to(CHART_LEFT, BASELINE_Y);
+        base_pb.line_to(CHART_RIGHT, BASELINE_Y);
+        if let Some(path) = base_pb.finish() {
+            let mut paint = Paint::default();
+            paint.set_color(Color::from_rgba8(55, 65, 81, 120));
+            paint.anti_alias = true;
+            let stroke = Stroke {
+                width: 1.0,
+                line_cap: LineCap::Round,
+                ..Default::default()
+            };
+            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+        }
+
+        // 5. Draw glowing animated endpoint dot and vertical telemetry drop-line
         if let Some(&(last_x, last_y)) = coords.last() {
             // Vertical indicator drop-line down to baseline
             if last_y < BASELINE_Y - 2.0 {

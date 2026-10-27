@@ -62,7 +62,7 @@ mod tests {
         state.max_speed = 88.0;
         state.avg_speed = 46.8;
         
-        // Simulate 4 seconds of driving at 60 FPS (accel 0 -> 65 km/h, cruise, slight curve)
+        // Simulate 4 seconds of driving at 60 FPS (accel 0 -> 80 km/h, cruise)
         let total_frames = 240;
         for frame in 0..total_frames {
             let t = frame as f32 / 60.0;
@@ -70,9 +70,9 @@ mod tests {
                 0.0
             } else if t < 2.5 {
                 let p = (t - 1.0) / 1.5;
-                p * p * (3.0 - 2.0 * p) * 65.0
+                p * p * (3.0 - 2.0 * p) * 80.0
             } else {
-                65.0 + ((t - 2.5) * 2.0).sin() * 5.0
+                80.0
             };
             let _ = renderer.render(&state, 1.0 / 60.0);
         }
