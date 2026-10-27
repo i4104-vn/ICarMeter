@@ -213,6 +213,7 @@ fn apply_value(config: &mut AppConfig, section: &str, key: &str, value: String) 
             _ => {}
         },
         "display" => match key {
+            "framebuffer_device" => config.display.framebuffer_device = value,
             "target_fps" => set_if_parses(&value, |fps| config.display.target_fps = fps),
             _ => {}
         },

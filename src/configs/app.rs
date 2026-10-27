@@ -23,6 +23,7 @@ pub struct TpmsConfig {
 
 #[derive(Debug, Clone)]
 pub struct DisplayConfig {
+    pub framebuffer_device: String,
     pub target_fps: u64,
 }
 
@@ -52,6 +53,7 @@ impl Default for AppConfig {
                 high_temp_alert: 70.0,
             },
             display: DisplayConfig {
+                framebuffer_device: "/dev/fb0".to_string(),
                 target_fps: DEFAULT_TARGET_FPS,
             },
         }

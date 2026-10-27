@@ -3,6 +3,10 @@
 pub const LOW_PRESSURE_THRESHOLD: f32 = 2.2;
 pub const HIGH_TEMP_THRESHOLD: f32 = 70.0;
 
+pub mod pressures {
+    pub use super::TirePressures;
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct TirePressures {
     pub fl: f32,                 // Front-Left (bar)
@@ -33,3 +37,31 @@ impl Default for TirePressures {
         }
     }
 }
+
+impl TirePressures {
+    #[inline(always)]
+    pub fn is_low(&self, pressure: f32) -> bool {
+        let threshold = if self.low_pressure_alert > 0.0 {
+            self.low_pressure_alert
+        } else {
+            LOW_PRESSURE_THRESHOLD
+        };
+        pressure > 0.0 && pressure < threshold
+    }
+
+    #[inline(always)]
+    pub fn is_high_temp(&self, temp: f32) -> bool {
+        let threshold = if self.high_temp_alert > 0.0 {
+            self.high_temp_alert
+        } else {
+            HIGH_TEMP_THRESHOLD
+        };
+        temp >= threshold
+    }
+
+    #[inline(always)]
+    pub fn is_disconnected(&self, pressure: f32) -> bool {
+        pressure <= 0.0
+    }
+}
+

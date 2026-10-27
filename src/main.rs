@@ -3,7 +3,9 @@
 mod configs;
 mod controllers;
 mod models;
+mod render;
 mod services;
+
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Install panic hook to log any unhandled crashes with diagnostic details

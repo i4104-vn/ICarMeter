@@ -2,6 +2,10 @@
 
 use crate::models::tpms::TirePressures;
 
+pub mod state {
+    pub use super::VehicleState;
+}
+
 #[derive(Debug)]
 pub struct VehicleState {
     pub current_speed: f32,
@@ -10,6 +14,7 @@ pub struct VehicleState {
     pub max_speed: f32,
     pub avg_speed: f32,
     pub tires: TirePressures,
+    pub current_emo: Option<crate::models::emotion::expression::EmoExpression>,
     pub gps_connected: bool,
     pub tpms_enabled: bool,
     pub gps_latitude: f64,
@@ -27,6 +32,7 @@ impl Default for VehicleState {
             max_speed: 0.0,
             avg_speed: 0.0,
             tires: TirePressures::default(),
+            current_emo: None,
             gps_connected: false,
             tpms_enabled: true,
             gps_latitude: 21.0285,

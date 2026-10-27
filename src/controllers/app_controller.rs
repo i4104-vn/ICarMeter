@@ -1,22 +1,19 @@
-// Main application controller for Slint and the telemetry services.
+// Main Application Controller managing state and render cycle on Linux framebuffer
 
 use crate::configs::app::AppConfig;
 use crate::controllers::demo::DemoGps;
-use crate::models::vehicle::VehicleState;
-use crate::services::{init_signal_handlers, is_app_running, TelemetryService};
-use slint::{ComponentHandle, Timer, TimerMode};
-use std::cell::RefCell;
-use std::rc::Rc;
+use crate::models::vehicle::state::VehicleState;
+use crate::render::DashboardRenderer;
+use crate::services::{init_signal_handlers, is_app_running, FramebufferBackend, TelemetryService};
+use std::thread;
 use std::time::{Duration, Instant};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-slint::include_modules!();
 
 pub struct AppController;
 
 impl AppController {
     pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         init_signal_handlers();
+
         // 1. Load hardware configuration from single config path
         let config = AppConfig::load();
         eprintln!(
@@ -28,255 +25,94 @@ impl AppController {
         state.tpms_enabled = config.tpms.enabled;
         state.tires.low_pressure_alert = config.tpms.low_pressure_alert;
         state.tires.high_temp_alert = config.tpms.high_temp_alert;
-        let demo_gps = DemoGps::new();
+        let mut demo_gps = DemoGps::new();
 
-        // 2. Initialize real telemetry service (GPS & sensors)
-        let telemetry = TelemetryService::new(&config);
+        // 2. Initialize real telemetry service (GPS & serial sensor background thread)
+        let mut telemetry = TelemetryService::new(&config);
 
-        let ui = AppWindow::new()?;
-        let emo_seed = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| (duration.subsec_nanos() % 65_521) as i32)
-            .unwrap_or(1)
-            .max(1);
-        ui.set_emo_random_seed(emo_seed);
+        // 3. Initialize UI renderer (tiny-skia vector pipeline)
+        let mut renderer = DashboardRenderer::new()
+            .map_err(|e| format!("Renderer initialization failed: {}", e))?;
 
-        let wave_tracker = SpeedWaveTracker::new();
+        // 4. Initialize Linux framebuffer backend
+        let mut backend = FramebufferBackend::open(&config.display.framebuffer_device)
+            .map_err(|e| format!("Failed to initialize framebuffer backend: {}", e))?;
 
-        let runtime = Rc::new(RefCell::new(RuntimeState {
-            state,
-            demo_gps,
-            telemetry,
-            wave_tracker,
-            config,
-            last_time: Instant::now(),
-            last_config_check: Instant::now(),
-            last_config_mtime: AppConfig::last_modified(),
-        }));
+        let target_fps = config.display.target_fps.clamp(15, 240);
+        let frame_duration = Duration::from_micros(1_000_000 / target_fps);
+        let mut last_time = Instant::now();
+        let mut last_config_check = Instant::now();
+        let mut last_config_mtime = AppConfig::last_modified();
 
-        ui.on_toggle_mode({
-            let runtime = runtime.clone();
-            move || {
-                let mut runtime = runtime.borrow_mut();
-                runtime.state.tpms_enabled = !runtime.state.tpms_enabled;
-            }
-        });
-        ui.on_demo_gps({
-            let runtime = runtime.clone();
-            move || {
-                let mut runtime = runtime.borrow_mut();
-                let RuntimeState {
-                    state, demo_gps, ..
-                } = &mut *runtime;
-                demo_gps.toggle(state);
-            }
-        });
-        ui.on_quit({
-            let ui = ui.as_weak();
-            move || {
-                if let Some(ui) = ui.upgrade() {
-                    ui.hide().ok();
+        while backend.is_open() && is_app_running() {
+            // Check and re-read config.toml dynamically in real time
+            if last_config_check.elapsed() >= Duration::from_millis(500) {
+                last_config_check = Instant::now();
+                let current_mtime = AppConfig::last_modified();
+                if current_mtime != last_config_mtime {
+                    last_config_mtime = current_mtime;
+                    let new_config = AppConfig::load();
+                    eprintln!(
+                        "[Config] Real-time config.toml update detected:\n  TPMS FL: {} | FR: {}\n  TPMS RL: {} | RR: {}\n  Alert: {:.1} bar | {:.1} °C | Enabled: {}",
+                        new_config.tpms.fl_sensor,
+                        new_config.tpms.fr_sensor,
+                        new_config.tpms.rl_sensor,
+                        new_config.tpms.rr_sensor,
+                        new_config.tpms.low_pressure_alert,
+                        new_config.tpms.high_temp_alert,
+                        new_config.tpms.enabled
+                    );
+                    state.tpms_enabled = new_config.tpms.enabled;
+                    state.tires.low_pressure_alert = new_config.tpms.low_pressure_alert;
+                    state.tires.high_temp_alert = new_config.tpms.high_temp_alert;
+                    telemetry.reload_config(&new_config);
                 }
             }
-        });
 
-        let timer = Timer::default();
-        let target_fps = runtime.borrow().config.display.target_fps.clamp(15, 240);
-        let interval = Duration::from_micros(1_000_000 / target_fps);
-        timer.start(TimerMode::Repeated, interval, {
-            let ui = ui.as_weak();
-            let runtime = runtime.clone();
-            move || {
-                let Some(ui) = ui.upgrade() else { return };
-                if !is_app_running() {
-                    ui.hide().ok();
-                    return;
+            // Non-blocking keyboard input processing
+            while let Some(key) = backend.poll_key() {
+                if key.eq_ignore_ascii_case(&b'a') {
+                    demo_gps.toggle(&mut state);
+                } else if key.eq_ignore_ascii_case(&b'm') {
+                    state.tpms_enabled = !state.tpms_enabled;
+                    eprintln!(
+                        "[Display] Mode switched manually: TPMS enabled = {}",
+                        state.tpms_enabled
+                    );
+                } else if key.eq_ignore_ascii_case(&b'q') || key == 0x1B {
+                    break;
                 }
-                let mut runtime = runtime.borrow_mut();
-                update_config(&mut runtime);
-                let dt = runtime.last_time.elapsed().as_secs_f32().min(0.1);
-                runtime.last_time = Instant::now();
-                {
-                    let RuntimeState {
-                        state, telemetry, ..
-                    } = &mut *runtime;
-                    telemetry.update(state);
-                }
-                {
-                    let RuntimeState {
-                        state, demo_gps, ..
-                    } = &mut *runtime;
-                    demo_gps.update(state, dt);
-                }
-                runtime.state.update_trip(dt);
-
-                // Add the latest real speed sample to the rolling chart history.
-                let current_speed = runtime.state.current_speed;
-                if runtime.wave_tracker.update(current_speed, dt) {
-                    let (stroke_path, area_path, endpoint_x, endpoint_y, endpoint_visible) =
-                        runtime.wave_tracker.generate_paths();
-
-                    ui.set_chart_stroke_path(stroke_path.into());
-                    ui.set_chart_area_path(area_path.into());
-                    ui.set_chart_endpoint_x(endpoint_x);
-                    ui.set_chart_endpoint_y(endpoint_y);
-                    ui.set_chart_endpoint_visible(endpoint_visible);
-                }
-
-                sync_ui(&ui, &runtime.state);
             }
-        });
+            if !backend.is_open() {
+                break;
+            }
 
-        sync_ui(&ui, &runtime.borrow().state);
-        ui.show()?;
-        ui.run()?;
-        timer.stop();
+            let now = Instant::now();
+            let dt = now.duration_since(last_time).as_secs_f32().min(0.1);
+            last_time = now;
+
+            // Non-blocking telemetry sync from dedicated background worker thread
+            telemetry.update(&mut state);
+            demo_gps.update(&mut state, dt);
+            state.update_trip(dt);
+
+            // Render frame to pixel buffer
+            let buffer = renderer.render(&state, dt);
+
+            // Present to framebuffer
+            if let Err(e) = backend.present(buffer) {
+                eprintln!("[Dashboard] Present error: {}", e);
+                break;
+            }
+
+            // Frame timing limiter
+            let elapsed = now.elapsed();
+            if elapsed < frame_duration {
+                thread::sleep(frame_duration - elapsed);
+            }
+        }
 
         println!("[Dashboard] Terminated cleanly.");
         Ok(())
     }
 }
-
-struct RuntimeState {
-    state: VehicleState,
-    demo_gps: DemoGps,
-    telemetry: TelemetryService,
-    wave_tracker: SpeedWaveTracker,
-    config: AppConfig,
-    last_time: Instant,
-    last_config_check: Instant,
-    last_config_mtime: Option<std::time::SystemTime>,
-}
-
-pub struct SpeedWaveTracker {
-    pub current_smoothed_speed: f32,
-    sample_elapsed: f32,
-    samples: Vec<f32>,
-}
-
-impl SpeedWaveTracker {
-    pub fn new() -> Self {
-        Self {
-            current_smoothed_speed: 0.0,
-            sample_elapsed: 0.0,
-            samples: vec![0.0; 48],
-        }
-    }
-
-    pub fn update(&mut self, target_speed: f32, dt: f32) -> bool {
-        let mut chart_changed = false;
-        if dt > 0.001 {
-            // Smooth only the incoming value so the line remains readable while
-            // still representing the vehicle speed rather than an independent wave.
-            let target_speed = target_speed.max(0.0);
-            let smoothing = (dt * 6.0).clamp(0.0, 1.0);
-            self.current_smoothed_speed += (target_speed - self.current_smoothed_speed) * smoothing;
-
-            self.sample_elapsed += dt;
-            while self.sample_elapsed >= 0.12 {
-                self.sample_elapsed -= 0.12;
-                self.samples.rotate_left(1);
-                let last = self.samples.len() - 1;
-                self.samples[last] = self.current_smoothed_speed;
-                chart_changed = true;
-            }
-        }
-        chart_changed
-    }
-
-    /// Converts the rolling speed samples into a smooth chart and a very
-    /// transparent shadow area below it.
-    /// A zero-speed history therefore stays exactly on the bottom baseline.
-    pub fn generate_paths(&self) -> (String, String, f32, f32, bool) {
-        const CHART_WIDTH: f32 = 370.0;
-        const CHART_BASELINE: f32 = 205.0;
-        const CHART_TOP: f32 = 26.0;
-        const CHART_SCALE_SPEED: f32 = 80.0;
-
-        let y_for_speed = |speed: f32| {
-            CHART_BASELINE
-                - (speed.max(0.0) / CHART_SCALE_SPEED).clamp(0.0, 1.0)
-                    * (CHART_BASELINE - CHART_TOP)
-        };
-        let points: Vec<(f32, f32)> = self
-            .samples
-            .iter()
-            .enumerate()
-            .map(|(index, speed)| {
-                let x = index as f32 * CHART_WIDTH / (self.samples.len() - 1) as f32;
-                (x, y_for_speed(*speed))
-            })
-            .collect();
-
-        let mut stroke_path = format!("M {:.1} {:.1}", points[0].0, points[0].1);
-        for index in 0..points.len() - 1 {
-            let p0 = if index == 0 {
-                points[0]
-            } else {
-                points[index - 1]
-            };
-            let p1 = points[index];
-            let p2 = points[index + 1];
-            let p3 = if index + 2 >= points.len() {
-                points[points.len() - 1]
-            } else {
-                points[index + 2]
-            };
-            let c1 = (p1.0 + (p2.0 - p0.0) / 6.0, p1.1 + (p2.1 - p0.1) / 6.0);
-            let c2 = (p2.0 - (p3.0 - p1.0) / 6.0, p2.1 - (p3.1 - p1.1) / 6.0);
-            stroke_path.push_str(&format!(
-                " C {:.1} {:.1}, {:.1} {:.1}, {:.1} {:.1}",
-                c1.0, c1.1, c2.0, c2.1, p2.0, p2.1
-            ));
-        }
-
-        let endpoint_x = points.last().map(|point| point.0).unwrap_or(CHART_WIDTH);
-        let endpoint_y = points.last().map(|point| point.1).unwrap_or(CHART_BASELINE);
-        let area_path = format!(
-            "{} L {:.1} {:.1} L 0 {:.1} Z",
-            stroke_path, CHART_WIDTH, CHART_BASELINE, CHART_BASELINE
-        );
-        (stroke_path, area_path, endpoint_x, endpoint_y, self.current_smoothed_speed > 0.5)
-    }
-}
-
-fn update_config(runtime: &mut RuntimeState) {
-    if runtime.last_config_check.elapsed() < Duration::from_millis(500) {
-        return;
-    }
-    runtime.last_config_check = Instant::now();
-    let current_mtime = AppConfig::last_modified();
-    if current_mtime == runtime.last_config_mtime {
-        return;
-    }
-    runtime.last_config_mtime = current_mtime;
-    let new_config = AppConfig::load();
-    runtime.state.tpms_enabled = new_config.tpms.enabled;
-    runtime.state.tires.low_pressure_alert = new_config.tpms.low_pressure_alert;
-    runtime.state.tires.high_temp_alert = new_config.tpms.high_temp_alert;
-    runtime.telemetry.reload_config(&new_config);
-    runtime.config = new_config;
-}
-
-fn sync_ui(ui: &AppWindow, state: &VehicleState) {
-    ui.set_speed(state.current_speed);
-    ui.set_driving_time(state.formatted_driving_time().into());
-    ui.set_distance(state.formatted_distance().into());
-    ui.set_max_speed(state.formatted_max_speed().into());
-    ui.set_avg_speed(state.formatted_avg_speed().into());
-    ui.set_tpms_enabled(state.tpms_enabled);
-    ui.set_fl_pressure(state.tires.fl);
-    ui.set_fr_pressure(state.tires.fr);
-    ui.set_rl_pressure(state.tires.rl);
-    ui.set_rr_pressure(state.tires.rr);
-    ui.set_fl_temp(state.tires.fl_temp);
-    ui.set_fr_temp(state.tires.fr_temp);
-    ui.set_rl_temp(state.tires.rl_temp);
-    ui.set_rr_temp(state.tires.rr_temp);
-    ui.set_alert_pressure(state.tires.low_pressure_alert);
-    ui.set_alert_temp(state.tires.high_temp_alert);
-
-    // Connectivity status (placed on left below speed chart)
-    ui.set_gps_connected(state.gps_connected);
-}
-
