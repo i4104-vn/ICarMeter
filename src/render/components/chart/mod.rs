@@ -1,7 +1,7 @@
-// Real-time speed telemetry waveform chart panel rendered with tiny-skia.
+// Real-time speed waveform chart panel rendered with tiny-skia.
 // Features a smooth Catmull-Rom spline curve tracking actual vehicle speed,
 // continuous sub-pixel scrolling, dynamic scale easing, pulsing endpoint aura,
-// subtle telemetry grid lines, and GPS status indicator.
+// subtle baseline axis, and GPS status indicator.
 
 use crate::models::vehicle::state::VehicleState;
 use crate::render::core::FontRenderer;
@@ -84,9 +84,21 @@ impl ChartPanel {
     ) {
         self.update(state.current_speed, dt);
 
-        // 1. Draw header and telemetry grid
-        self.draw_header(pixmap, fonts);
-        self.draw_grid(pixmap, fonts);
+        // 1. Draw subtle ground baseline axis
+        let mut base_pb = PathBuilder::new();
+        base_pb.move_to(CHART_LEFT, BASELINE_Y);
+        base_pb.line_to(CHART_RIGHT, BASELINE_Y);
+        if let Some(path) = base_pb.finish() {
+            let mut paint = Paint::default();
+            paint.set_color(Color::from_rgba8(55, 65, 81, 120));
+            paint.anti_alias = true;
+            let stroke = Stroke {
+                width: 1.0,
+                line_cap: LineCap::Round,
+                ..Default::default()
+            };
+            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+        }
 
         // 2. Compute screen coordinates
         let coords = self.compute_screen_coords();
@@ -210,27 +222,7 @@ impl ChartPanel {
             );
         }
 
-        // 5. Bottom Status: Realtime indicator on left, GPS status on right
-        draw_circle(
-            pixmap,
-            CHART_LEFT + 3.0,
-            BASELINE_Y + 16.0,
-            2.8,
-            Color::from_rgba8(34, 197, 94, 210),
-            true,
-            BlendMode::SourceOver,
-        );
-        fonts.draw_text(
-            pixmap,
-            &fonts.bold,
-            "REALTIME",
-            CHART_LEFT + 11.0,
-            BASELINE_Y + 20.0,
-            10.0,
-            Color::from_rgba8(148, 163, 184, 170),
-        );
-
-        // GPS Status Indicator
+        // 5. GPS Status Indicator directly below chart on the right:
         let gps_color = if state.gps_connected {
             Color::from_rgba8(255, 255, 255, 255)
         } else {
@@ -240,7 +232,7 @@ impl ChartPanel {
         let font_size = 11.0;
         let text_w = fonts.measure_width(&fonts.bold, "GPS", font_size);
         let text_x = CHART_RIGHT - text_w;
-        let text_y = BASELINE_Y + 20.0;
+        let text_y = BASELINE_Y + 12.0;
         let icon_cx = text_x - 11.0;
         let icon_cy = text_y - 2.0;
 
@@ -253,100 +245,6 @@ impl ChartPanel {
             text_y,
             font_size,
             gps_color,
-        );
-    }
-
-    fn draw_header(&self, pixmap: &mut Pixmap, fonts: &FontRenderer) {
-        // Title on the left
-        fonts.draw_text(
-            pixmap,
-            &fonts.bold,
-            "SPEED TELEMETRY",
-            CHART_LEFT,
-            54.0,
-            11.5,
-            Color::from_rgba8(148, 163, 184, 180),
-        );
-
-        // Current speed badge on the right of the header
-        let speed_val = self.visual_speed.round() as i32;
-        let speed_str = format!("{} KM/H", speed_val);
-        let speed_color = if self.visual_speed > 0.5 {
-            Color::from_rgba8(255, 65, 95, 230)
-        } else {
-            Color::from_rgba8(107, 114, 128, 180)
-        };
-        let text_w = fonts.measure_width(&fonts.bold, &speed_str, 12.0);
-        fonts.draw_text(
-            pixmap,
-            &fonts.bold,
-            &speed_str,
-            CHART_RIGHT - text_w,
-            54.0,
-            12.0,
-            speed_color,
-        );
-    }
-
-    fn draw_grid(&self, pixmap: &mut Pixmap, fonts: &FontRenderer) {
-        // 1. Baseline axis
-        let mut base_pb = PathBuilder::new();
-        base_pb.move_to(CHART_LEFT, BASELINE_Y);
-        base_pb.line_to(CHART_RIGHT, BASELINE_Y);
-        if let Some(path) = base_pb.finish() {
-            let mut paint = Paint::default();
-            paint.set_color(Color::from_rgba8(55, 65, 81, 140));
-            paint.anti_alias = true;
-            let stroke = Stroke {
-                width: 1.2,
-                line_cap: LineCap::Round,
-                ..Default::default()
-            };
-            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
-        }
-
-        // 2. Mid reference line (50% max scale)
-        let mid_y = BASELINE_Y - 0.5 * CHART_HEIGHT;
-        let mut mid_pb = PathBuilder::new();
-        mid_pb.move_to(CHART_LEFT, mid_y);
-        mid_pb.line_to(CHART_RIGHT, mid_y);
-        if let Some(path) = mid_pb.finish() {
-            let mut paint = Paint::default();
-            paint.set_color(Color::from_rgba8(75, 85, 99, 45));
-            paint.anti_alias = true;
-            let stroke = Stroke {
-                width: 1.0,
-                ..Default::default()
-            };
-            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
-        }
-
-        // 3. Scale text labels
-        let font_size = 9.0;
-        let label_color = Color::from_rgba8(107, 114, 128, 120);
-
-        let mid_val = (self.max_scale * 0.5).round() as i32;
-        let mid_text = format!("{}", mid_val);
-        fonts.draw_text(
-            pixmap,
-            &fonts.regular,
-            &mid_text,
-            CHART_LEFT,
-            mid_y - 3.0,
-            font_size,
-            label_color,
-        );
-
-        let max_val = self.max_scale.round() as i32;
-        let max_text = format!("{}", max_val);
-        fonts.draw_text(
-            pixmap,
-            &fonts.regular,
-            &max_text,
-            CHART_LEFT,
-            CHART_TOP - 3.0,
-            font_size,
-            label_color,
         );
     }
 
