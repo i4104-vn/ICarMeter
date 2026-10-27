@@ -1,6 +1,6 @@
 // Dynamic speed telemetry waveform chart panel rendered with tiny-skia.
-// Matches the visual aesthetics: smooth cyan/blue Catmull-Rom spline,
-// vertical gradient fill, dotted reference harmonic wave, and glowing node markers.
+// Features a single smooth cyan/blue Catmull-Rom curve, subtle vertical
+// gradient area fill, and a single glowing endpoint dot at the far right.
 
 use crate::configs::colors;
 use crate::models::vehicle::state::VehicleState;
@@ -8,7 +8,7 @@ use crate::render::core::FontRenderer;
 use std::collections::VecDeque;
 use tiny_skia::{
     BlendMode, Color, FillRule, GradientStop, LineCap, LineJoin, LinearGradient, Paint, Path,
-    PathBuilder, Pixmap, Point, SpreadMode, Stroke, StrokeDash, Transform,
+    PathBuilder, Pixmap, Point, SpreadMode, Stroke, Transform,
 };
 
 const CHART_LEFT: f32 = 35.0;
@@ -27,7 +27,7 @@ pub struct ChartPanel {
 impl ChartPanel {
     pub fn new() -> Self {
         let mut samples = VecDeque::with_capacity(NUM_SAMPLE_POINTS);
-        // Initial undulating wave samples resembling reference image
+        // Initial undulating wave samples
         let initial_vals = [25.0, 10.0, 38.0, 42.0, 52.0, 30.0, 75.0, 50.0, 58.0];
         for &val in &initial_vals {
             samples.push_back(val);
@@ -54,13 +54,10 @@ impl ChartPanel {
             Color::from_rgba8(56, 189, 248, 255), // #38bdf8
         );
 
-        // 2. Draw Dotted Reference Guideline Wave (Harmonic reference behind active curve)
-        self.draw_dotted_reference_wave(pixmap);
-
-        // 3. Compute control points from samples for the active speed wave
+        // 2. Compute control points from samples for the active speed wave
         let coords = self.compute_screen_coords();
 
-        // 4. Build smooth Catmull-Rom spline path
+        // 3. Build smooth Catmull-Rom spline path
         if let Some((stroke_path, area_path)) = build_spline_paths(&coords) {
             // Draw gradient area under the curve
             let mut area_paint = Paint::default();
@@ -113,21 +110,13 @@ impl ChartPanel {
             pixmap.stroke_path(&stroke_path, &core_paint, &core_stroke, Transform::identity(), None);
         }
 
-        // 5. Draw Circular Node Markers on sample points
-        for (i, &(x, y)) in coords.iter().enumerate() {
-            let is_last = i == coords.len() - 1;
-            if is_last {
-                // Leading glowing pulse node at current head
-                draw_circle(pixmap, x, y, 9.0, Color::from_rgba8(0, 200, 255, 70), true);
-                draw_circle(pixmap, x, y, 5.0, Color::from_rgba8(0, 220, 255, 255), true);
-            } else {
-                // Node marker with dark center and vibrant blue outline
-                draw_circle(pixmap, x, y, 4.5, Color::from_rgba8(11, 16, 27, 255), true);
-                draw_circle_stroke(pixmap, x, y, 4.5, 2.0, Color::from_rgba8(0, 185, 255, 255));
-            }
+        // 4. Draw ONLY the single endpoint dot at the far right
+        if let Some(&(last_x, last_y)) = coords.last() {
+            draw_circle(pixmap, last_x, last_y, 9.0, Color::from_rgba8(0, 200, 255, 70), true);
+            draw_circle(pixmap, last_x, last_y, 5.0, Color::from_rgba8(0, 220, 255, 255), true);
         }
 
-        // 6. Current speed readout at bottom left
+        // 5. Current speed readout at bottom left
         let speed_str = format!("{:.0} KM/H", state.current_speed.round());
         let speed_color = if state.current_speed > 80.0 {
             colors::alert_red()
@@ -146,7 +135,7 @@ impl ChartPanel {
             speed_color,
         );
 
-        // 7. Compact GPS Status Indicator at bottom right
+        // 6. Compact GPS Status Indicator at bottom right
         let (dot_color, gps_text_color) = if state.gps_connected {
             (
                 Color::from_rgba8(56, 189, 248, 255),
@@ -213,39 +202,6 @@ impl ChartPanel {
             })
             .collect()
     }
-
-    fn draw_dotted_reference_wave(&self, pixmap: &mut Pixmap) {
-        let mut pb = PathBuilder::new();
-        let steps = 70;
-        let mid_y = CHART_TOP + (BASELINE_Y - CHART_TOP) * 0.52;
-
-        for i in 0..=steps {
-            let t = i as f32 / steps as f32;
-            let x = CHART_LEFT + t * CHART_WIDTH;
-            // Harmonic secondary undulating wave behind the active curve
-            let y = mid_y
-                + ((t * 7.5 + self.phase * 0.5).sin() * 45.0)
-                + ((t * 13.0 - self.phase * 0.7).cos() * 18.0);
-            if i == 0 {
-                pb.move_to(x, y);
-            } else {
-                pb.line_to(x, y);
-            }
-        }
-
-        if let Some(path) = pb.finish() {
-            let mut paint = Paint::default();
-            paint.set_color(Color::from_rgba8(110, 130, 155, 140)); // Soft slate dotted
-            paint.anti_alias = true;
-            let stroke = Stroke {
-                width: 1.8,
-                line_cap: LineCap::Round,
-                dash: StrokeDash::new(vec![3.5, 5.0], 0.0),
-                ..Default::default()
-            };
-            pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
-        }
-    }
 }
 
 /// Builds Catmull-Rom cubic Bezier spline for both the stroke and the closed area
@@ -300,20 +256,5 @@ fn draw_circle(pixmap: &mut Pixmap, cx: f32, cy: f32, r: f32, color: Color, fill
             };
             pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
         }
-    }
-}
-
-fn draw_circle_stroke(pixmap: &mut Pixmap, cx: f32, cy: f32, r: f32, stroke_w: f32, color: Color) {
-    let mut pb = PathBuilder::new();
-    pb.push_circle(cx, cy, r);
-    if let Some(path) = pb.finish() {
-        let mut paint = Paint::default();
-        paint.set_color(color);
-        paint.anti_alias = true;
-        let stroke = Stroke {
-            width: stroke_w,
-            ..Default::default()
-        };
-        pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
     }
 }
